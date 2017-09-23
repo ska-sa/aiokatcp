@@ -1,6 +1,4 @@
 import unittest
-import io
-import asyncio
 import json
 
 from aiokatcp.core import Message, KatcpSyntaxError

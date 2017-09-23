@@ -172,4 +172,3 @@ class TestConnection(asynctest.TestCase):
             await asyncio.wait_for(task, timeout=2, loop=self.loop)
         self.assertEqual(len(cm.output), 1)
         self.assertRegex(cm.output[0], '(?s)Exception in connection handler.*test error')
-
