@@ -81,7 +81,7 @@ class TestConnection(asynctest.TestCase):
         self.owner.loop = self.loop
         self.owner.handle_message = asynctest.Mock(side_effect=self._ok_handler)
         self.remote_reader, self.remote_writer = await asyncio.open_connection(
-                host, port, loop=self.loop)
+            host, port, loop=self.loop)
         # Ensure the server side of the connection is ready
         await self._ready.wait()
 

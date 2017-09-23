@@ -84,7 +84,7 @@ class Connection(object):
                 self.writer.write(raw)
                 await self.writer.drain()
             except ConnectionError as error:
-                logger.warn('Connection closed before message could be sent: %s', error)
+                logger.warning('Connection closed before message could be sent: %s', error)
                 self.writer.close()
                 self.writer = None
 
@@ -95,7 +95,7 @@ class Connection(object):
                     try:
                         msg = await read_message(self.reader)
                     except core.KatcpSyntaxError as error:
-                        logger.warn('Malformed message received', exc_info=True)
+                        logger.warning('Malformed message received', exc_info=True)
                         if self.is_server:
                             # TODO: #log informs are supposed to go to all clients
                             await self.write_message(

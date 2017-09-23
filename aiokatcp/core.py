@@ -12,7 +12,7 @@ _T = typing.TypeVar('_T')
 
 class KatcpSyntaxError(ValueError):
     """Raised by parsers when encountering a syntax error."""
-    def __init__(self, message: str, raw: bytes=None) -> None:
+    def __init__(self, message: str, raw: bytes = None) -> None:
         super().__init__(message)
         self.raw = raw
 
@@ -28,8 +28,8 @@ class Message(object):
     _decoders = {
         bytes: lambda x: x,
         str: lambda x: x.decode('utf-8'),
-        int: lambda x: int(x),
-        float: lambda x: float(x),
+        int: int,
+        float: float,
         bool: lambda x: bool(int(x))
     }   # type: Dict[type, Callable[[bytes], Any]]
 
@@ -77,12 +77,12 @@ class Message(object):
         self.name = name
         self.arguments = [self.encode_argument(arg) for arg in arguments]
         if mid is not None:
-            if not (1 <= mid <= 2**31 - 1):
+            if not 1 <= mid <= 2**31 - 1:
                 raise ValueError('message ID {} is outside of range 1 to 2**31-1'.format(mid))
         self.mid = mid
 
     @classmethod
-    def encode_argument(cls, arg) -> bytes:
+    def encode_argument(cls, arg: Any) -> bytes:
         if isinstance(arg, float):
             arg = repr(arg)
         elif isinstance(arg, bool):
@@ -90,10 +90,10 @@ class Message(object):
 
         if isinstance(arg, bytes):
             return arg
-        else:
-            if not isinstance(arg, str):
-                arg = str(arg)
+        elif isinstance(arg, str):
             return arg.encode('utf-8')
+        else:
+            return str(arg).encode('utf-8')
 
     @classmethod
     def decode_argument(cls, arg: bytes, arg_type: typing.Type[_T]) -> _T:

@@ -114,7 +114,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
                 limit=self._limit, loop=self.loop)
             self._stopping = False
 
-    async def stop(self, cancel: bool=True) -> None:
+    async def stop(self, cancel: bool = True) -> None:
         async with self._server_lock:
             self._stopping = True
             if self._server is not None:
@@ -177,4 +177,4 @@ class DeviceServer(metaclass=DeviceServerMeta):
     def handle_message(self, conn: connection.Connection, msg: core.Message) -> None:
         task = self.loop.create_task(self._handle_message(conn, msg))
         self._pending.add(task)
-        task.add_done_callback(lambda future: self._pending.remove(future))
+        task.add_done_callback(self._pending.remove)
