@@ -1,6 +1,7 @@
 import unittest
 import io
 import asyncio
+import json
 
 from aiokatcp.core import Message, KatcpSyntaxError
 
@@ -56,6 +57,22 @@ class TestMessage(unittest.TestCase):
         self.assertEqual(msg.name, 'hello')
         self.assertEqual(msg.arguments, [b'world'])
         self.assertEqual(msg.mid, 1)
+
+    def test_reply_to_request(self):
+        req = Message.request('hello', 'world', mid=1)
+        reply = Message.reply_to_request(req, 'test')
+        self.assertEqual(reply.mtype, Message.Type.REPLY)
+        self.assertEqual(reply.name, 'hello')
+        self.assertEqual(reply.arguments, [b'test'])
+        self.assertEqual(reply.mid, 1)
+
+    def test_inform_reply(self):
+        req = Message.request('hello', 'world', mid=1)
+        reply = Message.inform_reply(req, 'test')
+        self.assertEqual(reply.mtype, Message.Type.INFORM)
+        self.assertEqual(reply.name, 'hello')
+        self.assertEqual(reply.arguments, [b'test'])
+        self.assertEqual(reply.mid, 1)
 
     def test_bytes(self):
         msg = Message.request(
@@ -129,3 +146,25 @@ class TestMessage(unittest.TestCase):
         self.assertFalse(Message.reply('query', 'fail', 'error').reply_ok())
         self.assertFalse(Message.request('query', 'ok').reply_ok())
 
+    def test_decode_argument(self):
+        self.assertEqual(Message.decode_argument(b'caf\xc3\xa9', str), 'café')
+        self.assertEqual(Message.decode_argument(b'caf\xc3\xa9', bytes), b'caf\xc3\xa9')
+        self.assertEqual(Message.decode_argument(b'123', int), 123)
+        self.assertEqual(Message.decode_argument(b'1', bool), True)
+        self.assertEqual(Message.decode_argument(b'0', bool), False)
+        self.assertEqual(Message.decode_argument(b'123.5', float), 123.5)
+        self.assertRaises(TypeError, Message.decode_argument, b'{"test": "it"}', dict)
+
+    def test_register_decoder(self):
+        def restore():
+            Message._decoders = orig_decoders
+
+        def decode(argument):
+            return json.loads(argument.decode('utf-8'))
+
+        orig_decoders = dict(Message._decoders)
+        self.addCleanup(restore)
+        Message.register_decoder(dict, decode)
+        self.assertEqual(Message.decode_argument(b'{"test": "it"}', dict), {"test": "it"})
+        # Try re-registering for an already registered type
+        self.assertRaises(ValueError, Message.register_decoder, dict, decode)
