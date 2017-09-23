@@ -5,7 +5,7 @@ import functools
 import logging
 import traceback
 import io
-from typing import Callable, Awaitable, Sequence, Optional, Any
+from typing import Callable, Awaitable, Sequence, Optional, Tuple, Any
 # Only used in type comments, so flake8 complains
 from typing import Dict, Set    # noqa: F401
 
@@ -26,12 +26,15 @@ class RequestContext(object):
         msg = core.Message.reply_to_request(self.req, *args)
         await self.conn.write_message(msg)
 
+    async def inform(self, *args: Any) -> None:
+        msg = core.Message.inform_reply(self.req, *args)
+        await self.conn.write_message(msg)
+
 
 class DeviceServerMeta(type):
     @classmethod
     def _wrap(cls, name: str, value: Callable[..., _RequestReply]) -> _RequestHandler:
         sig = inspect.signature(value, follow_wrapped=False)
-        type_hints = typing.get_type_hints(value)
         pos = []
         has_msg = False
         var_pos = None
@@ -56,9 +59,9 @@ class DeviceServerMeta(type):
                     if var_pos is None:
                         raise connection.FailReply('too many arguments for {}'.format(name))
                     else:
-                        hint = type_hints[var_pos.name]
+                        hint = var_pos.annotation
                 else:
-                    hint = type_hints[pos[len(args)].name]
+                    hint = pos[len(args)].annotation
                 if hint is None:
                     hint = bytes
                 try:
@@ -77,11 +80,15 @@ class DeviceServerMeta(type):
 
     def __new__(cls, name, bases, namespace, **kwds):
         namespace.setdefault('_request_handlers', {})
+        for base in bases:
+            namespace['_request_handlers'].update(getattr(base, '_request_handlers', {}))
         result = type.__new__(cls, name, bases, namespace)
         request_handlers = getattr(result, '_request_handlers')
         for key, value in namespace.items():
             if key.startswith('request_') and inspect.isfunction(value):
                 request_name = key[8:].replace('_', '-')
+                if value.__doc__ is None:
+                    raise TypeError('{} must have a docstring'.format(key))
                 request_handlers[request_name] = cls._wrap(request_name, value)
         return result
 
@@ -178,3 +185,34 @@ class DeviceServer(metaclass=DeviceServerMeta):
         task = self.loop.create_task(self._handle_message(conn, msg))
         self._pending.add(task)
         task.add_done_callback(self._pending.remove)
+
+    async def request_help(self, ctx: RequestContext, name: str = None) -> Tuple[int]:
+        """Get help on requests
+
+        Parameters
+        ----------
+        name : str, optional
+            Name of the request on which to get help
+        """
+        n = 0
+        if name is None:
+            for key, handler in sorted(self._request_handlers.items()):
+                doc = handler.__doc__.splitlines()[0]
+                await ctx.inform(key, doc)
+                n += 1
+        else:
+            try:
+                handler = self._request_handlers[name]
+            except KeyError as error:
+                raise connection.FailReply('request {} is not known'.format(name)) from error
+            await ctx.inform(name, handler.__doc__)
+            n += 1
+        return (n,)
+
+    async def request_halt(self, ctx) -> None:
+        """Shut down the device server"""
+        self.loop.create_task(self.stop())
+
+    async def request_watchdog(self, ctx) -> None:
+        """The device should respond with a success reply if it receives the watchdog request."""
+        pass
