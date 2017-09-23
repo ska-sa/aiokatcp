@@ -1,8 +1,13 @@
 import enum
 import re
 import io
-import asyncio
-from typing import Optional, Match, BinaryIO, Hashable, Any, cast
+import typing
+from typing import Match, Any, Callable
+# Only used in type comments, so flake8 complains
+from typing import Dict   # noqa: F401
+
+
+_T = typing.TypeVar('_T')
 
 
 class KatcpSyntaxError(ValueError):
@@ -12,23 +17,6 @@ class KatcpSyntaxError(ValueError):
         self.raw = raw
 
 
-async def _discard_to_eol(stream: asyncio.StreamReader) -> None:
-    """Discard all data up to and including the next newline, or end of file."""
-    while True:
-        try:
-            await stream.readuntil()
-        except asyncio.IncompleteReadError:
-            break     # EOF reached
-        except asyncio.LimitOverrunError as error:
-            # Extract the data that's already in the buffer
-            # The cast is to work around
-            # https://github.com/python/typeshed/issues/1622
-            consumed = cast(Any, error).consumed  # type: int
-            await stream.readexactly(consumed)
-        else:
-            break
-
-
 class Message(object):
     __slots__ = ['mtype', 'name', 'arguments', 'mid']
 
@@ -36,6 +24,14 @@ class Message(object):
         REQUEST = 1
         REPLY = 2
         INFORM = 3
+
+    _decoders = {
+        bytes: lambda x: x,
+        str: lambda x: x.decode('utf-8'),
+        int: lambda x: int(x),
+        float: lambda x: float(x),
+        bool: lambda x: bool(int(x))
+    }   # type: Dict[type, Callable[[bytes], Any]]
 
     TYPE_SYMBOLS = {
         Type.REQUEST: b'?',
@@ -47,9 +43,8 @@ class Message(object):
 
     NAME_RE = re.compile('^[A-Za-z][A-Za-z0-9-]*$', re.ASCII)
     WHITESPACE_RE = re.compile(br'[ \t\n]+')
-    BLANK_RE = re.compile(br'^[ \t]*\n?$')
     HEADER_RE = re.compile(
-        br'^[!#?]([A-Za-z][A-Za-z0-9-]*)(?:\[([1-9][0-9]+)\])?$')
+        br'^[!#?]([A-Za-z][A-Za-z0-9-]*)(?:\[([1-9][0-9]*)\])?$')
     #: Characters that must be escaped in an argument
     ESCAPE_RE = re.compile(br'[\\ \0\n\r\x1b\t]')
     UNESCAPE_RE = re.compile(br'\\(.)')
@@ -74,20 +69,20 @@ class Message(object):
     FAIL = b'fail'
     INVALID = b'invalid'
 
-    def __init__(self, mtype: Type, name: str, *arguments: Hashable,
+    def __init__(self, mtype: Type, name: str, *arguments: Any,
                  mid: int = None) -> None:
         self.mtype = mtype
         if not self.NAME_RE.match(name):
             raise ValueError('name {} is invalid'.format(name))
         self.name = name
-        self.arguments = [self.format_argument(arg) for arg in arguments]
+        self.arguments = [self.encode_argument(arg) for arg in arguments]
         if mid is not None:
             if not (1 <= mid <= 2**31 - 1):
                 raise ValueError('message ID {} is outside of range 1 to 2**31-1'.format(mid))
         self.mid = mid
 
     @classmethod
-    def format_argument(cls, arg) -> bytes:
+    def encode_argument(cls, arg) -> bytes:
         if isinstance(arg, float):
             arg = repr(arg)
         elif isinstance(arg, bool):
@@ -101,16 +96,36 @@ class Message(object):
             return arg.encode('utf-8')
 
     @classmethod
-    def request(cls, name: str, *arguments: Hashable, mid: int = None) -> 'Message':
+    def decode_argument(cls, arg: bytes, arg_type: typing.Type[_T]) -> _T:
+        if arg_type not in cls._decoders:
+            raise TypeError('No decoder registered for {}'.format(arg_type))
+        return cls._decoders[arg_type](arg)
+
+    @classmethod
+    def register_decoder(cls, arg_type: typing.Type[_T], decoder: Callable[[bytes], _T]) -> None:
+        if arg_type in cls._decoders:
+            raise ValueError('A decoder for {} has already been registered'.format(arg_type))
+        cls._decoders[arg_type] = decoder
+
+    @classmethod
+    def request(cls, name: str, *arguments: Any, mid: int = None) -> 'Message':
         return cls(cls.Type.REQUEST, name, *arguments, mid=mid)
 
     @classmethod
-    def reply(cls, name: str, *arguments: Hashable, mid: int = None) -> 'Message':
+    def reply(cls, name: str, *arguments: Any, mid: int = None) -> 'Message':
         return cls(cls.Type.REPLY, name, *arguments, mid=mid)
 
     @classmethod
-    def inform(cls, name: str, *arguments: Hashable, mid: int = None) -> 'Message':
+    def inform(cls, name: str, *arguments: Any, mid: int = None) -> 'Message':
         return cls(cls.Type.INFORM, name, *arguments, mid=mid)
+
+    @classmethod
+    def reply_to_request(cls, msg: 'Message', *arguments: Any) -> 'Message':
+        return cls(cls.Type.REPLY, msg.name, *arguments, mid=msg.mid)
+
+    @classmethod
+    def inform_reply(cls, msg: 'Message', *arguments: Any) -> 'Message':
+        return cls(cls.Type.INFORM, msg.name, *arguments, mid=msg.mid)
 
     @classmethod
     def _escape_match(cls, match: Match[bytes]):
@@ -140,45 +155,6 @@ class Message(object):
         if match:
             raise KatcpSyntaxError('unescaped special {!r}'.format(match.group()))
         return cls.UNESCAPE_RE.sub(cls._unescape_match, arg)
-
-    def write(self, stream: BinaryIO):
-        """Write the Message to an output stream."""
-
-        stream.write(self.TYPE_SYMBOLS[self.mtype])
-        stream.write(self.name.encode('ascii'))
-        if self.mid is not None:
-            stream.write(b'[' + str(self.mid).encode('ascii') + b']')
-        for arg in self.arguments:
-            stream.write(b' ')
-            stream.write(self.escape_argument(arg))
-        stream.write(b'\n')
-
-    @classmethod
-    async def read(cls, stream: asyncio.StreamReader) -> Optional['Message']:
-        """Read a single message from an asynchronous stream.
-
-        If EOF is reached before reading the newline, returns ``None`` if
-        there was no data, or 
-
-        Raises
-        ------
-        KatcpSyntaxError
-            if the line was too long or malformed.
-        """
-        while True:
-            try:
-                raw = await stream.readuntil()
-            except asyncio.IncompleteReadError as error:
-                # Casts are to work around
-                # https://github.com/python/typeshed/issues/1622
-                raw = cast(Any, error).partial
-                if not raw:
-                    return None    # End of stream reached
-            except asyncio.LimitOverrunError:
-                await _discard_to_eol(stream)
-                raise KatcpSyntaxError('Message exceeded stream buffer size')
-            if not cls.BLANK_RE.match(raw):
-                return cls.parse(raw)
 
     @classmethod
     def parse(cls, raw) -> 'Message':
@@ -219,11 +195,18 @@ class Message(object):
         except ValueError as error:
             raise KatcpSyntaxError(str(error), raw) from error
 
-    def __bytes__(self):
+    def __bytes__(self) -> bytes:
         """Return Message as serialised for transmission"""
 
         output = io.BytesIO()
-        self.write(output)
+        output.write(self.TYPE_SYMBOLS[self.mtype])
+        output.write(self.name.encode('ascii'))
+        if self.mid is not None:
+            output.write(b'[' + str(self.mid).encode('ascii') + b']')
+        for arg in self.arguments:
+            output.write(b' ')
+            output.write(self.escape_argument(arg))
+        output.write(b'\n')
         return output.getvalue()
 
     def __eq__(self, other):

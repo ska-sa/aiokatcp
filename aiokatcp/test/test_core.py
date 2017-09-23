@@ -1,16 +1,11 @@
 import unittest
 import io
 import asyncio
-import asyncio.test_utils
 
 from aiokatcp.core import Message, KatcpSyntaxError
 
 
-class TestMessage(asyncio.test_utils.TestCase):
-    def setUp(self):
-        super().setUp()
-        self.loop = self.new_test_loop()
-
+class TestMessage(unittest.TestCase):
     def test_init_basic(self):
         msg = Message(Message.Type.REQUEST,
                       'hello', 'world', b'binary\xff\x00', 123, 234.5, True, False)
@@ -62,14 +57,14 @@ class TestMessage(asyncio.test_utils.TestCase):
         self.assertEqual(msg.arguments, [b'world'])
         self.assertEqual(msg.mid, 1)
 
-    def test_write(self):
+    def test_bytes(self):
         msg = Message.request(
             'hello', 'café', b'_bin ary\xff\x00\n\r\t\\\x1b', 123, 234.5, True, False, '')
         raw = bytes(msg)
         expected = b'?hello caf\xc3\xa9 _bin\\_ary\xff\\0\\n\\r\\t\\\\\\e 123 234.5 1 0 \\@\n'
         self.assertEqual(raw, expected)
 
-    def test_write_mid(self):
+    def test_bytes_mid(self):
         msg = Message.reply('fail', 'on fire', mid=234)
         self.assertEqual(bytes(msg), b'!fail[234] on\\_fire\n')
 
@@ -80,6 +75,8 @@ class TestMessage(asyncio.test_utils.TestCase):
     def test_parse_mid(self):
         msg = Message.parse(b'?test[222] message \\0\\n\\r\\t\\e\\_binary\n')
         self.assertEqual(msg, Message.request('test', 'message', b'\0\n\r\t\x1b binary', mid=222))
+        msg = Message.parse(b'?test[1] message\n')
+        self.assertEqual(msg, Message.request('test', 'message', mid=1))
 
     def test_parse_empty(self):
         self.assertRaises(KatcpSyntaxError, Message.parse, b'')
@@ -132,44 +129,3 @@ class TestMessage(asyncio.test_utils.TestCase):
         self.assertFalse(Message.reply('query', 'fail', 'error').reply_ok())
         self.assertFalse(Message.request('query', 'ok').reply_ok())
 
-    def test_read(self):
-        data = b'?help[123] foo\n#log info msg\n \t\n\n!help[123] bar\n\n'
-        reader = asyncio.StreamReader(loop=self.loop)
-        reader.feed_data(data)
-        reader.feed_eof()
-        msg = self.loop.run_until_complete(Message.read(reader))
-        self.assertEqual(msg, Message.request('help', 'foo', mid=123))
-        msg = self.loop.run_until_complete(Message.read(reader))
-        self.assertEqual(msg, Message.inform('log', 'info', 'msg'))
-        msg = self.loop.run_until_complete(Message.read(reader))
-        self.assertEqual(msg, Message.reply('help', 'bar', mid=123))
-        msg = self.loop.run_until_complete(Message.read(reader))
-        self.assertIsNone(msg)
-
-    def test_read_overrun(self):
-        data = b'!foo a_string_that_doesnt_fit_in_the_buffer\n!foo short_string\n'
-        reader = asyncio.StreamReader(limit=25, loop=self.loop)
-        reader.feed_data(data)
-        reader.feed_eof()
-        with self.assertRaises(KatcpSyntaxError):
-            self.loop.run_until_complete(Message.read(reader))
-        msg = self.loop.run_until_complete(Message.read(reader))
-        self.assertEqual(msg, Message.reply('foo', 'short_string'))
-
-    def test_read_overrun_eof(self):
-        data = b'!foo a_string_that_doesnt_fit_in_the_buffer'
-        reader = asyncio.StreamReader(limit=25, loop=self.loop)
-        reader.feed_data(data)
-        reader.feed_eof()
-        with self.assertRaises(KatcpSyntaxError):
-            self.loop.run_until_complete(Message.read(reader))
-        msg = self.loop.run_until_complete(Message.read(reader))
-        self.assertIsNone(msg)
-
-    def test_read_partial(self):
-        data = b'!foo nonewline'
-        reader = asyncio.StreamReader(loop=self.loop)
-        reader.feed_data(data)
-        reader.feed_eof()
-        with self.assertRaises(KatcpSyntaxError):
-            self.loop.run_until_complete(Message.read(reader))
