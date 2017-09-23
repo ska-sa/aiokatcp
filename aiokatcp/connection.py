@@ -66,6 +66,7 @@ class Connection(object):
         self.owner = owner
         self.reader = reader
         self.writer = writer  # type: Optional[asyncio.StreamWriter]
+        self._writer_lock = asyncio.Lock(loop=owner.loop)
         self.is_server = is_server
         self._task = None     # type: Optional[asyncio.Task]
 
@@ -74,20 +75,18 @@ class Connection(object):
         return self._task
 
     async def write_message(self, msg: core.Message) -> None:
-        if self.writer is None:
-            return     # We previously detected that it was closed
-        try:
-            # cast to work around https://github.com/python/mypy/issues/3989
-            raw = bytes(cast(SupportsBytes, msg))
-            self.writer.write(raw)
-            await self.writer.drain()
-        except ConnectionError as error:
-            logger.warn('Connection closed before message could be sent: %s', error)
+        async with self._writer_lock:
+            if self.writer is None:
+                return     # We previously detected that it was closed
             try:
+                # cast to work around https://github.com/python/mypy/issues/3989
+                raw = bytes(cast(SupportsBytes, msg))
+                self.writer.write(raw)
+                await self.writer.drain()
+            except ConnectionError as error:
+                logger.warn('Connection closed before message could be sent: %s', error)
                 self.writer.close()
-            except ConnectionError:
-                pass
-            self.writer = None
+                self.writer = None
 
     async def _run(self) -> None:
         try:
@@ -106,10 +105,11 @@ class Connection(object):
                             break
                         self.owner.handle_message(self, msg)
             finally:
-                if self.writer is not None:
-                    self.writer.close()
+                async with self._writer_lock:
+                    if self.writer is not None:
+                        self.writer.close()
         except asyncio.CancelledError:
-            pass
+            raise
         except Exception as error:
             logger.exception('Exception in connection handler', exc_info=True)
 
@@ -117,6 +117,10 @@ class Connection(object):
         task = self._task
         if task is not None:
             task.cancel()
-            await task
-            if self._task is task:
-                self._task = None
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            finally:
+                if self._task is task:
+                    self._task = None

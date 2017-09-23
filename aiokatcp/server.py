@@ -126,6 +126,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
                         task.cancel()
                     try:
                         await task
+                    except asyncio.CancelledError:
+                        pass
                     except Exception:
                         logger.exception('Exception from request handler', exc_info=True)
                 for client in list(self._connections):
