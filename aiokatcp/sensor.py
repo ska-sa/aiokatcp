@@ -19,13 +19,13 @@ class SensorObserver(metaclass=abc.ABCMeta):
 
 class Sensor(Generic[_T]):
     class Status(enum.Enum):
-        UNKNOWN = 'unknown'
-        NOMINAL = 'nominal'
-        WARN = 'warn'
-        ERROR = 'error'
-        FAILURE = 'failure'
-        UNREACHABLE = 'unreachable'
-        INACTIVE = 'inactive'
+        UNKNOWN = 0
+        NOMINAL = 1
+        WARN = 2
+        ERROR = 3
+        FAILURE = 4
+        UNREACHABLE = 5
+        INACTIVE = 6
 
     def __init__(self, sensor_type: Type[_T],
                  name: str,
