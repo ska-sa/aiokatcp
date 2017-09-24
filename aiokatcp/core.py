@@ -161,7 +161,8 @@ register_type(str, 'string',
               lambda cls, raw: cls(raw, encoding='utf-8'))
 register_type(Address, 'address',
               lambda value: bytes(cast(SupportsBytes, value)),
-              lambda cls, raw: cls.parse(raw))
+              lambda cls, raw: cls.parse(raw),
+              lambda cls: cls(ipaddress.IPv4Address('0.0.0.0')))
 register_type(Timestamp, 'timestamp',
               lambda value: repr(value).encode('ascii'),
               lambda cls, raw: cls(raw.decode('ascii')))

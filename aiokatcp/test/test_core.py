@@ -139,13 +139,18 @@ class TestEncodeDecode(unittest.TestCase):
                 lambda cls, value: cls(json.loads(value.decode('utf-8'))))
 
     def test_default(self):
-        self.assertEqual(get_type(int).default(int), 0)
-        self.assertEqual(get_type(float).default(float), 0.0)
-        self.assertEqual(get_type(str).default(str), '')
-        self.assertEqual(get_type(bytes).default(bytes), b'')
-        self.assertEqual(get_type(Timestamp).default(Timestamp), Timestamp(0.0))
-        self.assertEqual(get_type(MyEnum).default(MyEnum), MyEnum.BATMAN)
-        self.assertEqual(get_type(OverrideEnum).default(OverrideEnum), OverrideEnum.BATMAN)
+        expected = [
+            (int, 0),
+            (float, 0.0),
+            (str, ''),
+            (bytes, b''),
+            (Address, Address(ipaddress.IPv4Address('0.0.0.0'))),
+            (Timestamp, Timestamp(0.0)),
+            (MyEnum, MyEnum.BATMAN),
+            (OverrideEnum, OverrideEnum.BATMAN)
+        ]
+        for type_, default in expected:
+            self.assertEqual(get_type(type_).default(type_), default)
 
 
 class TestMessage(unittest.TestCase):
