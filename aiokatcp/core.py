@@ -15,6 +15,22 @@ _IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
 
 
 class Address(object):
+    """A katcp address.
+
+    Parameters
+    ----------
+    host
+        Host address
+    port
+        Port number
+
+    Attributes
+    ----------
+    host
+        Host address
+    port
+        Port number
+    """
     __slots__ = ['host', 'port']
     _IPV4_RE = re.compile(r'^(?P<host>[^:]+)(:(?P<port>\d+))?$')
     _IPV6_RE = re.compile(r'^\[(?P<host>[^]]+)\](:(?P<port>\d+))?$')
@@ -34,6 +50,7 @@ class Address(object):
             return prefix
 
     def __bytes__(self) -> bytes:
+        """Encode the address for katcp protocol"""
         return str(self).encode('utf-8')
 
     def __repr__(self) -> str:
@@ -44,6 +61,7 @@ class Address(object):
 
     @classmethod
     def parse(self, raw: bytes) -> 'Address':
+        """Construct an :class:`Address` from a katcp message argument"""
         text = raw.decode('utf-8')
         match = self._IPV6_RE.match(text)
         if match:
@@ -73,6 +91,11 @@ class Address(object):
 
 
 class Timestamp(float):
+    """A katcp timestamp.
+
+    This is just a thin wrapper around :class:`float` to allow the type to be
+    distinguished. It represents time in seconds as a UNIX timestamp.
+    """
     pass
 
 
@@ -94,6 +117,25 @@ def register_type(type_: Type[_T], name: str,
                   encode: Callable[[_T], bytes],
                   decode: Callable[[Type[_T], bytes], _T],
                   default: Callable[[Type[_T]], _T] = None):
+    """Register a type for encoding and decoding in messages.
+
+    The registration is also used for subclasses of `type_` if no more
+    specific registration has been made. This is particularly used for the
+    registration for :class:`enum.Enum`, which is used for all enum types.
+
+    Parameters
+    ----------
+    type_
+        Python class.
+    encode
+        Function to encode values of this type to bytes
+    decode
+        Function to decode values of this type from bytes. It is given the
+        actual derived class as the first argument.
+    default
+        Function to generate a default value of this type (used by the sensor
+        framework). It is given the actual derived class as the first argument.
+    """
     if type_ in _types:
         raise ValueError('type {!r} is already registered')
     if default is None:
@@ -102,6 +144,16 @@ def register_type(type_: Type[_T], name: str,
 
 
 def get_type(type_: Type[_T]) -> TypeInfo[_T]:
+    """Retrieve the type information previously registered with :func:`register_type`.
+
+    It returns the type info corresponding to `type_` or the most specific subclass
+    (according to method resolution order) for which there is a registration.
+
+    Raises
+    ------
+    TypeError
+        if neither `type_` nor any of its bases is registered
+    """
     for t in type_.__mro__:
         if t in _types:
             return _types[t]
@@ -170,11 +222,34 @@ register_type(enum.Enum, 'discrete', _encode_enum, _decode_enum, _default_enum)
 
 
 def encode(value: Any) -> bytes:
-    """Encode a value to raw bytes for katcp."""
+    """Encode a value to raw bytes for katcp.
+
+    See also
+    --------
+    :func:`register_type`
+    """
     return get_type(type(value)).encode(value)
 
 
 def decode(cls: Type[_T], value: bytes) -> _T:
+    """Decode value in katcp message to a type.
+
+    Parameters
+    ----------
+    cls
+        The target type
+    value
+        Raw (but unescaped) value in katcp message
+
+    Raises
+    ------
+    ValueError
+        if `value` does not have a valid value for `cls`
+
+    See also
+    --------
+    :func:`register_type`
+    """
     return get_type(cls).decode(cls, value)
 
 
