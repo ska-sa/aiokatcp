@@ -361,10 +361,10 @@ class Message(object):
     def __ne__(self, other):
         return not self == other
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash((self.mtype, self.name, tuple(self.arguments), self.mid))
 
-    def reply_ok(self):
+    def reply_ok(self) -> bool:
         """Return True if this is a reply and its first argument is 'ok'."""
-        return (self.mtype == self.Type.REPLY and self.arguments and
+        return (self.mtype == self.Type.REPLY and bool(self.arguments) and
                 self.arguments[0] == self.OK)

@@ -88,7 +88,7 @@ class Sensor(Generic[_T]):
         return self._status
 
     @property
-    def params(self) -> List:
+    def params(self) -> List[bytes]:
         if self.type_name == 'discrete':
             return [core.encode(value) for value in cast(Iterable, self.stype)]
         else:
