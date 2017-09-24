@@ -1,6 +1,5 @@
 import inspect
 import asyncio
-import typing
 import functools
 import logging
 import traceback
@@ -9,7 +8,7 @@ from typing import Callable, Awaitable, Sequence, Optional, Tuple, Any
 # Only used in type comments, so flake8 complains
 from typing import Dict, Set    # noqa: F401
 
-from . import core, connection
+from . import core, connection, sensor
 
 
 logger = logging.getLogger(__name__)
@@ -65,7 +64,7 @@ class DeviceServerMeta(type):
                 if hint is None:
                     hint = bytes
                 try:
-                    args.append(core.Message.decode_argument(argument, hint))
+                    args.append(core.decode(hint, argument))
                 except ValueError as error:
                     raise connection.FailReply(str(error)) from error
             kwargs = dict(msg=msg) if has_msg else {}
@@ -96,11 +95,14 @@ class DeviceServerMeta(type):
 class DeviceServer(metaclass=DeviceServerMeta):
     _request_handlers = {}   # type: Dict[str, _RequestHandler]
 
+    VERSION = None           # type: str
+    BUILD_STATE = None       # type: str
+
     def __init__(self, host: str, port: int, *, limit=connection.DEFAULT_LIMIT, loop=None) -> None:
         super().__init__()
-        if not hasattr(self, 'VERSION'):
+        if not self.VERSION:
             raise TypeError('{.__name__} does not define VERSION'.format(self.__class__))
-        if not hasattr(self, 'BUILD_STATE'):
+        if not self.BUILD_STATE:
             raise TypeError('{.__name__} does not define BUILD_STATE'.format(self.__class__))
         self._connections = set()  # type: Set[connection.Connection]
         self._pending = set()      # type: Set[asyncio.Task]
@@ -114,6 +116,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         self._host = host
         self._port = port
         self._stopping = False
+        self._sensors = {}         # type: Dict[str, sensor.Sensor]
 
     async def start(self) -> None:
         async with self._server_lock:
@@ -147,6 +150,9 @@ class DeviceServer(metaclass=DeviceServerMeta):
 
     async def join(self) -> None:
         await self._stopped.wait()
+
+    def add_sensor(self, s: sensor.Sensor) -> None:
+        self._sensors[s.name] = s
 
     @property
     def server(self):
@@ -306,7 +312,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         """
         pass
 
-    async def request_version_list(self, ctx: RequestContext) -> None:
+    async def request_version_list(self, ctx: RequestContext) -> Tuple[int]:
         """Request the list of versions of roles and subcomponents.
 
         Informs
@@ -342,3 +348,64 @@ class DeviceServer(metaclass=DeviceServerMeta):
         """
         num_informs = await self.send_version_info(ctx)
         return (num_informs,)
+
+    async def request_sensor_list(self, ctx: RequestContext, name: str = None) -> Tuple[int]:
+        """Request the list of sensors.
+
+        The list of sensors is sent as a sequence of #sensor-list informs.
+
+        Parameters
+        ----------
+        name : str, optional
+            Name of the sensor to list (the default is to list all sensors).
+            If name starts and ends with '/' it is treated as a regular
+            expression and all sensors whose names contain the regular
+            expression are returned.
+
+        Informs
+        -------
+        name : str
+            The name of the sensor being described.
+        description : str
+            Description of the named sensor.
+        units : str
+            Units for the value of the named sensor.
+        type : str
+            Type of the named sensor.
+        params : list of str, optional
+            Additional sensor parameters (type dependent). For discrete sensors
+            the additional parameters are the allowed values. For all other
+            types no additional parameters are sent.
+
+        Returns
+        -------
+        success : {'ok', 'fail'}
+            Whether sending the sensor list succeeded.
+        informs : int
+            Number of #sensor-list inform messages sent.
+
+        Examples
+        --------
+        ::
+
+            ?sensor-list
+            #sensor-list psu.voltage PSU\_voltage. V float
+            #sensor-list cpu.status CPU\_status. \@ discrete on off error
+            ...
+            !sensor-list ok 5
+
+            ?sensor-list cpu.power.on
+            #sensor-list cpu.power.on Whether\_CPU\_has\_power. \@ boolean
+            !sensor-list ok 1
+
+            ?sensor-list /voltage/
+            #sensor-list psu.voltage PSU\_voltage. V float
+            #sensor-list cpu.voltage CPU\_voltage. V float
+            !sensor-list ok 2
+
+        """
+        # TODO: needs to take optional filter argument
+        sensors = sorted(self._sensors.values(), key=lambda sensor: sensor.name)
+        for s in sensors:
+            await ctx.inform(s.name, s.description, s.units, s.type_name, *s.params)
+        return (len(sensors),)

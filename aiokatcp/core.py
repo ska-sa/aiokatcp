@@ -1,13 +1,180 @@
 import enum
 import re
 import io
+import ipaddress
 import typing
-from typing import Match, Any, Callable
+from typing import Match, Any, Callable, Union, Type, Iterable, SupportsBytes, Generic, cast
 # Only used in type comments, so flake8 complains
 from typing import Dict   # noqa: F401
 
 
 _T = typing.TypeVar('_T')
+_T_contra = typing.TypeVar('_T_contra', contravariant=True)
+_E = typing.TypeVar('_E', bound=enum.Enum)
+_IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
+
+
+class Address(object):
+    __slots__ = ['host', 'port']
+    _IPV4_RE = re.compile(r'^(?P<host>[^:]+)(:(?P<port>\d+))?$')
+    _IPV6_RE = re.compile(r'^\[(?P<host>[^]]+)\](:(?P<port>\d+))?$')
+
+    def __init__(self, host: _IPAddress, port: int = None) -> None:
+        self.host = host
+        self.port = port
+
+    def __str__(self) -> str:
+        if isinstance(self.host, ipaddress.IPv4Address):
+            prefix = str(self.host)
+        else:
+            prefix = '[' + str(self.host) + ']'
+        if self.port is not None:
+            return '{}:{}'.format(prefix, self.port)
+        else:
+            return prefix
+
+    def __bytes__(self) -> bytes:
+        return str(self).encode('utf-8')
+
+    def __repr__(self) -> str:
+        if self.port is None:
+            return 'Address({!r})'.format(self.host)
+        else:
+            return 'Address({!r}, {!r})'.format(self.host, self.port)
+
+    @classmethod
+    def parse(self, raw: bytes) -> 'Address':
+        text = raw.decode('utf-8')
+        match = self._IPV6_RE.match(text)
+        if match:
+            host = ipaddress.IPv6Address(match.group('host'))  # type: _IPAddress
+        else:
+            match = self._IPV4_RE.match(text)
+            if match:
+                host = ipaddress.IPv4Address(match.group('host'))
+            else:
+                raise ValueError("could not parse '{}' as an address".format(text))
+        port = match.group('port')
+        if port is not None:
+            return Address(host, int(port))
+        else:
+            return Address(host)
+
+    def __eq__(self, other):
+        if not isinstance(other, Address):
+            return NotImplemented
+        return (self.host, self.port) == (other.host, other.port)
+
+    def __ne__(self, other):
+        return not self == other
+
+    def __hash__(self):
+        return hash((self.host, self.port))
+
+
+class Timestamp(float):
+    pass
+
+
+class TypeInfo(Generic[_T_contra]):
+    def __init__(self, name: str,
+                 encode: Callable[[_T_contra], bytes],
+                 decode: Callable[[Type[_T_contra], bytes], _T_contra],
+                 default: Callable[[Type[_T_contra]], _T_contra]) -> None:
+        self.name = name
+        self.encode = encode
+        self.decode = decode
+        self.default = default
+
+
+_types = {}     # type: Dict[type, TypeInfo]
+
+
+def register_type(type_: Type[_T], name: str,
+                  encode: Callable[[_T], bytes],
+                  decode: Callable[[Type[_T], bytes], _T],
+                  default: Callable[[Type[_T]], _T] = None):
+    if type_ in _types:
+        raise ValueError('type {!r} is already registered')
+    if default is None:
+        default = _default_generic
+    _types[type_] = TypeInfo(name, encode, decode, default)
+
+
+def get_type(type_: Type[_T]) -> TypeInfo[_T]:
+    for t in type_.__mro__:
+        if t in _types:
+            return _types[t]
+    raise TypeError('{} is not registered'.format(type_))
+
+
+def _decode_bool(cls: type, raw: bytes) -> bool:
+    if raw == b'1':
+        return cls(True)
+    elif raw == b'0':
+        return cls(False)
+    else:
+        raise ValueError('boolean must be 0 or 1, not {!r}'.format(raw))
+
+
+def _encode_enum(value: enum.Enum) -> bytes:
+    if hasattr(value, 'katcp_value'):
+        return getattr(value, 'katcp_value')
+    else:
+        return value.name.encode('ascii').lower().replace(b'_', b'-')
+
+
+def _decode_enum(cls: Type[_E], raw: bytes) -> _E:
+    if hasattr(next(iter(cast(Iterable, cls))), 'katcp_value'):
+        for member in cls:
+            if getattr(member, 'katcp_value') == raw:
+                return member
+    else:
+        name = raw.upper().replace(b'-', b'_').decode('ascii')
+        value = cls[name]
+        if raw == _encode_enum(value):
+            return cls[name]
+    raise ValueError('{!r} is not a valid value for {}'.format(raw, cls.__name__))
+
+
+def _default_generic(cls: Type[_T]) -> _T:
+    return cls()
+
+
+def _default_enum(cls: Type[_E]) -> _E:
+    return next(iter(cast(Iterable, cls)))
+
+
+register_type(int, 'integer',
+              lambda value: str(value).encode('ascii'),
+              lambda cls, raw: cls(raw.decode('ascii')))
+register_type(float, 'float',
+              lambda value: repr(value).encode('ascii'),
+              lambda cls, raw: cls(raw.decode('ascii')))
+register_type(bool, 'boolean',
+              lambda value: b'1' if value else b'0', _decode_bool)
+register_type(bytes, 'string',
+              lambda value: value,
+              lambda cls, raw: cls(raw))
+register_type(str, 'string',
+              lambda value: value.encode('utf-8'),
+              lambda cls, raw: cls(raw, encoding='utf-8'))
+register_type(Address, 'address',
+              lambda value: bytes(cast(SupportsBytes, value)),
+              lambda cls, raw: cls.parse(raw))
+register_type(Timestamp, 'timestamp',
+              lambda value: repr(value).encode('ascii'),
+              lambda cls, raw: cls(raw.decode('ascii')))
+register_type(enum.Enum, 'discrete', _encode_enum, _decode_enum, _default_enum)
+
+
+def encode(value: Any) -> bytes:
+    """Encode a value to raw bytes for katcp."""
+    return get_type(type(value)).encode(value)
+
+
+def decode(cls: Type[_T], value: bytes) -> _T:
+    return get_type(cls).decode(cls, value)
 
 
 class KatcpSyntaxError(ValueError):
@@ -75,37 +242,11 @@ class Message(object):
         if not self.NAME_RE.match(name):
             raise ValueError('name {} is invalid'.format(name))
         self.name = name
-        self.arguments = [self.encode_argument(arg) for arg in arguments]
+        self.arguments = [encode(arg) for arg in arguments]
         if mid is not None:
             if not 1 <= mid <= 2**31 - 1:
                 raise ValueError('message ID {} is outside of range 1 to 2**31-1'.format(mid))
         self.mid = mid
-
-    @classmethod
-    def encode_argument(cls, arg: Any) -> bytes:
-        if isinstance(arg, float):
-            arg = repr(arg)
-        elif isinstance(arg, bool):
-            arg = int(arg)
-
-        if isinstance(arg, bytes):
-            return arg
-        elif isinstance(arg, str):
-            return arg.encode('utf-8')
-        else:
-            return str(arg).encode('utf-8')
-
-    @classmethod
-    def decode_argument(cls, arg: bytes, arg_type: typing.Type[_T]) -> _T:
-        if arg_type not in cls._decoders:
-            raise TypeError('No decoder registered for {}'.format(arg_type))
-        return cls._decoders[arg_type](arg)
-
-    @classmethod
-    def register_decoder(cls, arg_type: typing.Type[_T], decoder: Callable[[bytes], _T]) -> None:
-        if arg_type in cls._decoders:
-            raise ValueError('A decoder for {} has already been registered'.format(arg_type))
-        cls._decoders[arg_type] = decoder
 
     @classmethod
     def request(cls, name: str, *arguments: Any, mid: int = None) -> 'Message':

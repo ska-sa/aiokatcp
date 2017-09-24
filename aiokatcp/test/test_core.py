@@ -1,7 +1,151 @@
-import unittest
+import enum
 import json
+import ipaddress
+import unittest
+import unittest.mock
 
-from aiokatcp.core import Message, KatcpSyntaxError
+from aiokatcp.core import (
+    Message, KatcpSyntaxError, Address, Timestamp, encode, decode, register_type, get_type)
+
+
+class MyEnum(enum.Enum):
+    BATMAN = 1
+    JOKER = 2
+    TWO_FACE = 3
+
+
+class OverrideEnum(enum.Enum):
+    BATMAN = b'cheese'
+    JOKER = b'carrot'
+    TWO_FACE = b'apple'
+
+    def __init__(self, value):
+        self.katcp_value = value
+
+
+class TestAddress(unittest.TestCase):
+    def setUp(self):
+        self.v4_no_port = Address(ipaddress.ip_address('127.0.0.1'))
+        self.v4_port = Address(ipaddress.ip_address('127.0.0.1'), 7148)
+        self.v6_no_port = Address(ipaddress.ip_address('::1'))
+        self.v6_port = Address(ipaddress.ip_address('::1'), 7148)
+        self.v6_port_alt = Address(ipaddress.ip_address('00:00::1'), 7148)
+
+    def test_eq(self):
+        for addr in [self.v4_no_port, self.v4_port, self.v6_no_port, self.v6_port]:
+            self.assertTrue(addr == addr)
+        self.assertTrue(self.v6_port == self.v6_port_alt)
+        self.assertFalse(self.v4_no_port == self.v4_port)
+        self.assertFalse(self.v4_port == self.v6_port)
+        self.assertFalse(self.v4_no_port == '127.0.0.1')
+
+    def test_not_eq(self):
+        self.assertFalse(self.v6_port != self.v6_port_alt)
+        self.assertTrue(self.v4_no_port != self.v4_port)
+        self.assertTrue(self.v4_no_port != self.v6_no_port)
+        self.assertTrue(self.v4_no_port != '127.0.0.1')
+
+    def test_str(self):
+        self.assertEqual(str(self.v4_no_port), '127.0.0.1')
+        self.assertEqual(str(self.v4_port), '127.0.0.1:7148')
+        self.assertEqual(str(self.v6_no_port), '[::1]')
+        self.assertEqual(str(self.v6_port), '[::1]:7148')
+
+    def test_bytes(self):
+        self.assertEqual(bytes(self.v4_no_port), b'127.0.0.1')
+        self.assertEqual(bytes(self.v4_port), b'127.0.0.1:7148')
+        self.assertEqual(bytes(self.v6_no_port), b'[::1]')
+        self.assertEqual(bytes(self.v6_port), b'[::1]:7148')
+
+    def test_repr(self):
+        self.assertEqual(repr(self.v4_no_port), "Address(IPv4Address('127.0.0.1'))")
+        self.assertEqual(repr(self.v4_port), "Address(IPv4Address('127.0.0.1'), 7148)")
+        self.assertEqual(repr(self.v6_no_port), "Address(IPv6Address('::1'))")
+        self.assertEqual(repr(self.v6_port), "Address(IPv6Address('::1'), 7148)")
+
+    def test_hash(self):
+        self.assertEqual(hash(self.v6_port), hash(self.v6_port_alt))
+        self.assertNotEqual(hash(self.v4_port), hash(self.v4_no_port))
+        self.assertNotEqual(hash(self.v4_port), hash(self.v6_port))
+
+    def test_parse(self):
+        for addr in [self.v4_no_port, self.v4_port, self.v6_no_port, self.v6_port]:
+            self.assertEqual(Address.parse(bytes(addr)), addr)
+        self.assertRaises(ValueError, Address.parse, b'')
+        self.assertRaises(ValueError, Address.parse, b'[127.0.0.1]')
+        self.assertRaises(ValueError, Address.parse, b'::1')
+
+
+class TestEncodeDecode(unittest.TestCase):
+    VALUES = [
+        (str, 'café', b'caf\xc3\xa9'),
+        (bytes, b'caf\xc3\xa9', b'caf\xc3\xa9'),
+        (int, 123, b'123'),
+        (bool, True, b'1'),
+        (bool, False, b'0'),
+        (float, -123.5, b'-123.5'),
+        (float, 1e+20, b'1e+20'),
+        (Timestamp, Timestamp(123.5), b'123.5'),
+        (Address, Address(ipaddress.ip_address('127.0.0.1')), b'127.0.0.1'),
+        (MyEnum, MyEnum.TWO_FACE, b'two-face'),
+        (OverrideEnum, OverrideEnum.JOKER, b'carrot')
+    ]
+
+    BAD_VALUES = [
+        (str, b'caf\xc3e'),      # Bad unicode
+        (bool, b'2'),
+        (int, b'123.0'),
+        (float, b''),
+        (Address, b'[127.0.0.1]'),
+        (MyEnum, b'two_face'),
+        (MyEnum, b'TWO-FACE'),
+        (OverrideEnum, b'joker')
+    ]
+
+    def test_encode(self):
+        for _, value, raw in self.VALUES:
+            self.assertEqual(encode(value), raw)
+
+    def test_decode(self):
+        for type_, value, raw in self.VALUES:
+            self.assertEqual(decode(type_, raw), value)
+
+    def test_unknown_class(self):
+        self.assertRaises(TypeError, decode, dict, b'{"test": "it"}')
+
+    def test_bad_raw(self):
+        for type_, value in self.BAD_VALUES:
+            with self.assertRaises(ValueError,
+                                   msg='{} should not be valid for {}'.format(value, type_)):
+                decode(type_, value)
+
+    @unittest.mock.patch.dict('aiokatcp.core._types')
+    def test_register_type(self):
+        register_type(
+            dict, 'string',
+            lambda value: json.dumps(value, sort_keys=True).encode('utf-8'),
+            lambda cls, value: cls(json.loads(value.decode('utf-8'))))
+        value = {"h": 1, "i": [2]}
+        raw = b'{"h": 1, "i": [2]}'
+        self.assertEqual(encode(value), raw)
+        self.assertEqual(decode(dict, raw), value)
+        self.assertRaises(ValueError, decode, dict, b'"string"')
+        self.assertRaises(ValueError, decode, dict, b'{missing_quotes: 1}')
+        # Try re-registering for an already registered type
+        with self.assertRaises(ValueError):
+            register_type(
+                dict, 'string',
+                lambda value: json.dumps(value, sort_keys=True).encode('utf-8'),
+                lambda cls, value: cls(json.loads(value.decode('utf-8'))))
+
+    def test_default(self):
+        self.assertEqual(get_type(int).default(int), 0)
+        self.assertEqual(get_type(float).default(float), 0.0)
+        self.assertEqual(get_type(str).default(str), '')
+        self.assertEqual(get_type(bytes).default(bytes), b'')
+        self.assertEqual(get_type(Timestamp).default(Timestamp), Timestamp(0.0))
+        self.assertEqual(get_type(MyEnum).default(MyEnum), MyEnum.BATMAN)
+        self.assertEqual(get_type(OverrideEnum).default(OverrideEnum), OverrideEnum.BATMAN)
 
 
 class TestMessage(unittest.TestCase):
@@ -143,26 +287,3 @@ class TestMessage(unittest.TestCase):
         self.assertTrue(Message.reply('query', 'ok').reply_ok())
         self.assertFalse(Message.reply('query', 'fail', 'error').reply_ok())
         self.assertFalse(Message.request('query', 'ok').reply_ok())
-
-    def test_decode_argument(self):
-        self.assertEqual(Message.decode_argument(b'caf\xc3\xa9', str), 'café')
-        self.assertEqual(Message.decode_argument(b'caf\xc3\xa9', bytes), b'caf\xc3\xa9')
-        self.assertEqual(Message.decode_argument(b'123', int), 123)
-        self.assertEqual(Message.decode_argument(b'1', bool), True)
-        self.assertEqual(Message.decode_argument(b'0', bool), False)
-        self.assertEqual(Message.decode_argument(b'123.5', float), 123.5)
-        self.assertRaises(TypeError, Message.decode_argument, b'{"test": "it"}', dict)
-
-    def test_register_decoder(self):
-        def restore():
-            Message._decoders = orig_decoders
-
-        def decode(argument):
-            return json.loads(argument.decode('utf-8'))
-
-        orig_decoders = dict(Message._decoders)
-        self.addCleanup(restore)
-        Message.register_decoder(dict, decode)
-        self.assertEqual(Message.decode_argument(b'{"test": "it"}', dict), {"test": "it"})
-        # Try re-registering for an already registered type
-        self.assertRaises(ValueError, Message.register_decoder, dict, decode)
