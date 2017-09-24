@@ -61,7 +61,18 @@ class Address(object):
 
     @classmethod
     def parse(self, raw: bytes) -> 'Address':
-        """Construct an :class:`Address` from a katcp message argument"""
+        """Construct an :class:`Address` from a katcp message argument
+
+        Parameters
+        ----------
+        raw
+            Unescaped value in katcp message argument
+
+        Raises
+        ------
+        ValueError
+            If `raw` does not represent a valid address
+        """
         text = raw.decode('utf-8')
         match = self._IPV6_RE.match(text)
         if match:

@@ -32,11 +32,17 @@ async def read_message(stream: asyncio.StreamReader) -> Optional[core.Message]:
     """Read a single message from an asynchronous stream.
 
     If EOF is reached before reading the newline, returns ``None`` if
-    there was no data, otherwise raises :exc:`core.KatcpSyntaxError`.
+    there was no data, otherwise raises
+    :exc:`aiokatcp.core.KatcpSyntaxError`.
+
+    Parameters
+    ----------
+    stream
+        Input stream
 
     Raises
     ------
-    core.KatcpSyntaxError
+    aiokatcp.core.KatcpSyntaxError
         if the line was too long or malformed.
     """
     while True:
