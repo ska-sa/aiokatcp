@@ -98,6 +98,10 @@ class DeviceServer(metaclass=DeviceServerMeta):
 
     def __init__(self, host: str, port: int, *, limit=connection.DEFAULT_LIMIT, loop=None) -> None:
         super().__init__()
+        if not hasattr(self, 'VERSION'):
+            raise TypeError('{.__name__} does not define VERSION'.format(self.__class__))
+        if not hasattr(self, 'BUILD_STATE'):
+            raise TypeError('{.__name__} does not define BUILD_STATE'.format(self.__class__))
         self._connections = set()  # type: Set[connection.Connection]
         self._pending = set()      # type: Set[asyncio.Task]
         if loop is None:
@@ -144,10 +148,35 @@ class DeviceServer(metaclass=DeviceServerMeta):
     async def join(self) -> None:
         await self._stopped.wait()
 
-    def _client_connected_cb(
+    @property
+    def server(self):
+        return self._server
+
+    async def send_version_info(self, ctx: RequestContext) -> int:
+        """Send version information informs to the client.
+
+        This is used for asynchronous #version-connect informs when a client
+        connects and in response to a ?version-list request.
+
+        Returns
+        -------
+        num_informs
+            Number of informs sent
+        """
+        await ctx.inform('katcp-protocol', '5.0-MI')
+        # TODO: use katversion to get version number
+        await ctx.inform('katcp-library', 'aiokatcp-0.1', 'aiokatcp-0.1')
+        await ctx.inform('katcp-device', self.VERSION, self.BUILD_STATE)
+        return 3
+
+    async def _client_connected_cb(
             self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         conn = connection.Connection(self, reader, writer, is_server=True)
         self._connections.add(conn)
+        # Make a fake request context for send_version_info
+        request = core.Message.request('version-connect')
+        ctx = RequestContext(conn, request)
+        await self.send_version_info(ctx)
         task = conn.start()
         task.add_done_callback(lambda future: self._connections.remove(conn))
 
@@ -187,12 +216,45 @@ class DeviceServer(metaclass=DeviceServerMeta):
         task.add_done_callback(self._pending.remove)
 
     async def request_help(self, ctx: RequestContext, name: str = None) -> Tuple[int]:
-        """Get help on requests
+        """Return help on the available requests.
+
+        Return a description of the available requests using a sequence of
+        #help informs.
 
         Parameters
         ----------
-        name : str, optional
-            Name of the request on which to get help
+        request : str, optional
+            The name of the request to return help for (the default is to
+            return help for all requests).
+
+        Informs
+        -------
+        request : str
+            The name of a request.
+        description : str
+            Documentation for the named request.
+
+        Returns
+        -------
+        success : {'ok', 'fail'}
+            Whether sending the help succeeded.
+        informs : int
+            Number of #help inform messages sent.
+
+        Examples
+        --------
+        ::
+
+            ?help
+            #help halt ...description...
+            #help help ...description...
+            ...
+            !help ok 5
+
+            ?help halt
+            #help halt ...description...
+            !help ok 1
+
         """
         n = 0
         if name is None:
@@ -209,10 +271,74 @@ class DeviceServer(metaclass=DeviceServerMeta):
             n += 1
         return (n,)
 
-    async def request_halt(self, ctx) -> None:
-        """Shut down the device server"""
+    async def request_halt(self, ctx: RequestContext) -> None:
+        """Halt the device server.
+
+        Returns
+        -------
+        success : {'ok', 'fail'}
+            Whether scheduling the halt succeeded.
+
+        Examples
+        --------
+        ::
+
+            ?halt
+            !halt ok
+
+        """
         self.loop.create_task(self.stop())
 
-    async def request_watchdog(self, ctx) -> None:
-        """The device should respond with a success reply if it receives the watchdog request."""
+    async def request_watchdog(self, ctx: RequestContext) -> None:
+        """Check that the server is still alive.
+
+        Returns
+        -------
+            success : {'ok'}
+
+        Examples
+        --------
+        ::
+
+            ?watchdog
+            !watchdog ok
+
+        """
         pass
+
+    async def request_version_list(self, ctx: RequestContext) -> None:
+        """Request the list of versions of roles and subcomponents.
+
+        Informs
+        -------
+        name : str
+            Name of the role or component.
+        version : str
+            A string identifying the version of the component. Individual
+            components may define the structure of this argument as they
+            choose. In the absence of other information clients should
+            treat it as an opaque string.
+        build_state_or_serial_number : str
+            A unique identifier for a particular instance of a component.
+            This should change whenever the component is replaced or updated.
+
+        Returns
+        -------
+        success : {'ok', 'fail'}
+            Whether sending the version list succeeded.
+        informs : int
+            Number of #version-list inform messages sent.
+
+        Examples
+        --------
+        ::
+
+            ?version-list
+            #version-list katcp-protocol 5.0-MI
+            #version-list katcp-library katcp-python-0.4 katcp-python-0.4.1-py2
+            #version-list katcp-device foodevice-1.0 foodevice-1.0.0rc1
+            !version-list ok 3
+
+        """
+        num_informs = await self.send_version_info(ctx)
+        return (num_informs,)
