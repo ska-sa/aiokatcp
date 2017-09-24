@@ -60,7 +60,7 @@ class Address(object):
             return 'Address({!r}, {!r})'.format(self.host, self.port)
 
     @classmethod
-    def parse(self, raw: bytes) -> 'Address':
+    def parse(cls, raw: bytes) -> 'Address':
         """Construct an :class:`Address` from a katcp message argument
 
         Parameters
@@ -74,20 +74,20 @@ class Address(object):
             If `raw` does not represent a valid address
         """
         text = raw.decode('utf-8')
-        match = self._IPV6_RE.match(text)
+        match = cls._IPV6_RE.match(text)
         if match:
             host = ipaddress.IPv6Address(match.group('host'))  # type: _IPAddress
         else:
-            match = self._IPV4_RE.match(text)
+            match = cls._IPV4_RE.match(text)
             if match:
                 host = ipaddress.IPv4Address(match.group('host'))
             else:
                 raise ValueError("could not parse '{}' as an address".format(text))
         port = match.group('port')
         if port is not None:
-            return Address(host, int(port))
+            return cls(host, int(port))
         else:
-            return Address(host)
+            return cls(host)
 
     def __eq__(self, other):
         if not isinstance(other, Address):
