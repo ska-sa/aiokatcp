@@ -2,15 +2,15 @@ import enum
 import re
 import io
 import ipaddress
-import typing
-from typing import Match, Any, Callable, Union, Type, Iterable, SupportsBytes, Generic, cast
+from typing import (
+    Match, Any, Callable, Union, Type, Iterable, SupportsBytes, Generic, TypeVar, cast)
 # Only used in type comments, so flake8 complains
 from typing import Dict   # noqa: F401
 
 
-_T = typing.TypeVar('_T')
-_T_contra = typing.TypeVar('_T_contra', contravariant=True)
-_E = typing.TypeVar('_E', bound=enum.Enum)
+_T = TypeVar('_T')
+_T_contra = TypeVar('_T_contra', contravariant=True)
+_E = TypeVar('_E', bound=enum.Enum)
 _IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
 
 
