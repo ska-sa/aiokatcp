@@ -290,38 +290,31 @@ class Message(object):
     __slots__ = ['mtype', 'name', 'arguments', 'mid']
 
     class Type(enum.Enum):
+        """Message type"""
         REQUEST = 1
         REPLY = 2
         INFORM = 3
 
-    _decoders = {
-        bytes: lambda x: x,
-        str: lambda x: x.decode('utf-8'),
-        int: int,
-        float: float,
-        bool: lambda x: bool(int(x))
-    }   # type: Dict[type, Callable[[bytes], Any]]
-
-    TYPE_SYMBOLS = {
+    _TYPE_SYMBOLS = {
         Type.REQUEST: b'?',
         Type.REPLY: b'!',
         Type.INFORM: b'#',
     }
-    REVERSE_TYPE_SYMBOLS = {
-        value: key for (key, value) in TYPE_SYMBOLS.items()}
+    _REVERSE__TYPE_SYMBOLS = {
+        value: key for (key, value) in _TYPE_SYMBOLS.items()}
 
-    NAME_RE = re.compile('^[A-Za-z][A-Za-z0-9-]*$', re.ASCII)
-    WHITESPACE_RE = re.compile(br'[ \t\n]+')
-    HEADER_RE = re.compile(
+    _NAME_RE = re.compile('^[A-Za-z][A-Za-z0-9-]*$', re.ASCII)
+    _WHITESPACE_RE = re.compile(br'[ \t\n]+')
+    _HEADER_RE = re.compile(
         br'^[!#?]([A-Za-z][A-Za-z0-9-]*)(?:\[([1-9][0-9]*)\])?$')
     #: Characters that must be escaped in an argument
-    ESCAPE_RE = re.compile(br'[\\ \0\n\r\x1b\t]')
-    UNESCAPE_RE = re.compile(br'\\(.)')
+    _ESCAPE_RE = re.compile(br'[\\ \0\n\r\x1b\t]')
+    _UN_ESCAPE_RE = re.compile(br'\\(.)')
     #: Characters not allowed to appear in an argument
     # (space, tab newline are omitted because they are split on already)
-    SPECIAL_RE = re.compile(br'[\0\r\x1b]')
+    _SPECIAL_RE = re.compile(br'[\0\r\x1b]')
 
-    ESCAPE_LOOKUP = {
+    _ESCAPE_LOOKUP = {
         b'\\': b'\\',
         b'_': b' ',
         b'0': b'\0',
@@ -331,8 +324,8 @@ class Message(object):
         b't': b'\t',
         b'@': b''
     }
-    REVERSE_ESCAPE_LOOKUP = {
-        value: key for (key, value) in ESCAPE_LOOKUP.items()}
+    _REVERSE_ESCAPE_LOOKUP = {
+        value: key for (key, value) in _ESCAPE_LOOKUP.items()}
 
     OK = b'ok'
     FAIL = b'fail'
@@ -341,7 +334,7 @@ class Message(object):
     def __init__(self, mtype: Type, name: str, *arguments: Any,
                  mid: int = None) -> None:
         self.mtype = mtype
-        if not self.NAME_RE.match(name):
+        if not self._NAME_RE.match(name):
             raise ValueError('name {} is invalid'.format(name))
         self.name = name
         self.arguments = [encode(arg) for arg in arguments]
@@ -372,36 +365,43 @@ class Message(object):
 
     @classmethod
     def _escape_match(cls, match: Match[bytes]):
-        """Given a re.Match object, return the escape code for it."""
-        return b'\\' + cls.REVERSE_ESCAPE_LOOKUP[match.group()]
+        """Given a re.Match object matching :attr:`_ESCAPE_RE`, return the escape code for it."""
+        return b'\\' + cls._REVERSE_ESCAPE_LOOKUP[match.group()]
 
     @classmethod
     def _unescape_match(cls, match: Match[bytes]):
         char = match.group(1)
         try:
-            return cls.ESCAPE_LOOKUP[char]
+            return cls._ESCAPE_LOOKUP[char]
         except KeyError:
             raise KatcpSyntaxError('invalid escape character {!r}'.format(char))
 
     @classmethod
     def escape_argument(cls, arg: bytes) -> bytes:
+        """Escape special bytes in an argument"""
         if arg == b'':
             return br'\@'
         else:
-            return cls.ESCAPE_RE.sub(cls._escape_match, arg)
+            return cls._ESCAPE_RE.sub(cls._escape_match, arg)
 
     @classmethod
     def unescape_argument(cls, arg: bytes) -> bytes:
+        """Reverse of :func:`escape_argument`"""
         if arg.endswith(b'\\'):
             raise KatcpSyntaxError('argument ends with backslash')
-        match = cls.SPECIAL_RE.search(arg)
+        match = cls._SPECIAL_RE.search(arg)
         if match:
             raise KatcpSyntaxError('unescaped special {!r}'.format(match.group()))
-        return cls.UNESCAPE_RE.sub(cls._unescape_match, arg)
+        return cls._UN_ESCAPE_RE.sub(cls._unescape_match, arg)
 
     @classmethod
     def parse(cls, raw) -> 'Message':
         """Create a :class:`Message` from encoded representation.
+
+        Parameters
+        ----------
+        raw
+            Bytes from the wire, including the trailing newline
 
         Raises
         ------
@@ -413,8 +413,8 @@ class Message(object):
                 raise KatcpSyntaxError('message does not start with message type')
             if raw[-1:] != b'\n':
                 raise KatcpSyntaxError('message does not end with newline')
-            parts = cls.WHITESPACE_RE.split(raw)
-            match = cls.HEADER_RE.match(parts[0])
+            parts = cls._WHITESPACE_RE.split(raw)
+            match = cls._HEADER_RE.match(parts[0])
             if not match:
                 raise KatcpSyntaxError('could not parse name and message ID')
             name = match.group(1).decode('ascii')
@@ -423,7 +423,7 @@ class Message(object):
                 mid = int(mid_raw)
             else:
                 mid = None
-            mtype = cls.REVERSE_TYPE_SYMBOLS[raw[:1]]
+            mtype = cls._REVERSE__TYPE_SYMBOLS[raw[:1]]
             # Create the message first without arguments, to avoid the argument
             # encoding and let us store raw bytes.
             msg = cls(mtype, name, mid=mid)
@@ -442,7 +442,7 @@ class Message(object):
         """Return Message as serialised for transmission"""
 
         output = io.BytesIO()
-        output.write(self.TYPE_SYMBOLS[self.mtype])
+        output.write(self._TYPE_SYMBOLS[self.mtype])
         output.write(self.name.encode('ascii'))
         if self.mid is not None:
             output.write(b'[' + str(self.mid).encode('ascii') + b']')
