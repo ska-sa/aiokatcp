@@ -121,6 +121,13 @@ class DeviceServer(metaclass=DeviceServerMeta):
         self._sensors = {}         # type: Dict[str, sensor.Sensor]
 
     async def start(self) -> None:
+        """Start the server running on the event loop.
+
+        Raises
+        ------
+        RuntimeError
+            if the server is already running
+        """
         async with self._server_lock:
             if self._server is not None:
                 raise RuntimeError('Server is already running')
