@@ -495,3 +495,37 @@ class DeviceServer(metaclass=DeviceServerMeta):
         for s in sensors:
             await ctx.inform(s.timestamp, 1, s.name, s.status, s.value)
         return len(sensors)
+
+    async def request_client_list(self, ctx: RequestContext) -> int:
+        """Request the list of connected clients.
+
+        The list of clients is sent as a sequence of #client-list informs.
+
+        Informs
+        -------
+        addr : str
+            The address of the client as host:port with host in dotted quad
+            notation. If the address of the client could not be determined
+            (because, for example, the client disconnected suddenly) then
+            a unique string representing the client is sent instead.
+
+        Returns
+        -------
+        success : {'ok', 'fail'}
+            Whether sending the client list succeeded.
+        informs : int
+            Number of #client-list inform messages sent.
+
+        Examples
+        --------
+        ::
+
+            ?client-list
+            #client-list 127.0.0.1:53600
+            !client-list ok 1
+
+        """
+        clients = list(self._connections)   # Copy, since it can change while we iterate
+        for conn in clients:
+            await ctx.inform('client-list', conn.address)
+        return len(clients)

@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import re
+import ipaddress
 from typing import Any, Optional, SupportsBytes, cast
 
 from . import core
@@ -72,6 +73,8 @@ class Connection(object):
         self.owner = owner
         self.reader = reader
         self.writer = writer  # type: Optional[asyncio.StreamWriter]
+        host, port = writer.get_extra_info('peername')
+        self.address = core.Address(ipaddress.ip_address(host), port)
         self._writer_lock = asyncio.Lock(loop=owner.loop)
         self.is_server = is_server
         self._task = None     # type: Optional[asyncio.Task]
