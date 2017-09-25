@@ -48,7 +48,7 @@ class DeviceServerMeta(type):
             elif parameter.name == 'msg' and parameter.kind == inspect.Parameter.KEYWORD_ONLY:
                 has_msg = True
         if len(pos) < 2 and var_pos is None:
-            raise TypeError('Handler must accept at two positional arguments')
+            raise TypeError('Handler must accept at least two positional arguments')
 
         # Exclude transferring __annotations__ from the wrapped function,
         # because the decorator does not preserve signature.
@@ -202,7 +202,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
                 handler = self._request_handlers[msg.name]
             except KeyError:
                 reply = core.Message.reply_to_request(
-                    msg, core.Message.INVALID, 'unknown command {}'.format(msg.name))
+                    msg, core.Message.INVALID, 'unknown request {}'.format(msg.name))
                 await conn.write_message(reply)
             else:
                 ctx = RequestContext(conn, msg)
@@ -472,6 +472,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
             #sensor-status.
         name : str
             Name of the sensor whose value is being reported.
+        status : Sensor.Status
+            Sensor status (see Sensor.Status enum)
         value : object
             Value of the named sensor. Type depends on the type of the sensor.
 
@@ -487,13 +489,13 @@ class DeviceServer(metaclass=DeviceServerMeta):
         ::
 
             ?sensor-value
-            #sensor-value 1244631611.415231 1 psu.voltage 4.5
-            #sensor-value 1244631611.415200 1 cpu.status off
+            #sensor-value 1244631611.415231 1 psu.voltage nominal 4.5
+            #sensor-value 1244631611.415200 1 cpu.status warn off
             ...
             !sensor-value ok 5
 
             ?sensor-value cpu.power.on
-            #sensor-value 1244631611.415231 1 cpu.power.on 0
+            #sensor-value 1244631611.415231 1 cpu.power.on error 0
             !sensor-value ok 1
 
         """
@@ -533,5 +535,5 @@ class DeviceServer(metaclass=DeviceServerMeta):
         """
         clients = list(self._connections)   # Copy, since it can change while we iterate
         for conn in clients:
-            await ctx.inform('client-list', conn.address)
+            await ctx.inform(conn.address)
         return len(clients)
