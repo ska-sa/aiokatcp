@@ -5,47 +5,17 @@ import logging
 import traceback
 import io
 import re
-from typing import Callable, Awaitable, Sequence, Optional, Tuple, Any
+from typing import Callable, Awaitable, Sequence, Optional, Tuple, List, Any
 # Only used in type comments, so flake8 complains
-from typing import Dict, Set    # noqa: F401
+from typing import Dict, Set, Iterable    # noqa: F401
 
 from . import core, connection, sensor
+from .connection import FailReply
 
 
 logger = logging.getLogger(__name__)
 _RequestReply = Awaitable[Optional[Sequence]]
 _RequestHandler = Callable[['DeviceServer', 'RequestContext', core.Message], _RequestReply]
-
-
-def construct_name_filter(pattern: Optional[str]) -> Tuple[bool, Callable[[str], bool]]:
-    """Return a function for filtering sensor names based on a pattern.
-
-    Parameters
-    ----------
-    pattern
-        If ``None``, the returned function matches all names.
-        If pattern starts and ends with '/' the text between the slashes
-        is used as a regular expression to search the names.
-        Otherwise the pattern must match the name of the sensor exactly.
-
-    Returns
-    -------
-    exact
-        Return ``True`` if pattern is expected to match exactly. Used to
-        determine whether having no matching sensors constitutes an error.
-    filter_func
-        Function for determining whether a name matches the pattern.
-
-    """
-    if pattern is None:
-        return False, lambda name: True
-    if pattern.startswith('/') and pattern.endswith('/') and pattern != '/':
-        try:
-            name_re = re.compile(pattern[1:-1])
-        except re.error as error:
-            raise connection.FailReply(str(error)) from error
-        return False, lambda name: name_re.search(name) is not None
-    return True, lambda name: name == pattern
 
 
 class RequestContext(object):
@@ -88,7 +58,7 @@ class DeviceServerMeta(type):
             for argument in msg.arguments:
                 if len(args) >= len(pos):
                     if var_pos is None:
-                        raise connection.FailReply('too many arguments for {}'.format(name))
+                        raise FailReply('too many arguments for {}'.format(name))
                     else:
                         hint = var_pos.annotation
                 else:
@@ -98,12 +68,12 @@ class DeviceServerMeta(type):
                 try:
                     args.append(core.decode(hint, argument))
                 except ValueError as error:
-                    raise connection.FailReply(str(error)) from error
+                    raise FailReply(str(error)) from error
             kwargs = dict(msg=msg) if has_msg else {}
             try:
                 awaitable = value(*args, **kwargs)
             except TypeError as error:
-                raise connection.FailReply(str(error)) from error  # e.g. too few arguments
+                raise FailReply(str(error)) from error  # e.g. too few arguments
             ret = await awaitable
             return ret
 
@@ -238,7 +208,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
                 except asyncio.CancelledError:
                     logger.info('request %r cancelled', msg.name)
                     ret = (core.Message.FAIL, 'request cancelled')
-                except connection.FailReply as error:
+                except FailReply as error:
                     ret = (core.Message.FAIL, str(error))
                 except Exception as error:
                     logger.exception('uncaught exception while handling %r',
@@ -304,7 +274,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             try:
                 handler = self._request_handlers[name]
             except KeyError as error:
-                raise connection.FailReply('request {} is not known'.format(name)) from error
+                raise FailReply('request {} is not known'.format(name)) from error
             await ctx.inform(name, handler.__doc__)
             n += 1
         return (n,)
@@ -381,6 +351,35 @@ class DeviceServer(metaclass=DeviceServerMeta):
         num_informs = await self.send_version_info(ctx)
         return (num_informs,)
 
+    def _get_sensors(self, name: Optional[str]) -> List[sensor.Sensor]:
+        """Retrieve the list of sensors, optionally filtered by a name or regex.
+
+        Parameters
+        ----------
+        name
+            Either a regex brackets by /'s, an exact name to match, or
+            ``None`` to return all sensors.
+
+        Raises
+        ------
+        FailReply
+            if an invalid regex was provided, or an exact name was given
+            which does not exist.
+        """
+        if name is None:
+            matched = self._sensors.values()   # type: Iterable[sensor.Sensor]
+        elif name.startswith('/') and name.endswith('/') and len(name) > 1:
+            try:
+                name_re = re.compile(name[1:-1])
+            except re.error as error:
+                raise FailReply(str(error)) from error
+            matched = (sensor for sensor in self._sensors.values() if name_re.search(sensor.name))
+        elif name not in self._sensors:
+            raise FailReply('unknown sensor {!r}'.format(name))
+        else:
+            matched = [self._sensors[name]]
+        return sorted(matched, key=lambda sensor: sensor.name)
+
     async def request_sensor_list(self, ctx: RequestContext, name: str = None) -> Tuple[int]:
         """Request the list of sensors.
 
@@ -436,11 +435,61 @@ class DeviceServer(metaclass=DeviceServerMeta):
             !sensor-list ok 2
 
         """
-        exact, filter_func = construct_name_filter(name)
-        matched = (sensor for sensor in self._sensors.values() if filter_func(sensor.name))
-        sensors = sorted(matched, key=lambda sensor: sensor.name)
-        if exact and not sensors:
-            raise connection.FailReply('unknown sensor name {!r}'.format(name))
+        sensors = self._get_sensors(name)
         for s in sensors:
             await ctx.inform(s.name, s.description, s.units, s.type_name, *s.params)
+        return (len(sensors),)
+
+    async def request_sensor_value(self, ctx: RequestContext, name: str = None) -> Tuple[int]:
+        """Request the value of a sensor or sensors.
+
+        A list of sensor values as a sequence of #sensor-value informs.
+
+        Parameters
+        ----------
+        name : str, optional
+            Name of the sensor to poll (the default is to send values for all
+            sensors). If name starts and ends with '/' it is treated as a
+            regular expression and all sensors whose names contain the regular
+            expression are returned.
+
+        Informs
+        -------
+        timestamp : float
+            Timestamp of the sensor reading in seconds since the Unix
+            epoch, or milliseconds for katcp versions <= 4.
+        count : {1}
+            Number of sensors described in this #sensor-value inform. Will
+            always be one. It exists to keep this inform compatible with
+            #sensor-status.
+        name : str
+            Name of the sensor whose value is being reported.
+        value : object
+            Value of the named sensor. Type depends on the type of the sensor.
+
+        Returns
+        -------
+        success : {'ok', 'fail'}
+            Whether sending the list of values succeeded.
+        informs : int
+            Number of #sensor-value inform messages sent.
+
+        Examples
+        --------
+        ::
+
+            ?sensor-value
+            #sensor-value 1244631611.415231 1 psu.voltage 4.5
+            #sensor-value 1244631611.415200 1 cpu.status off
+            ...
+            !sensor-value ok 5
+
+            ?sensor-value cpu.power.on
+            #sensor-value 1244631611.415231 1 cpu.power.on 0
+            !sensor-value ok 1
+
+        """
+        sensors = self._get_sensors(name)
+        for s in sensors:
+            await ctx.inform(s.timestamp, 1, s.name, s.status, s.value)
         return (len(sensors),)
