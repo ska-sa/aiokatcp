@@ -27,6 +27,7 @@ class DummyServer(DeviceServer):
     def __init__(self, *, loop=None):
         super().__init__('127.0.0.1', 0, loop=loop)
         self.event = asyncio.Event(loop=self.loop)
+        self.wait_reached = asyncio.Event(loop=self.loop)
         sensor = Sensor(int, 'counter-queries', 'number of ?counter queries',
                         default=0,
                         initial_status=Sensor.Status.NOMINAL)
@@ -43,12 +44,19 @@ class DummyServer(DeviceServer):
         """Return the arguments to the caller"""
         return tuple(args)
 
-    async def request_double(self, ctx: RequestContext, number: float) -> float:
+    async def request_bytes_arg(self, ctx: RequestContext, some_bytes) -> bytes:
+        """An argument with no annotation"""
+        if not isinstance(some_bytes, bytes):
+            raise FailReply('expected bytes, got {}'.format(type(some_bytes)))
+        return some_bytes
+
+    async def request_double(self, ctx: RequestContext, number: float, scale: float = 2) -> float:
         """Take a float and double it"""
-        return 2 * number
+        return scale * number
 
     async def request_wait(self, ctx: RequestContext) -> None:
         """Wait for an internal event to fire"""
+        self.wait_reached.set()
         await self.event.wait()
 
     async def request_crash(self, ctx: RequestContext) -> None:
@@ -99,11 +107,16 @@ class TestDeviceServer(asynctest.TestCase):
             prefix + b' katcp-library aiokatcp-0.1 aiokatcp-0.1\n',
             prefix + b' katcp-device dummy-1.0 dummy-build-1.0.0\n'])
 
+    async def test_start_twice(self) -> None:
+        """Calling start twice raises :exc:`RuntimeError`"""
+        with self.assertRaises(RuntimeError):
+            await self.server.start()
+
     async def test_help(self) -> None:
         await self._get_version_info()
         await self._write(b'?help[1]\n')
         commands = sorted([
-            'increment-counter', 'echo', 'double', 'wait', 'crash', 'show-msg',
+            'increment-counter', 'echo', 'bytes-arg', 'double', 'wait', 'crash', 'show-msg',
             'client-list', 'sensor-list', 'sensor-value',
             'halt', 'help', 'watchdog', 'version-list'
         ])
@@ -212,6 +225,15 @@ class TestDeviceServer(asynctest.TestCase):
             b''])   # Empty string indicates EOF
         await self.server.join()
 
+    async def test_halt_while_waiting(self) -> None:
+        await self._get_version_info()
+        await self._write(b'?wait[1]\n?halt[2]\n')
+        await self._check_reply([
+            b'!halt[2] ok\n',
+            b'!wait[1] fail request\\_cancelled\n',
+            b'#disconnect server\\_shutting\\_down\n',
+            b''])    # Empty line indicates EOF
+
     async def test_too_few_params(self) -> None:
         await self._get_version_info()
         await self._write(b'?double\n')
@@ -219,7 +241,7 @@ class TestDeviceServer(asynctest.TestCase):
 
     async def test_too_many_params(self) -> None:
         await self._get_version_info()
-        await self._write(b'?double 1 2\n')
+        await self._write(b'?double 1 2 3\n')
         await self._check_reply([re.compile(br'^!double fail .*\n$')])
 
     async def test_unknown_request(self) -> None:
@@ -234,20 +256,17 @@ class TestDeviceServer(asynctest.TestCase):
         await self._check_reply([
             re.compile(br'^!crash fail .*help\\_I\\_fell\\_over.*$')])
 
-    async def test_halt_while_waiting(self) -> None:
-        await self._get_version_info()
-        await self._write(b'?wait[1]\n?halt[2]\n')
-        await self._check_reply([
-            b'!halt[2] ok\n',
-            b'!wait[1] fail request\\_cancelled\n',
-            b'#disconnect server\\_shutting\\_down\n',
-            b''])    # Empty line indicates EOF
-
     async def test_variadic(self) -> None:
         """Test a request that takes a *args."""
         await self._get_version_info()
         await self._write(b'?echo hello world\n')
         await self._check_reply([b'!echo ok hello world\n'])
+
+    async def test_no_annotation(self) -> None:
+        """Argument without annotation is passed through raw"""
+        await self._get_version_info()
+        await self._write(b'?bytes-arg raw\n')
+        await self._check_reply([b'!bytes-arg ok raw\n'])
 
     async def test_msg_keyword(self) -> None:
         """Test a request that takes a `msg` keyword-only argument."""
@@ -267,6 +286,34 @@ class TestDeviceServer(asynctest.TestCase):
         await self._check_reply([b'!echo[2] ok test\n'])
         self.server.event.set()
         await self._check_reply([b'!wait[1] ok\n'])
+
+    async def test_client_connected_inform(self) -> None:
+        """A second client connecting sends ``#client-connected`` to the first"""
+        await self._get_version_info()
+        host, port = self.server.server.sockets[0].getsockname()    # type: ignore
+        reader2, writer2 = await asyncio.open_connection(host, port, loop=self.loop)
+        self.addCleanup(writer2.close)
+        client_host, client_port = writer2.get_extra_info('sockname')
+        client_addr = Address(ipaddress.ip_address(client_host), client_port)
+        client_addr_bytes = bytes(cast(SupportsBytes, client_addr))
+        await self._check_reply([b'#client-connected ' + client_addr_bytes + b'\n'])
+
+    async def test_message_while_stopping(self) -> None:
+        await self._get_version_info()
+        await self._write(b'?wait\n')
+        # Wait for the request_wait to be launched
+        await self.server.wait_reached.wait()
+        # Start stopping the server, but wait for outstanding tasks
+        stop_task = self.loop.create_task(self.server.stop(cancel=False))
+        await self._write(b'?watchdog\n')   # Should be ignored, because we're stopping
+        # Give the ?watchdog time to make it through to the message handler
+        await asyncio.sleep(0.1, loop=self.loop)
+        self.server.event.set()   # Releases the ?wait
+        await self._check_reply([
+            b'!wait ok\n',
+            b'#disconnect server\\_shutting\\_down\n',
+            b''])
+        await stop_task
 
 
 class TestDeviceServerMeta(unittest.TestCase):
