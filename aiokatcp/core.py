@@ -23,13 +23,6 @@ class Address(object):
         Host address
     port
         Port number
-
-    Attributes
-    ----------
-    host
-        Host address
-    port
-        Port number
     """
     __slots__ = ['_host', '_port']
     _IPV4_RE = re.compile(r'^(?P<host>[^:]+)(:(?P<port>\d+))?$')
@@ -41,10 +34,12 @@ class Address(object):
 
     @property
     def host(self) -> _IPAddress:
+        """Host address"""
         return self._host
 
     @property
     def port(self) -> Optional[int]:
+        """Port number"""
         return self._port
 
     def __str__(self) -> str:
@@ -243,6 +238,16 @@ register_type(enum.Enum, 'discrete', _encode_enum, _decode_enum, _default_enum)
 def encode(value: Any) -> bytes:
     """Encode a value to raw bytes for katcp.
 
+    Parameters
+    ----------
+    value
+        Value to encode
+
+    Raises
+    ------
+    TypeError
+        if the type of `value` has not been registered
+
     See also
     --------
     :func:`register_type`
@@ -264,6 +269,8 @@ def decode(cls: Type[_T], value: bytes) -> _T:
     ------
     ValueError
         if `value` does not have a valid value for `cls`
+    TypeError
+        if `cls` is not a registered type
 
     See also
     --------
