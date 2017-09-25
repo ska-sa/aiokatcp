@@ -204,10 +204,12 @@ class TestDeviceServer(asynctest.TestCase):
         await self._check_reply([b'!version-list[10] ok 3\n'])
 
     async def test_halt(self) -> None:
-        # TODO: should also get a #disconnect from the server
         await self._get_version_info()
         await self._write(b'?halt[11]\n')
-        await self._check_reply([b'!halt[11] ok\n'])
+        await self._check_reply([
+            b'!halt[11] ok\n',
+            br'#disconnect server\_shutting\_down' + b'\n',
+            b''])   # Empty string indicates EOF
         await self.server.join()
 
     async def test_too_few_params(self) -> None:
@@ -237,7 +239,9 @@ class TestDeviceServer(asynctest.TestCase):
         await self._write(b'?wait[1]\n?halt[2]\n')
         await self._check_reply([
             b'!halt[2] ok\n',
-            b'!wait[1] fail request\\_cancelled\n'])
+            b'!wait[1] fail request\\_cancelled\n',
+            b'#disconnect server\\_shutting\\_down\n',
+            b''])    # Empty line indicates EOF
 
     async def test_variadic(self) -> None:
         """Test a request that takes a *args."""

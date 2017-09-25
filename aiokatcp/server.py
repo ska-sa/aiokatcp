@@ -131,6 +131,13 @@ class DeviceServer(metaclass=DeviceServerMeta):
             self._stopping = False
 
     async def stop(self, cancel: bool = True) -> None:
+        """Shut down the server.
+
+        Parameters
+        ----------
+        cancel
+            If true (default), cancel any pending asynchronous requests.
+        """
         async with self._server_lock:
             self._stopping = True
             if self._server is not None:
@@ -146,7 +153,9 @@ class DeviceServer(metaclass=DeviceServerMeta):
                         pass
                     except Exception:
                         logger.exception('Exception from request handler', exc_info=True)
+                msg = core.Message.inform('disconnect', 'server shutting down')
                 for client in list(self._connections):
+                    await client.write_message(msg)
                     await client.stop()
             self._stopped.set()
 
