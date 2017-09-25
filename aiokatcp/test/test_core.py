@@ -238,6 +238,10 @@ class TestMessage(unittest.TestCase):
         msg = Message.reply('fail', 'on fire', mid=234)
         self.assertEqual(bytes(cast(SupportsBytes, msg)), b'!fail[234] on\\_fire\n')
 
+    def test_repr(self) -> None:
+        msg = Message.reply('fail', 'on fire', mid=234)
+        self.assertEqual(repr(msg), "Message(Message.Type.REPLY, 'fail', b'on fire', mid=234)")
+
     def test_parse(self) -> None:
         msg = Message.parse(b'?test message \\0\\n\\r\\t\\e\\_binary\n')
         self.assertEqual(msg, Message.request('test', 'message', b'\0\n\r\t\x1b binary'))

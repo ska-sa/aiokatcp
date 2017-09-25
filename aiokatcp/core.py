@@ -452,6 +452,11 @@ class Message(object):
         output.write(b'\n')
         return output.getvalue()
 
+    def __repr__(self) -> str:
+        return ('Message(Message.Type.{self.mtype.name}, {self.name!r}').format(self=self) \
+                + ''.join(', {!r}'.format(arg) for arg in self.arguments) \
+                + ', mid={!r})'.format(self.mid)
+
     def __eq__(self, other):
         if not isinstance(other, Message):
             return NotImplemented
