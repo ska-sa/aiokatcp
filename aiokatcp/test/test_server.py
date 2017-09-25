@@ -2,6 +2,7 @@ import enum
 import re
 import asyncio
 import ipaddress
+import unittest
 import unittest.mock
 from typing import Tuple, Iterable, Union, Pattern, SupportsBytes, cast
 from typing import List   # noqa: F401
@@ -23,8 +24,9 @@ class DummyServer(DeviceServer):
     VERSION = 'dummy-1.0'
     BUILD_STATE = 'dummy-build-1.0.0'
 
-    def __init__(self):
-        super().__init__('127.0.0.1', 0)
+    def __init__(self, *, loop=None):
+        super().__init__('127.0.0.1', 0, loop=loop)
+        self.event = asyncio.Event(loop=self.loop)
         sensor = Sensor(int, 'counter-queries', 'number of ?counter queries',
                         default=0,
                         initial_status=Sensor.Status.NOMINAL)
@@ -41,9 +43,13 @@ class DummyServer(DeviceServer):
         """Return the arguments to the caller"""
         return tuple(args)
 
-    async def request_sleep(self, ctx: RequestContext, time: float) -> None:
-        """Sleep for some amount of time"""
-        await asyncio.sleep(time, loop=self.loop)
+    async def request_double(self, ctx: RequestContext, number: float) -> float:
+        """Take a float and double it"""
+        return 2 * number
+
+    async def request_wait(self, ctx: RequestContext) -> None:
+        """Wait for an internal event to fire"""
+        await self.event.wait()
 
     async def request_crash(self, ctx: RequestContext) -> None:
         """Request that always raises an exception"""
@@ -64,7 +70,7 @@ class TestDeviceServer(asynctest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-        self.server = DummyServer()
+        self.server = DummyServer(loop=self.loop)
         await self.server.start()
         self.addCleanup(self._stop_server)
         host, port = self.server.server.sockets[0].getsockname()    # type: ignore
@@ -97,7 +103,7 @@ class TestDeviceServer(asynctest.TestCase):
         await self._get_version_info()
         await self._write(b'?help[1]\n')
         commands = sorted([
-            'increment-counter', 'echo', 'sleep', 'crash', 'show-msg',
+            'increment-counter', 'echo', 'double', 'wait', 'crash', 'show-msg',
             'client-list', 'sensor-list', 'sensor-value',
             'halt', 'help', 'watchdog', 'version-list'
         ])
@@ -206,13 +212,13 @@ class TestDeviceServer(asynctest.TestCase):
 
     async def test_too_few_params(self) -> None:
         await self._get_version_info()
-        await self._write(b'?sleep\n')
-        await self._check_reply([re.compile(br'^!sleep fail .*\n$')])
+        await self._write(b'?double\n')
+        await self._check_reply([re.compile(br'^!double fail .*\n$')])
 
     async def test_too_many_params(self) -> None:
         await self._get_version_info()
-        await self._write(b'?sleep 1 2\n')
-        await self._check_reply([re.compile(br'^!sleep fail .*\n$')])
+        await self._write(b'?double 1 2\n')
+        await self._check_reply([re.compile(br'^!double fail .*\n$')])
 
     async def test_unknown_request(self) -> None:
         await self._get_version_info()
@@ -228,7 +234,61 @@ class TestDeviceServer(asynctest.TestCase):
 
     async def test_halt_while_waiting(self) -> None:
         await self._get_version_info()
-        await self._write(b'?sleep[1] 1000\n?halt[2]\n')
+        await self._write(b'?wait[1]\n?halt[2]\n')
         await self._check_reply([
             b'!halt[2] ok\n',
-            b'!sleep[1] fail request\\_cancelled\n'])
+            b'!wait[1] fail request\\_cancelled\n'])
+
+    async def test_variadic(self) -> None:
+        """Test a request that takes a *args."""
+        await self._get_version_info()
+        await self._write(b'?echo hello world\n')
+        await self._check_reply([b'!echo ok hello world\n'])
+
+    async def test_msg_keyword(self) -> None:
+        """Test a request that takes a `msg` keyword-only argument."""
+        await self._get_version_info()
+        await self._write(b'?show-msg[123]\n')
+        await self._check_reply([b'!show-msg[123] ok 123\n'])
+
+    async def test_bad_arg_type(self) -> None:
+        await self._get_version_info()
+        await self._write(b'?double bad\n')
+        await self._check_reply([
+            br"!double fail could\_not\_convert\_string\_to\_float:\_'bad'" + b'\n'])
+
+    async def test_concurrent(self) -> None:
+        await self._get_version_info()
+        await self._write(b'?wait[1]\n?echo[2] test\n')
+        await self._check_reply([b'!echo[2] ok test\n'])
+        self.server.event.set()
+        await self._check_reply([b'!wait[1] ok\n'])
+
+
+class TestDeviceServerMeta(unittest.TestCase):
+    """Test that the metaclass picks up invalid constructions"""
+    def test_missing_help(self) -> None:
+        with self.assertRaises(TypeError):
+            class BadServer(DummyServer):
+                def request_no_help(self):
+                    pass
+
+    def test_too_few_parameters(self) -> None:
+        with self.assertRaises(TypeError):
+            class BadServer(DummyServer):
+                def request_too_few(self):
+                    """Not enough parameters"""
+
+    def test_missing_version(self) -> None:
+        with self.assertRaises(TypeError) as cm:
+            class BadServer(DeviceServer):
+                BUILD_INFO = 'build-info'
+            BadServer('127.0.0.1', 0)
+        self.assertEqual(str(cm.exception), 'BadServer does not define VERSION')
+
+    def test_missing_build_state(self) -> None:
+        with self.assertRaises(TypeError) as cm:
+            class BadServer(DeviceServer):
+                VERSION = 'version'
+            BadServer('127.0.0.1', 0)
+        self.assertEqual(str(cm.exception), 'BadServer does not define BUILD_STATE')
