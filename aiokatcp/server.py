@@ -180,6 +180,9 @@ class DeviceServer(metaclass=DeviceServerMeta):
     async def _client_connected_cb(
             self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         conn = connection.Connection(self, reader, writer, is_server=True)
+        # Copy the connection list, to avoid mutation while iterating and to
+        # exclude the new connection from it.
+        connections = list(self._connections)
         self._connections.add(conn)
         # Make a fake request context for send_version_info
         request = core.Message.request('version-connect')
@@ -187,6 +190,9 @@ class DeviceServer(metaclass=DeviceServerMeta):
         await self.send_version_info(ctx)
         task = conn.start()
         task.add_done_callback(lambda future: self._connections.remove(conn))
+        msg = core.Message.inform('client-connected', conn.address)
+        for old_conn in connections:
+            await old_conn.write_message(msg)
 
     async def _handle_message(self, conn: connection.Connection, msg: core.Message) -> None:
         if self._stopping:
