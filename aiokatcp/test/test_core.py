@@ -289,9 +289,7 @@ class TestMessage(unittest.TestCase):
         for other in [b, c, d, e, f]:
             self.assertTrue(a != other)
             self.assertFalse(a == other)
-            self.assertNotEqual(hash(a), hash(other))
         self.assertTrue(a == a2)
-        self.assertEqual(hash(a), hash(a2))
 
     def test_reply_ok(self):
         self.assertTrue(Message.reply('query', 'ok').reply_ok())

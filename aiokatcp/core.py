@@ -105,7 +105,7 @@ class Address(object):
     def __ne__(self, other):
         return not self == other
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash((self._host, self._port))
 
 
@@ -456,8 +456,7 @@ class Message(object):
     def __ne__(self, other):
         return not self == other
 
-    def __hash__(self) -> int:
-        return hash((self.mtype, self.name, tuple(self.arguments), self.mid))
+    __hash__ = None      # Mutable, so not safely hashable
 
     def reply_ok(self) -> bool:
         """Return True if this is a reply and its first argument is 'ok'."""
