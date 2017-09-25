@@ -63,7 +63,7 @@ class DeviceServerMeta(type):
                         hint = var_pos.annotation
                 else:
                     hint = pos[len(args)].annotation
-                if hint is None:
+                if hint is inspect.Signature.empty:
                     hint = bytes
                 try:
                     args.append(core.decode(hint, argument))
