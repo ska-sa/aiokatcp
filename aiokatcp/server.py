@@ -4,6 +4,7 @@ import functools
 import logging
 import traceback
 import io
+import re
 from typing import Callable, Awaitable, Sequence, Optional, Tuple, Any
 # Only used in type comments, so flake8 complains
 from typing import Dict, Set    # noqa: F401
@@ -14,6 +15,37 @@ from . import core, connection, sensor
 logger = logging.getLogger(__name__)
 _RequestReply = Awaitable[Optional[Sequence]]
 _RequestHandler = Callable[['DeviceServer', 'RequestContext', core.Message], _RequestReply]
+
+
+def construct_name_filter(pattern: Optional[str]) -> Tuple[bool, Callable[[str], bool]]:
+    """Return a function for filtering sensor names based on a pattern.
+
+    Parameters
+    ----------
+    pattern
+        If ``None``, the returned function matches all names.
+        If pattern starts and ends with '/' the text between the slashes
+        is used as a regular expression to search the names.
+        Otherwise the pattern must match the name of the sensor exactly.
+
+    Returns
+    -------
+    exact
+        Return ``True`` if pattern is expected to match exactly. Used to
+        determine whether having no matching sensors constitutes an error.
+    filter_func
+        Function for determining whether a name matches the pattern.
+
+    """
+    if pattern is None:
+        return False, lambda name: True
+    if pattern.startswith('/') and pattern.endswith('/') and pattern != '/':
+        try:
+            name_re = re.compile(pattern[1:-1])
+        except re.error as error:
+            raise connection.FailReply(str(error)) from error
+        return False, lambda name: name_re.search(name) is not None
+    return True, lambda name: name == pattern
 
 
 class RequestContext(object):
@@ -404,8 +436,11 @@ class DeviceServer(metaclass=DeviceServerMeta):
             !sensor-list ok 2
 
         """
-        # TODO: needs to take optional filter argument
-        sensors = sorted(self._sensors.values(), key=lambda sensor: sensor.name)
+        exact, filter_func = construct_name_filter(name)
+        matched = (sensor for sensor in self._sensors.values() if filter_func(sensor.name))
+        sensors = sorted(matched, key=lambda sensor: sensor.name)
+        if exact and not sensors:
+            raise connection.FailReply('unknown sensor name {!r}'.format(name))
         for s in sensors:
             await ctx.inform(s.name, s.description, s.units, s.type_name, *s.params)
         return (len(sensors),)
