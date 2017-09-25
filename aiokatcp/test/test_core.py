@@ -3,6 +3,7 @@ import json
 import ipaddress
 import unittest
 import unittest.mock
+from typing import SupportsBytes, cast
 
 from aiokatcp.core import (
     Message, KatcpSyntaxError, Address, Timestamp, encode, decode, register_type, get_type)
@@ -31,12 +32,12 @@ class TestAddress(unittest.TestCase):
         self.v6_port = Address(ipaddress.ip_address('::1'), 7148)
         self.v6_port_alt = Address(ipaddress.ip_address('00:00::1'), 7148)
 
-    def test_getters(self):
+    def test_getters(self) -> None:
         self.assertEqual(self.v4_no_port.host, ipaddress.ip_address('127.0.0.1'))
         self.assertIsNone(self.v4_no_port.port)
         self.assertEqual(self.v4_port.port, 7148)
 
-    def test_eq(self):
+    def test_eq(self) -> None:
         for addr in [self.v4_no_port, self.v4_port, self.v6_no_port, self.v6_port]:
             self.assertTrue(addr == addr)
         self.assertTrue(self.v6_port == self.v6_port_alt)
@@ -44,36 +45,36 @@ class TestAddress(unittest.TestCase):
         self.assertFalse(self.v4_port == self.v6_port)
         self.assertFalse(self.v4_no_port == '127.0.0.1')
 
-    def test_not_eq(self):
+    def test_not_eq(self) -> None:
         self.assertFalse(self.v6_port != self.v6_port_alt)
         self.assertTrue(self.v4_no_port != self.v4_port)
         self.assertTrue(self.v4_no_port != self.v6_no_port)
         self.assertTrue(self.v4_no_port != '127.0.0.1')
 
-    def test_str(self):
+    def test_str(self) -> None:
         self.assertEqual(str(self.v4_no_port), '127.0.0.1')
         self.assertEqual(str(self.v4_port), '127.0.0.1:7148')
         self.assertEqual(str(self.v6_no_port), '[::1]')
         self.assertEqual(str(self.v6_port), '[::1]:7148')
 
-    def test_bytes(self):
+    def test_bytes(self) -> None:
         self.assertEqual(bytes(self.v4_no_port), b'127.0.0.1')
         self.assertEqual(bytes(self.v4_port), b'127.0.0.1:7148')
         self.assertEqual(bytes(self.v6_no_port), b'[::1]')
         self.assertEqual(bytes(self.v6_port), b'[::1]:7148')
 
-    def test_repr(self):
+    def test_repr(self) -> None:
         self.assertEqual(repr(self.v4_no_port), "Address(IPv4Address('127.0.0.1'))")
         self.assertEqual(repr(self.v4_port), "Address(IPv4Address('127.0.0.1'), 7148)")
         self.assertEqual(repr(self.v6_no_port), "Address(IPv6Address('::1'))")
         self.assertEqual(repr(self.v6_port), "Address(IPv6Address('::1'), 7148)")
 
-    def test_hash(self):
+    def test_hash(self) -> None:
         self.assertEqual(hash(self.v6_port), hash(self.v6_port_alt))
         self.assertNotEqual(hash(self.v4_port), hash(self.v4_no_port))
         self.assertNotEqual(hash(self.v4_port), hash(self.v6_port))
 
-    def test_parse(self):
+    def test_parse(self) -> None:
         for addr in [self.v4_no_port, self.v4_port, self.v6_no_port, self.v6_port]:
             self.assertEqual(Address.parse(bytes(addr)), addr)
         self.assertRaises(ValueError, Address.parse, b'')
@@ -107,25 +108,25 @@ class TestEncodeDecode(unittest.TestCase):
         (OverrideEnum, b'joker')
     ]
 
-    def test_encode(self):
+    def test_encode(self) -> None:
         for _, value, raw in self.VALUES:
             self.assertEqual(encode(value), raw)
 
-    def test_decode(self):
+    def test_decode(self) -> None:
         for type_, value, raw in self.VALUES:
             self.assertEqual(decode(type_, raw), value)
 
-    def test_unknown_class(self):
+    def test_unknown_class(self) -> None:
         self.assertRaises(TypeError, decode, dict, b'{"test": "it"}')
 
-    def test_bad_raw(self):
+    def test_bad_raw(self) -> None:
         for type_, value in self.BAD_VALUES:
             with self.assertRaises(ValueError,
                                    msg='{} should not be valid for {}'.format(value, type_)):
                 decode(type_, value)
 
-    @unittest.mock.patch.dict('aiokatcp.core._types')
-    def test_register_type(self):
+    @unittest.mock.patch.dict('aiokatcp.core._types')   # type: ignore
+    def test_register_type(self) -> None:
         register_type(
             dict, 'string',
             lambda value: json.dumps(value, sort_keys=True).encode('utf-8'),
@@ -143,7 +144,7 @@ class TestEncodeDecode(unittest.TestCase):
                 lambda value: json.dumps(value, sort_keys=True).encode('utf-8'),
                 lambda cls, value: cls(json.loads(value.decode('utf-8'))))
 
-    def test_default(self):
+    def test_default(self) -> None:
         expected = [
             (int, 0),
             (float, 0.0),
@@ -159,7 +160,7 @@ class TestEncodeDecode(unittest.TestCase):
 
 
 class TestMessage(unittest.TestCase):
-    def test_init_basic(self):
+    def test_init_basic(self) -> None:
         msg = Message(Message.Type.REQUEST,
                       'hello', 'world', b'binary\xff\x00', 123, 234.5, True, False)
         self.assertEqual(msg.mtype, Message.Type.REQUEST)
@@ -168,14 +169,14 @@ class TestMessage(unittest.TestCase):
             b'world', b'binary\xff\x00', b'123', b'234.5', b'1', b'0'])
         self.assertIsNone(msg.mid)
 
-    def test_init_mid(self):
+    def test_init_mid(self) -> None:
         msg = Message(Message.Type.REPLY, 'hello', 'world', mid=345)
         self.assertEqual(msg.mtype, Message.Type.REPLY)
         self.assertEqual(msg.name, 'hello')
         self.assertEqual(msg.arguments, [b'world'])
         self.assertEqual(msg.mid, 345)
 
-    def test_init_bad_name(self):
+    def test_init_bad_name(self) -> None:
         self.assertRaises(ValueError, Message, Message.Type.REPLY,
                           'underscores_bad', 'world', mid=345)
         self.assertRaises(ValueError, Message, Message.Type.REPLY,
@@ -183,34 +184,34 @@ class TestMessage(unittest.TestCase):
         self.assertRaises(ValueError, Message, Message.Type.REPLY,
                           '1numberfirst', 'world', mid=345)
 
-    def test_init_bad_mid(self):
+    def test_init_bad_mid(self) -> None:
         self.assertRaises(ValueError, Message, Message.Type.REPLY,
                           'hello', 'world', mid=0)
         self.assertRaises(ValueError, Message, Message.Type.REPLY,
                           'hello', 'world', mid=0x1000000000)
 
-    def test_request(self):
+    def test_request(self) -> None:
         msg = Message.request('hello', 'world')
         self.assertEqual(msg.mtype, Message.Type.REQUEST)
         self.assertEqual(msg.name, 'hello')
         self.assertEqual(msg.arguments, [b'world'])
         self.assertIsNone(msg.mid)
 
-    def test_reply(self):
+    def test_reply(self) -> None:
         msg = Message.reply('hello', 'world', mid=None)
         self.assertEqual(msg.mtype, Message.Type.REPLY)
         self.assertEqual(msg.name, 'hello')
         self.assertEqual(msg.arguments, [b'world'])
         self.assertIsNone(msg.mid)
 
-    def test_inform(self):
+    def test_inform(self) -> None:
         msg = Message.inform('hello', 'world', mid=1)
         self.assertEqual(msg.mtype, Message.Type.INFORM)
         self.assertEqual(msg.name, 'hello')
         self.assertEqual(msg.arguments, [b'world'])
         self.assertEqual(msg.mid, 1)
 
-    def test_reply_to_request(self):
+    def test_reply_to_request(self) -> None:
         req = Message.request('hello', 'world', mid=1)
         reply = Message.reply_to_request(req, 'test')
         self.assertEqual(reply.mtype, Message.Type.REPLY)
@@ -218,7 +219,7 @@ class TestMessage(unittest.TestCase):
         self.assertEqual(reply.arguments, [b'test'])
         self.assertEqual(reply.mid, 1)
 
-    def test_inform_reply(self):
+    def test_inform_reply(self) -> None:
         req = Message.request('hello', 'world', mid=1)
         reply = Message.inform_reply(req, 'test')
         self.assertEqual(reply.mtype, Message.Type.INFORM)
@@ -226,59 +227,59 @@ class TestMessage(unittest.TestCase):
         self.assertEqual(reply.arguments, [b'test'])
         self.assertEqual(reply.mid, 1)
 
-    def test_bytes(self):
+    def test_bytes(self) -> None:
         msg = Message.request(
             'hello', 'café', b'_bin ary\xff\x00\n\r\t\\\x1b', 123, 234.5, True, False, '')
-        raw = bytes(msg)
+        raw = bytes(cast(SupportsBytes, msg))
         expected = b'?hello caf\xc3\xa9 _bin\\_ary\xff\\0\\n\\r\\t\\\\\\e 123 234.5 1 0 \\@\n'
         self.assertEqual(raw, expected)
 
-    def test_bytes_mid(self):
+    def test_bytes_mid(self) -> None:
         msg = Message.reply('fail', 'on fire', mid=234)
-        self.assertEqual(bytes(msg), b'!fail[234] on\\_fire\n')
+        self.assertEqual(bytes(cast(SupportsBytes, msg)), b'!fail[234] on\\_fire\n')
 
-    def test_parse(self):
+    def test_parse(self) -> None:
         msg = Message.parse(b'?test message \\0\\n\\r\\t\\e\\_binary\n')
         self.assertEqual(msg, Message.request('test', 'message', b'\0\n\r\t\x1b binary'))
 
-    def test_parse_mid(self):
+    def test_parse_mid(self) -> None:
         msg = Message.parse(b'?test[222] message \\0\\n\\r\\t\\e\\_binary\n')
         self.assertEqual(msg, Message.request('test', 'message', b'\0\n\r\t\x1b binary', mid=222))
         msg = Message.parse(b'?test[1] message\n')
         self.assertEqual(msg, Message.request('test', 'message', mid=1))
 
-    def test_parse_empty(self):
+    def test_parse_empty(self) -> None:
         self.assertRaises(KatcpSyntaxError, Message.parse, b'')
 
-    def test_parse_leading_whitespace(self):
+    def test_parse_leading_whitespace(self) -> None:
         self.assertRaises(KatcpSyntaxError, Message.parse, b' !ok\n')
 
-    def test_parse_bad_name(self):
+    def test_parse_bad_name(self) -> None:
         self.assertRaises(KatcpSyntaxError, Message.parse, b'?bad_name message\n')
         self.assertRaises(KatcpSyntaxError, Message.parse, b'? emptyname\n')
 
-    def test_parse_out_of_range_mid(self):
+    def test_parse_out_of_range_mid(self) -> None:
         self.assertRaises(KatcpSyntaxError, Message.parse, b'!ok[1000000000000]\n')
 
-    def test_parse_bad_mid(self):
+    def test_parse_bad_mid(self) -> None:
         self.assertRaises(KatcpSyntaxError, Message.parse, b'!ok[10\n')
         self.assertRaises(KatcpSyntaxError, Message.parse, b'!ok[0]\n')
         self.assertRaises(KatcpSyntaxError, Message.parse, b'!ok[a]\n')
 
-    def test_parse_bad_type(self):
+    def test_parse_bad_type(self) -> None:
         self.assertRaises(KatcpSyntaxError, Message.parse, b'%ok\n')
 
-    def test_parse_bad_escape(self):
+    def test_parse_bad_escape(self) -> None:
         self.assertRaises(KatcpSyntaxError, Message.parse, b'!ok \\q\n')
         self.assertRaises(KatcpSyntaxError, Message.parse, b'!ok q\\ other\n')
 
-    def test_parse_unescaped(self):
+    def test_parse_unescaped(self) -> None:
         self.assertRaises(KatcpSyntaxError, Message.parse, b'!ok \x1b\n')
 
-    def test_parse_no_newline(self):
+    def test_parse_no_newline(self) -> None:
         self.assertRaises(KatcpSyntaxError, Message.parse, b'!ok')
 
-    def test_compare(self):
+    def test_compare(self) -> None:
         a = Message.request('info', 'yes')
         a2 = Message.request('info', 'yes')
         b = Message.request('info', 'yes', mid=123)
@@ -291,7 +292,7 @@ class TestMessage(unittest.TestCase):
             self.assertFalse(a == other)
         self.assertTrue(a == a2)
 
-    def test_reply_ok(self):
+    def test_reply_ok(self) -> None:
         self.assertTrue(Message.reply('query', 'ok').reply_ok())
         self.assertFalse(Message.reply('query', 'fail', 'error').reply_ok())
         self.assertFalse(Message.request('query', 'ok').reply_ok())

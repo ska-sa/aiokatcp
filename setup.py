@@ -2,7 +2,7 @@
 
 from setuptools import setup, find_packages
 
-tests_require = ['asynctest']
+tests_require = ['asynctest', 'async-timeout']
 docs_require = ['sphinx', 'sphinx-autodoc-typehints', 'sphinxcontrib-asyncio']
 
 setup(
