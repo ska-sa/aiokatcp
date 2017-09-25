@@ -31,6 +31,11 @@ class TestAddress(unittest.TestCase):
         self.v6_port = Address(ipaddress.ip_address('::1'), 7148)
         self.v6_port_alt = Address(ipaddress.ip_address('00:00::1'), 7148)
 
+    def test_getters(self):
+        self.assertEqual(self.v4_no_port.host, ipaddress.ip_address('127.0.0.1'))
+        self.assertIsNone(self.v4_no_port.port)
+        self.assertEqual(self.v4_port.port, 7148)
+
     def test_eq(self):
         for addr in [self.v4_no_port, self.v4_port, self.v6_no_port, self.v6_port]:
             self.assertTrue(addr == addr)

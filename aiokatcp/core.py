@@ -3,7 +3,7 @@ import re
 import io
 import ipaddress
 from typing import (
-    Match, Any, Callable, Union, Type, Iterable, SupportsBytes, Generic, TypeVar, cast)
+    Match, Any, Callable, Union, Type, Iterable, SupportsBytes, Generic, TypeVar, Optional, cast)
 # Only used in type comments, so flake8 complains
 from typing import Dict   # noqa: F401
 
@@ -31,21 +31,29 @@ class Address(object):
     port
         Port number
     """
-    __slots__ = ['host', 'port']
+    __slots__ = ['_host', '_port']
     _IPV4_RE = re.compile(r'^(?P<host>[^:]+)(:(?P<port>\d+))?$')
     _IPV6_RE = re.compile(r'^\[(?P<host>[^]]+)\](:(?P<port>\d+))?$')
 
     def __init__(self, host: _IPAddress, port: int = None) -> None:
-        self.host = host
-        self.port = port
+        self._host = host
+        self._port = port
+
+    @property
+    def host(self) -> _IPAddress:
+        return self._host
+
+    @property
+    def port(self) -> Optional[int]:
+        return self._port
 
     def __str__(self) -> str:
-        if isinstance(self.host, ipaddress.IPv4Address):
-            prefix = str(self.host)
+        if isinstance(self._host, ipaddress.IPv4Address):
+            prefix = str(self._host)
         else:
-            prefix = '[' + str(self.host) + ']'
-        if self.port is not None:
-            return '{}:{}'.format(prefix, self.port)
+            prefix = '[' + str(self._host) + ']'
+        if self._port is not None:
+            return '{}:{}'.format(prefix, self._port)
         else:
             return prefix
 
@@ -54,10 +62,10 @@ class Address(object):
         return str(self).encode('utf-8')
 
     def __repr__(self) -> str:
-        if self.port is None:
-            return 'Address({!r})'.format(self.host)
+        if self._port is None:
+            return 'Address({!r})'.format(self._host)
         else:
-            return 'Address({!r}, {!r})'.format(self.host, self.port)
+            return 'Address({!r}, {!r})'.format(self._host, self._port)
 
     @classmethod
     def parse(cls, raw: bytes) -> 'Address':
@@ -92,13 +100,13 @@ class Address(object):
     def __eq__(self, other):
         if not isinstance(other, Address):
             return NotImplemented
-        return (self.host, self.port) == (other.host, other.port)
+        return (self._host, self._port) == (other._host, other._port)
 
     def __ne__(self, other):
         return not self == other
 
     def __hash__(self):
-        return hash((self.host, self.port))
+        return hash((self._host, self._port))
 
 
 class Timestamp(float):
