@@ -5,7 +5,7 @@ import logging
 import traceback
 import io
 import re
-from typing import Callable, Awaitable, Sequence, Optional, Tuple, List, Any
+from typing import Callable, Awaitable, Sequence, Optional, List, Any
 # Only used in type comments, so flake8 complains
 from typing import Dict, Set, Iterable    # noqa: F401
 
@@ -204,7 +204,9 @@ class DeviceServer(metaclass=DeviceServerMeta):
                     ret = await handler(self, ctx, msg)
                     if ret is None:
                         ret = ()
-                    ret = (core.Message.OK,) + tuple(ret)
+                    elif not isinstance(ret, tuple):
+                        ret = (ret,)
+                    ret = (core.Message.OK,) + ret
                 except asyncio.CancelledError:
                     logger.info('request %r cancelled', msg.name)
                     ret = (core.Message.FAIL, 'request cancelled')
@@ -223,7 +225,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         self._pending.add(task)
         task.add_done_callback(self._pending.remove)
 
-    async def request_help(self, ctx: RequestContext, name: str = None) -> Tuple[int]:
+    async def request_help(self, ctx: RequestContext, name: str = None) -> int:
         """Return help on the available requests.
 
         Return a description of the available requests using a sequence of
@@ -277,7 +279,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
                 raise FailReply('request {} is not known'.format(name)) from error
             await ctx.inform(name, handler.__doc__)
             n += 1
-        return (n,)
+        return n
 
     async def request_halt(self, ctx: RequestContext) -> None:
         """Halt the device server.
@@ -314,7 +316,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         """
         pass
 
-    async def request_version_list(self, ctx: RequestContext) -> Tuple[int]:
+    async def request_version_list(self, ctx: RequestContext) -> int:
         """Request the list of versions of roles and subcomponents.
 
         Informs
@@ -349,7 +351,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
 
         """
         num_informs = await self.send_version_info(ctx)
-        return (num_informs,)
+        return num_informs
 
     def _get_sensors(self, name: Optional[str]) -> List[sensor.Sensor]:
         """Retrieve the list of sensors, optionally filtered by a name or regex.
@@ -380,7 +382,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             matched = [self._sensors[name]]
         return sorted(matched, key=lambda sensor: sensor.name)
 
-    async def request_sensor_list(self, ctx: RequestContext, name: str = None) -> Tuple[int]:
+    async def request_sensor_list(self, ctx: RequestContext, name: str = None) -> int:
         """Request the list of sensors.
 
         The list of sensors is sent as a sequence of #sensor-list informs.
@@ -438,9 +440,9 @@ class DeviceServer(metaclass=DeviceServerMeta):
         sensors = self._get_sensors(name)
         for s in sensors:
             await ctx.inform(s.name, s.description, s.units, s.type_name, *s.params)
-        return (len(sensors),)
+        return len(sensors)
 
-    async def request_sensor_value(self, ctx: RequestContext, name: str = None) -> Tuple[int]:
+    async def request_sensor_value(self, ctx: RequestContext, name: str = None) -> int:
         """Request the value of a sensor or sensors.
 
         A list of sensor values as a sequence of #sensor-value informs.
@@ -492,4 +494,4 @@ class DeviceServer(metaclass=DeviceServerMeta):
         sensors = self._get_sensors(name)
         for s in sensors:
             await ctx.inform(s.timestamp, 1, s.name, s.status, s.value)
-        return (len(sensors),)
+        return len(sensors)
