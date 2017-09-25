@@ -3,12 +3,12 @@ import re
 import asyncio
 import ipaddress
 import unittest.mock
-from typing import Tuple, Iterable, List, Union, Pattern, SupportsBytes, cast
+from typing import Tuple, Iterable, Union, Pattern, SupportsBytes, cast
+from typing import List   # noqa: F401
 
 import asynctest
 
 from aiokatcp.core import Message, Address
-from aiokatcp.connection import FailReply
 from aiokatcp.server import DeviceServer, RequestContext
 from aiokatcp.sensor import Sensor
 from aiokatcp.test.test_connection import timelimit

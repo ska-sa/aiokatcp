@@ -15,6 +15,7 @@ def timelimit(limit=5.0):
     if inspect.isfunction(limit) or inspect.isclass(limit):
         # Used without parameters
         return timelimit()(limit)
+
     def decorator(arg):
         if inspect.isclass(arg):
             for key, value in arg.__dict__.items():
