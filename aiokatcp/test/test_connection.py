@@ -90,7 +90,8 @@ class TestConnection(asynctest.TestCase):
     async def _ok_reply(self, conn, msg):
         if self.ok_wait:
             await self.ok_wait.acquire()
-        await conn.write_message(Message.reply_to_request(msg, 'ok'))
+        conn.write_message(Message.reply_to_request(msg, 'ok'))
+        await conn.drain()
         self.ok_done.release()
 
     def _ok_handler(self, conn, msg):
@@ -125,7 +126,8 @@ class TestConnection(asynctest.TestCase):
 
     async def test_write_message(self) -> None:
         conn = Connection(self.owner, self.reader, self.writer, True)
-        await conn.write_message(Message.reply('ok', mid=1))
+        conn.write_message(Message.reply('ok', mid=1))
+        await conn.drain()
         line = await self.remote_reader.readline()
         self.assertEqual(line, b'!ok[1]\n')
 
@@ -134,7 +136,7 @@ class TestConnection(asynctest.TestCase):
         task = conn.start()
         self.addCleanup(conn.stop)
         self.remote_writer.write(b'?watchdog[2]\n')
-        await asyncio.wait_for(self.ok_done.acquire(), timeout=2, loop=self.loop)
+        await self.ok_done.acquire()
         self.owner.handle_message.assert_called_with(conn, Message.request('watchdog', mid=2))
         reply = await self.remote_reader.readline()
         self.assertEqual(reply, b'!watchdog[2] ok\n')
@@ -149,21 +151,26 @@ class TestConnection(asynctest.TestCase):
         # Don't send the reply until the socket is closed
         self.ok_wait = asyncio.Semaphore(0, loop=self.loop)
         self.addCleanup(conn.stop)
-        self.remote_writer.write(b'?watchdog[2]\n?watchdog[3]\n')
+        self.remote_writer.write(b'?watchdog[2]\n?watchdog[3]\n?watchdog[4]\n')
         self.remote_writer.close()
         await asynctest.exhaust_callbacks(self.loop)
         self.ok_wait.release()
         self.ok_wait.release()
-        with self.assertLogs('aiokatcp.connection', logging.WARN) as cm:
-            # Wait for both watchdogs and the close to go through
+        with self.assertLogs('aiokatcp.connection', logging.WARNING) as cm:
+            # Wait for first two watchdogs and the close to go through
             await self.ok_done.acquire()
             await self.ok_done.acquire()
             await task
-            self.owner.handle_message.assert_called_with(conn, Message.request('watchdog', mid=3))
+            self.owner.handle_message.assert_called_with(conn, Message.request('watchdog', mid=4))
         # Note: should only be one warning, not two
-        self.assertEqual(cm.output, [
-            'WARNING:aiokatcp.connection:Connection closed before message could be sent: '
-            'Connection lost'])
+        self.assertEqual(1, len(cm.output))
+        self.assertRegex(
+            cm.output[0],
+            r'^WARNING:aiokatcp\.connection:Connection closed .*: Connection lost$')
+        # Allow the final watchdog to go through. This just provides test coverage
+        # that Connection.write_message handles the writer having already gone away.
+        self.ok_wait.release()
+        await asynctest.exhaust_callbacks(self.loop)
 
     async def test_malformed(self) -> None:
         conn = Connection(self.owner, self.reader, self.writer, True)
@@ -173,7 +180,7 @@ class TestConnection(asynctest.TestCase):
         self.remote_writer.write_eof()
         with self.assertLogs('aiokatcp.connection', logging.WARN) as cm:
             # Wait for the close to go through
-            await asyncio.wait_for(task, timeout=2, loop=self.loop)
+            await task
             self.owner.handle_message.assert_not_called()
         self.assertEqual(len(cm.output), 1)
         self.assertRegex(cm.output[0], 'Malformed message received.*')
@@ -204,6 +211,7 @@ class TestConnection(asynctest.TestCase):
         self.remote_writer.write(b'?watchdog[2]\n')
         self.remote_writer.close()
         with self.assertLogs('aiokatcp.connection', logging.ERROR) as cm:
-            await task
+            with self.assertRaises(RuntimeError):
+                await task
         self.assertEqual(len(cm.output), 1)
         self.assertRegex(cm.output[0], '(?s)Exception in connection handler.*test error')

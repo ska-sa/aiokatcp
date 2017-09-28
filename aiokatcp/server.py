@@ -22,14 +22,27 @@ class RequestContext(object):
     def __init__(self, conn: connection.Connection, req: core.Message) -> None:
         self.conn = conn
         self.req = req
+        self._replied = False
 
-    async def reply(self, *args: Any) -> None:
+    @property
+    def replied(self) -> bool:
+        return self._replied
+
+    def reply(self, *args: Any) -> None:
+        if self._replied:
+            raise RuntimeError('request ?{} has already been replied to'.format(self.req.name))
         msg = core.Message.reply_to_request(self.req, *args)
-        await self.conn.write_message(msg)
+        self.conn.write_message(msg)
+        self._replied = True
 
-    async def inform(self, *args: Any) -> None:
+    def inform(self, *args: Any) -> None:
+        if self._replied:
+            raise RuntimeError('request ?{} has already been replied to'.format(self.req.name))
         msg = core.Message.inform_reply(self.req, *args)
-        await self.conn.write_message(msg)
+        self.conn.write_message(msg)
+
+    async def drain(self) -> None:
+        await self.conn.drain()
 
 
 class DeviceServerMeta(type):
@@ -151,18 +164,14 @@ class DeviceServer(metaclass=DeviceServerMeta):
                 self._server.close()
                 await self._server.wait_closed()
                 self._server = None
-                for task in list(self._pending):
-                    if cancel:
-                        task.cancel()
-                    try:
-                        await task
-                    except asyncio.CancelledError:
-                        pass
-                    except Exception:
-                        logger.exception('Exception from request handler', exc_info=True)
+                if self._pending:
+                    for task in self._pending:
+                        if cancel and not task.done():
+                            task.cancel()
+                    await asyncio.wait(list(self._pending), loop=self.loop)
                 msg = core.Message.inform('disconnect', 'server shutting down')
                 for client in list(self._connections):
-                    await client.write_message(msg)
+                    client.write_message(msg)
                     await client.stop()
             self._stopped.set()
 
@@ -176,7 +185,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
     def server(self):
         return self._server
 
-    async def send_version_info(self, ctx: RequestContext) -> int:
+    def send_version_info(self, ctx: RequestContext) -> int:
         """Send version information informs to the client.
 
         This is used for asynchronous #version-connect informs when a client
@@ -187,10 +196,10 @@ class DeviceServer(metaclass=DeviceServerMeta):
         num_informs
             Number of informs sent
         """
-        await ctx.inform('katcp-protocol', '5.0-MI')
+        ctx.inform('katcp-protocol', '5.0-MI')
         # TODO: use katversion to get version number
-        await ctx.inform('katcp-library', 'aiokatcp-0.1', 'aiokatcp-0.1')
-        await ctx.inform('katcp-device', self.VERSION, self.BUILD_STATE)
+        ctx.inform('katcp-library', 'aiokatcp-0.1', 'aiokatcp-0.1')
+        ctx.inform('katcp-device', self.VERSION, self.BUILD_STATE)
         return 3
 
     async def _client_connected_cb(
@@ -203,49 +212,70 @@ class DeviceServer(metaclass=DeviceServerMeta):
         # Make a fake request context for send_version_info
         request = core.Message.request('version-connect')
         ctx = RequestContext(conn, request)
-        await self.send_version_info(ctx)
+        self.send_version_info(ctx)
         task = conn.start()
         task.add_done_callback(lambda future: self._connections.remove(conn))
         msg = core.Message.inform('client-connected', conn.address)
         for old_conn in connections:
-            await old_conn.write_message(msg)
+            old_conn.write_message(msg)
 
-    async def _handle_message(self, conn: connection.Connection, msg: core.Message) -> None:
+    def _handle_request_done_callback(self, ctx: RequestContext, task: asyncio.Task) -> None:
+        error_msg = None
+        self._pending.discard(task)
+        if task.cancelled():
+            if ctx.replied:
+                return     # Cancelled while draining the reply - not critical
+            logger.info('request %r cancelled', ctx.req.name)
+            error_msg = 'request cancelled'
+        else:
+            try:
+                task.result()
+            except FailReply as error:
+                error_msg = str(error)
+            except Exception:
+                logger.exception('uncaught exception while handling %r',
+                                 ctx.req.name, exc_info=True)
+                output = io.StringIO('uncaught exception:\n')
+                traceback.print_exc(file=output)
+                error_msg = output.getvalue()
+        if not ctx.replied:
+            if error_msg is None:
+                error_msg = 'request handler returned without replying'
+            ctx.reply(core.Message.FAIL, error_msg)
+        elif error_msg is not None:
+            # We somehow replied before failing, so can't put the error
+            # message in a reply - use an out-of-band inform instead.
+            ctx.conn.write_message(core.Message.inform('log', 'error', error_msg))
+
+    async def _handle_request(self, ctx: RequestContext, msg: core.Message) -> None:
+        try:
+            handler = self._request_handlers[msg.name]
+        except KeyError:
+            ret = (core.Message.INVALID, 'unknown request {}'.format(msg.name))  # type: Any
+        else:
+            ret = await handler(self, ctx, msg)
+            if ctx.replied and ret is not None:
+                raise RuntimeError('handler both replied and returned a value')
+            if ret is None:
+                ret = ()
+            elif not isinstance(ret, tuple):
+                ret = (ret,)
+            ret = (core.Message.OK,) + ret
+        if not ctx.replied:
+            ctx.reply(*ret)
+        await ctx.drain()
+
+    def handle_message(self, conn: connection.Connection, msg: core.Message) -> None:
         if self._stopping:
             return
         if msg.mtype == core.Message.Type.REQUEST:
-            try:
-                handler = self._request_handlers[msg.name]
-            except KeyError:
-                reply = core.Message.reply_to_request(
-                    msg, core.Message.INVALID, 'unknown request {}'.format(msg.name))
-                await conn.write_message(reply)
-            else:
-                ctx = RequestContext(conn, msg)
-                try:
-                    ret = await handler(self, ctx, msg)
-                    if ret is None:
-                        ret = ()
-                    elif not isinstance(ret, tuple):
-                        ret = (ret,)
-                    ret = (core.Message.OK,) + ret
-                except asyncio.CancelledError:
-                    logger.info('request %r cancelled', msg.name)
-                    ret = (core.Message.FAIL, 'request cancelled')
-                except FailReply as error:
-                    ret = (core.Message.FAIL, str(error))
-                except Exception as error:
-                    logger.exception('uncaught exception while handling %r',
-                                     msg.name, exc_info=True)
-                    output = io.StringIO('uncaught exception:\n')
-                    traceback.print_exc(file=output)
-                    ret = (core.Message.FAIL, output.getvalue())
-                await ctx.reply(*ret)
-
-    def handle_message(self, conn: connection.Connection, msg: core.Message) -> None:
-        task = self.loop.create_task(self._handle_message(conn, msg))
-        self._pending.add(task)
-        task.add_done_callback(self._pending.remove)
+            ctx = RequestContext(conn, msg)
+            task = self.loop.create_task(self._handle_request(ctx, msg))
+            self._pending.add(task)
+            task.add_done_callback(functools.partial(self._handle_request_done_callback, ctx))
+        else:
+            pass
+            # TODO: handle other message types
 
     async def request_help(self, ctx: RequestContext, name: str = None) -> int:
         """Return help on the available requests.
@@ -292,14 +322,14 @@ class DeviceServer(metaclass=DeviceServerMeta):
         if name is None:
             for key, handler in sorted(self._request_handlers.items()):
                 doc = handler.__doc__.splitlines()[0]
-                await ctx.inform(key, doc)
+                ctx.inform(key, doc)
                 n += 1
         else:
             try:
                 handler = self._request_handlers[name]
             except KeyError as error:
                 raise FailReply('request {} is not known'.format(name)) from error
-            await ctx.inform(name, handler.__doc__)
+            ctx.inform(name, handler.__doc__)
             n += 1
         return n
 
@@ -372,8 +402,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             !version-list ok 3
 
         """
-        num_informs = await self.send_version_info(ctx)
-        return num_informs
+        return self.send_version_info(ctx)
 
     def _get_sensors(self, name: Optional[str]) -> List[sensor.Sensor]:
         """Retrieve the list of sensors, optionally filtered by a name or regex.
@@ -461,7 +490,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         """
         sensors = self._get_sensors(name)
         for s in sensors:
-            await ctx.inform(s.name, s.description, s.units, s.type_name, *s.params)
+            ctx.inform(s.name, s.description, s.units, s.type_name, *s.params)
         return len(sensors)
 
     async def request_sensor_value(self, ctx: RequestContext, name: str = None) -> int:
@@ -517,7 +546,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         """
         sensors = self._get_sensors(name)
         for s in sensors:
-            await ctx.inform(s.timestamp, 1, s.name, s.status, s.value)
+            ctx.inform(s.timestamp, 1, s.name, s.status, s.value)
         return len(sensors)
 
     async def request_client_list(self, ctx: RequestContext) -> int:
@@ -549,7 +578,6 @@ class DeviceServer(metaclass=DeviceServerMeta):
             !client-list ok 1
 
         """
-        clients = list(self._connections)   # Copy, since it can change while we iterate
-        for conn in clients:
-            await ctx.inform(conn.address)
-        return len(clients)
+        for conn in self._connections:
+            ctx.inform(conn.address)
+        return len(self._connections)

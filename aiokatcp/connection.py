@@ -75,61 +75,75 @@ class Connection(object):
         self.writer = writer  # type: Optional[asyncio.StreamWriter]
         host, port = writer.get_extra_info('peername')
         self.address = core.Address(ipaddress.ip_address(host), port)
-        self._writer_lock = asyncio.Lock(loop=owner.loop)
+        self._drain_lock = asyncio.Lock(loop=owner.loop)
         self.is_server = is_server
         self._task = None     # type: Optional[asyncio.Task]
 
     def start(self) -> asyncio.Task:
         self._task = self.owner.loop.create_task(self._run())
+        self._task.add_done_callback(self._done_callback)
         return self._task
 
-    async def write_message(self, msg: core.Message) -> None:
-        async with self._writer_lock:
-            if self.writer is None:
-                return     # We previously detected that it was closed
-            try:
-                # cast to work around https://github.com/python/mypy/issues/3989
-                raw = bytes(cast(SupportsBytes, msg))
-                self.writer.write(raw)
-                await self.writer.drain()
-            except ConnectionError as error:
-                logger.warning('Connection closed before message could be sent: %s', error)
-                self.writer.close()
-                self.writer = None
+    def _close_writer(self):
+        if self.writer is not None:
+            self.writer.close()
+            self.writer = None
+
+    def write_message(self, msg: core.Message) -> None:
+        """Write a message to the connection.
+
+        Connection errors are logged and swallowed.
+        """
+        if self.writer is None:
+            return     # We previously detected that it was closed
+        try:
+            # cast to work around https://github.com/python/mypy/issues/3989
+            raw = bytes(cast(SupportsBytes, msg))
+            self.writer.write(raw)
+        except ConnectionError as error:
+            logger.warning('Connection closed before message could be sent: %s', error)
+            self._close_writer()
+
+    async def drain(self) -> None:
+        """Block until the outgoing write buffer is small enough."""
+        # The Python 3.5 implementation of StreamWriter.drain is not reentrant,
+        # so we use a lock.
+        async with self._drain_lock:
+            if self.writer is not None:
+                try:
+                    await self.writer.drain()
+                except ConnectionError as error:
+                    logger.warning('Connection closed while draining: %s', error)
+                    self._close_writer()
 
     async def _run(self) -> None:
-        try:
+        while True:
+            # If the output buffer gets too full, pause processing requests
+            await self.drain()
             try:
-                while True:
-                    try:
-                        msg = await read_message(self.reader)
-                    except core.KatcpSyntaxError as error:
-                        logger.warning('Malformed message received', exc_info=True)
-                        if self.is_server:
-                            # TODO: #log informs are supposed to go to all clients
-                            await self.write_message(
-                                core.Message.inform('log', 'error', str(error)))
-                    else:
-                        if msg is None:   # EOF received
-                            break
-                        self.owner.handle_message(self, msg)
-            finally:
-                async with self._writer_lock:
-                    if self.writer is not None:
-                        self.writer.close()
-        except asyncio.CancelledError:
-            raise
-        except Exception as error:
-            logger.exception('Exception in connection handler', exc_info=True)
+                msg = await read_message(self.reader)
+            except core.KatcpSyntaxError as error:
+                logger.warning('Malformed message received', exc_info=True)
+                if self.is_server:
+                    # TODO: #log informs are supposed to go to all clients
+                    self.write_message(
+                        core.Message.inform('log', 'error', str(error)))
+            else:
+                if msg is None:   # EOF received
+                    break
+                self.owner.handle_message(self, msg)
+
+    def _done_callback(self, task: asyncio.Future) -> None:
+        if not task.cancelled():
+            try:
+                task.result()
+            except Exception as error:
+                logger.exception('Exception in connection handler')
 
     async def stop(self) -> None:
         task = self._task
-        if task is not None:
+        if task is not None and not task.done():
             task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-            finally:
-                if self._task is task:
-                    self._task = None
+            await asyncio.wait([task], loop=self.owner.loop)
+        self._task = None
+        self._close_writer()
