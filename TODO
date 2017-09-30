@@ -1,8 +1,6 @@
 - revisit exception handling when socket closes or half-closes
 - make Connection a generic
 - check if TCP_NODELAY is active
-- allow sending multiple informs as a single write
-- look at the cancellation handling again - I think there may be race conditions
 - mass_inform
 - strict timestamp parsing
 - mechanism to enforce human readable ASCII on certain strings

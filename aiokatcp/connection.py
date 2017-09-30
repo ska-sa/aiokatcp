@@ -2,7 +2,7 @@ import logging
 import asyncio
 import re
 import ipaddress
-from typing import Any, Optional, SupportsBytes, cast
+from typing import Any, Optional, SupportsBytes, Iterable, cast
 
 from . import core
 
@@ -89,8 +89,8 @@ class Connection(object):
             self.writer.close()
             self.writer = None
 
-    def write_message(self, msg: core.Message) -> None:
-        """Write a message to the connection.
+    def write_messages(self, msgs: Iterable[core.Message]) -> None:
+        """Write a stream of messages to the connection.
 
         Connection errors are logged and swallowed.
         """
@@ -98,11 +98,18 @@ class Connection(object):
             return     # We previously detected that it was closed
         try:
             # cast to work around https://github.com/python/mypy/issues/3989
-            raw = bytes(cast(SupportsBytes, msg))
+            raw = b''.join(bytes(cast(SupportsBytes, msg)) for msg in msgs)
             self.writer.write(raw)
         except ConnectionError as error:
             logger.warning('Connection closed before message could be sent: %s', error)
             self._close_writer()
+
+    def write_message(self, msg: core.Message) -> None:
+        """Write a message to the connection.
+
+        Connection errors are logged and swallowed.
+        """
+        self.write_messages([msg])
 
     async def drain(self) -> None:
         """Block until the outgoing write buffer is small enough."""

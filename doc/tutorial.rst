@@ -63,8 +63,8 @@ See :ref:`type-conversions` below for details of which Python types you can
 use and how the conversions work. You can even use argument defaults or a
 ``*args`` parameter for variadic requests.
 
-In rare cases where you need access to the original :class:`Message` object,
-you can provide a keyword-only parameter called `msg`.
+If you need access to the original :class:`Message` object, it can be accessed
+as :attr:`.RequestContext.msg`.
 
 Your function needs to return an :dfn:`awaitable` — the simplest way to do
 that is to make it a coroutine i.e., declare it with ``async def``. If
@@ -97,6 +97,13 @@ exceptions will include the full traceback and also make an entry in the
 server's logs. Thus, :exc:`~aiokatcp.connection.FailReply` should be used when
 the error is "expected" (such as due to the client's mistake) while other
 exceptions should generally indicate a serious problem in the server.
+
+There are a few other ways to make replies. You can set a reply by calling
+:meth:`.RequestContext.reply` — in this case your coroutine must return
+``None``. A convention used by several katcp requests is to respond with a
+sequence of informs, followed by an ``ok`` reply with the number of informs.
+Such a response can be produced by calling :meth:`.RequestContext.informs`, and
+this may be more efficient than sending informs individually.
 
 .. _type-conversions:
 

@@ -5,9 +5,9 @@ import logging
 import traceback
 import io
 import re
-from typing import Callable, Awaitable, Sequence, Optional, List, Any
+from typing import Callable, Awaitable, Sequence, Iterable, Optional, List, Any
 # Only used in type comments, so flake8 complains
-from typing import Dict, Set, Iterable    # noqa: F401
+from typing import Dict, Set    # noqa: F401
 
 from . import core, connection, sensor
 from .connection import FailReply
@@ -41,6 +41,17 @@ class RequestContext(object):
         msg = core.Message.inform_reply(self.req, *args)
         self.conn.write_message(msg)
 
+    def informs(self, informs: Iterable[Iterable], *, send_reply=True) -> None:
+        """Write a sequence of informs and send an ok reply with the count."""
+        if self._replied:
+            raise RuntimeError('request ?{} has already been replied to'.format(self.req.name))
+        msgs = [core.Message.inform_reply(self.req, *inform) for inform in informs]
+        if send_reply:
+            msgs.append(core.Message.reply_to_request(self.req, core.Message.OK, len(msgs)))
+        self.conn.write_messages(msgs)
+        if send_reply:
+            self._replied = True
+
     async def drain(self) -> None:
         await self.conn.drain()
 
@@ -50,7 +61,6 @@ class DeviceServerMeta(type):
     def _wrap(cls, name: str, value: Callable[..., _RequestReply]) -> _RequestHandler:
         sig = inspect.signature(value, follow_wrapped=False)
         pos = []
-        has_msg = False
         var_pos = None
         for parameter in sig.parameters.values():
             if parameter.kind == inspect.Parameter.VAR_POSITIONAL:
@@ -58,8 +68,6 @@ class DeviceServerMeta(type):
             elif parameter.kind in (inspect.Parameter.POSITIONAL_ONLY,
                                     inspect.Parameter.POSITIONAL_OR_KEYWORD):
                 pos.append(parameter)
-            elif parameter.name == 'msg' and parameter.kind == inspect.Parameter.KEYWORD_ONLY:
-                has_msg = True
         if len(pos) < 2 and var_pos is None:
             raise TypeError('Handler must accept at least two positional arguments')
 
@@ -82,9 +90,8 @@ class DeviceServerMeta(type):
                     args.append(core.decode(hint, argument))
                 except ValueError as error:
                     raise FailReply(str(error)) from error
-            kwargs = dict(msg=msg) if has_msg else {}
             try:
-                awaitable = value(*args, **kwargs)
+                awaitable = value(*args)
             except TypeError as error:
                 raise FailReply(str(error)) from error  # e.g. too few arguments
             ret = await awaitable
@@ -185,7 +192,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
     def server(self):
         return self._server
 
-    def send_version_info(self, ctx: RequestContext) -> int:
+    def send_version_info(self, ctx: RequestContext, *, send_reply=True) -> None:
         """Send version information informs to the client.
 
         This is used for asynchronous #version-connect informs when a client
@@ -196,11 +203,12 @@ class DeviceServer(metaclass=DeviceServerMeta):
         num_informs
             Number of informs sent
         """
-        ctx.inform('katcp-protocol', '5.0-MI')
-        # TODO: use katversion to get version number
-        ctx.inform('katcp-library', 'aiokatcp-0.1', 'aiokatcp-0.1')
-        ctx.inform('katcp-device', self.VERSION, self.BUILD_STATE)
-        return 3
+        ctx.informs([
+            ('katcp-protocol', '5.0-MI'),
+            # TODO: use katversion to get version number
+            ('katcp-library', 'aiokatcp-0.1', 'aiokatcp-0.1'),
+            ('katcp-device', self.VERSION, self.BUILD_STATE),
+        ], send_reply=send_reply)
 
     async def _client_connected_cb(
             self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -212,7 +220,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         # Make a fake request context for send_version_info
         request = core.Message.request('version-connect')
         ctx = RequestContext(conn, request)
-        self.send_version_info(ctx)
+        self.send_version_info(ctx, send_reply=False)
         task = conn.start()
         task.add_done_callback(lambda future: self._connections.remove(conn))
         msg = core.Message.inform('client-connected', conn.address)
@@ -277,7 +285,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             pass
             # TODO: handle other message types
 
-    async def request_help(self, ctx: RequestContext, name: str = None) -> int:
+    async def request_help(self, ctx: RequestContext, name: str = None) -> None:
         """Return help on the available requests.
 
         Return a description of the available requests using a sequence of
@@ -318,20 +326,16 @@ class DeviceServer(metaclass=DeviceServerMeta):
             !help ok 1
 
         """
-        n = 0
         if name is None:
-            for key, handler in sorted(self._request_handlers.items()):
-                doc = handler.__doc__.splitlines()[0]
-                ctx.inform(key, doc)
-                n += 1
+            informs = [(key, handler.__doc__.splitlines()[0])
+                       for key, handler in sorted(self._request_handlers.items())]
         else:
             try:
                 handler = self._request_handlers[name]
             except KeyError as error:
                 raise FailReply('request {} is not known'.format(name)) from error
-            ctx.inform(name, handler.__doc__)
-            n += 1
-        return n
+            informs = [(name, handler.__doc__)]
+        ctx.informs(informs)
 
     async def request_halt(self, ctx: RequestContext) -> None:
         """Halt the device server.
@@ -368,7 +372,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         """
         pass
 
-    async def request_version_list(self, ctx: RequestContext) -> int:
+    async def request_version_list(self, ctx: RequestContext) -> None:
         """Request the list of versions of roles and subcomponents.
 
         Informs
@@ -402,7 +406,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             !version-list ok 3
 
         """
-        return self.send_version_info(ctx)
+        self.send_version_info(ctx)
 
     def _get_sensors(self, name: Optional[str]) -> List[sensor.Sensor]:
         """Retrieve the list of sensors, optionally filtered by a name or regex.
@@ -493,7 +497,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             ctx.inform(s.name, s.description, s.units, s.type_name, *s.params)
         return len(sensors)
 
-    async def request_sensor_value(self, ctx: RequestContext, name: str = None) -> int:
+    async def request_sensor_value(self, ctx: RequestContext, name: str = None) -> None:
         """Request the value of a sensor or sensors.
 
         A list of sensor values as a sequence of #sensor-value informs.
@@ -545,11 +549,9 @@ class DeviceServer(metaclass=DeviceServerMeta):
 
         """
         sensors = self._get_sensors(name)
-        for s in sensors:
-            ctx.inform(s.timestamp, 1, s.name, s.status, s.value)
-        return len(sensors)
+        ctx.informs((s.timestamp, 1, s.name, s.status, s.value) for s in sensors)
 
-    async def request_client_list(self, ctx: RequestContext) -> int:
+    async def request_client_list(self, ctx: RequestContext) -> None:
         """Request the list of connected clients.
 
         The list of clients is sent as a sequence of #client-list informs.
@@ -578,6 +580,4 @@ class DeviceServer(metaclass=DeviceServerMeta):
             !client-list ok 1
 
         """
-        for conn in self._connections:
-            ctx.inform(conn.address)
-        return len(self._connections)
+        ctx.informs((conn.address,) for conn in self._connections)
