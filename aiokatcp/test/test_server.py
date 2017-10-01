@@ -269,12 +269,6 @@ class TestDeviceServer(asynctest.TestCase):
         await self._write(b'?bytes-arg raw\n')
         await self._check_reply([b'!bytes-arg ok raw\n'])
 
-    async def test_msg_keyword(self) -> None:
-        """Test a request that takes a `msg` keyword-only argument."""
-        await self._get_version_info()
-        await self._write(b'?show-msg[123]\n')
-        await self._check_reply([b'!show-msg[123] ok 123\n'])
-
     async def test_bad_arg_type(self) -> None:
         await self._get_version_info()
         await self._write(b'?double bad\n')
