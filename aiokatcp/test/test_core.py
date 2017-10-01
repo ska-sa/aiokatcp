@@ -105,6 +105,7 @@ class TestEncodeDecode(unittest.TestCase):
         (Address, b'[127.0.0.1]'),
         (MyEnum, b'two_face'),
         (MyEnum, b'TWO-FACE'),
+        (MyEnum, b'bad-value'),
         (OverrideEnum, b'joker')
     ]
 

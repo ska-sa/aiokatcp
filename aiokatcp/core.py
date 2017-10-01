@@ -197,9 +197,12 @@ def _decode_enum(cls: Type[_E], raw: bytes) -> _E:
                 return member
     else:
         name = raw.upper().replace(b'-', b'_').decode('ascii')
-        value = cls[name]
-        if raw == _encode_enum(value):
-            return cls[name]
+        try:
+            value = cls[name]
+            if raw == _encode_enum(value):
+                return cls[name]
+        except KeyError:
+            pass
     raise ValueError('{!r} is not a valid value for {}'.format(raw, cls.__name__))
 
 
