@@ -3,6 +3,7 @@ import asyncio
 import functools
 import logging
 import traceback
+import enum
 import io
 import re
 from typing import (
@@ -145,33 +146,62 @@ class DeviceServerMeta(type):
 
 
 class SensorSet:
+    class _Sentinel(enum.Enum):
+        """Internal enum used to signal that no default is provided to pop"""
+        NO_DEFAULT = 0
+
     def __init__(self, connections: Set[ClientConnection]) -> None:
         self._connections = connections
         self._sensors = {}       # type: Dict[str, sensor.Sensor]
 
-    def add(self, s: sensor.Sensor):
-        if s.name in self._sensors:
-            if self._sensors[s.name] is not s:
-                del self[s.name]
+    def _removed(self, s: sensor.Sensor):
+        for conn in self._connections:
+            conn.set_sampler(s, None)
+
+    def add(self, elem: sensor.Sensor):
+        if elem.name in self._sensors:
+            if self._sensors[elem.name] is not elem:
+                del self[elem.name]
             else:
                 return
-        self._sensors[s.name] = s
+        self._sensors[elem.name] = elem
 
-    def remove(self, s: sensor.Sensor) -> None:
-        if s not in self:
-            raise KeyError('{} is not currently a sensor'.format(s.name))
-        del self[s.name]
+    def remove(self, elem: sensor.Sensor) -> None:
+        if elem not in self:
+            raise KeyError(elem.name)
+        del self[elem.name]
 
-    def discard(self, sensor: sensor.Sensor) -> None:
+    def discard(self, elem: sensor.Sensor) -> None:
         try:
-            self.remove(sensor)
+            self.remove(elem)
         except KeyError:
             pass
 
-    def __delitem__(self, name: str) -> None:
-        s = self._sensors.pop(name)
-        for conn in self._connections:
-            conn.set_sampler(s, None)
+    def clear(self) -> None:
+        while self._sensors:
+            self.popitem()
+
+    def popitem(self) -> Tuple[str, sensor.Sensor]:
+        name, value = self._sensors.popitem()
+        self._removed(value)
+        return name, value
+
+    def pop(self, key: str,
+            default: Union[sensor.Sensor, None, _Sentinel] = _Sentinel.NO_DEFAULT) \
+            -> Optional[sensor.Sensor]:
+        if key not in self._sensors:
+            if isinstance(default, self._Sentinel):
+                raise KeyError(key)
+            else:
+                return default
+        else:
+            s = self._sensors.pop(key)
+            self._removed(s)
+            return s
+
+    def __delitem__(self, key: str) -> None:
+        s = self._sensors.pop(key)
+        self._removed(s)
 
     def __getitem__(self, name: str) -> sensor.Sensor:
         return self._sensors[name]
@@ -202,6 +232,9 @@ class SensorSet:
 
     def items(self) -> ItemsView[str, sensor.Sensor]:
         return self._sensors.items()
+
+    def copy(self) -> Dict[str, sensor.Sensor]:
+        return self._sensors.copy()
 
 
 class DeviceServer(metaclass=DeviceServerMeta):
