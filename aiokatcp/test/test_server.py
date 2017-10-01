@@ -9,7 +9,7 @@ from typing import List   # noqa: F401
 
 import asynctest
 
-from aiokatcp.core import Message, Address
+from aiokatcp.core import Address
 from aiokatcp.connection import FailReply
 from aiokatcp.server import DeviceServer, RequestContext
 from aiokatcp.sensor import Sensor
@@ -32,14 +32,16 @@ class DummyServer(DeviceServer):
         sensor = Sensor(int, 'counter-queries', 'number of ?counter queries',
                         default=0,
                         initial_status=Sensor.Status.NOMINAL)
-        self.add_sensor(sensor)
+        self.sensors.add(sensor)
         self._counter = sensor
         sensor = Sensor(Foo, 'foo', 'nonsense')
-        self.add_sensor(sensor)
+        self.sensors.add(sensor)
+        sensor = Sensor(float, 'float-sensor', 'generic float sensor')
+        self.sensors.add(sensor)
 
     async def request_increment_counter(self, ctx: RequestContext) -> None:
         """Increment a counter"""
-        self._counter.set_value(self._counter.value + 1)
+        self._counter.value += 1
 
     async def request_echo(self, ctx: RequestContext, *args: str) -> Tuple:
         """Return the arguments to the caller"""
@@ -64,28 +66,28 @@ class DummyServer(DeviceServer):
         """Request that always raises an exception"""
         raise RuntimeError("help I fell over")
 
-    async def request_show_msg(self, ctx: RequestContext, *, msg: Message) -> int:
-        """Request that reports its message ID"""
-        return msg.mid or 0
 
+class DeviceServerTestMixin(asynctest.TestCase):
+    """Mixin for device server tests.
 
-@timelimit
-class TestDeviceServer(asynctest.TestCase):
-    async def _stop_server(self) -> None:
-        await self.server.stop()
+    It creates a server and a reader and writer that form a client.
+    """
+    async def make_server(self) -> DummyServer:
+        server = DummyServer(loop=self.loop)
+        await server.start()
+        self.addCleanup(server.stop)
+        return server
+
+    async def make_client(self, server) -> Tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+        host, port = server.server.sockets[0].getsockname()    # type: ignore
+        remote_reader, remote_writer = await asyncio.open_connection(
+            host, port, loop=self.loop)
+        self.addCleanup(remote_writer.close)
+        return remote_reader, remote_writer
 
     async def setUp(self) -> None:
-        patcher = unittest.mock.patch('time.time', return_value=123456789.0)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-
-        self.server = DummyServer(loop=self.loop)
-        await self.server.start()
-        self.addCleanup(self._stop_server)
-        host, port = self.server.server.sockets[0].getsockname()    # type: ignore
-        self.remote_reader, self.remote_writer = await asyncio.open_connection(
-            host, port, loop=self.loop)
-        self.addCleanup(self.remote_writer.close)
+        self.server = await self.make_server()
+        self.remote_reader, self.remote_writer = await self.make_client(self.server)
 
     async def _readline(self) -> bytes:
         return await self.remote_reader.readline()
@@ -98,7 +100,7 @@ class TestDeviceServer(asynctest.TestCase):
         for expected in lines:
             actual = await self._readline()
             if isinstance(expected, bytes):
-                self.assertEqual(actual, expected)
+                self.assertEqual(ascii(actual), ascii(expected))
             else:
                 self.assertRegex(actual, expected)
 
@@ -107,6 +109,15 @@ class TestDeviceServer(asynctest.TestCase):
             prefix + b' katcp-protocol 5.0-MI\n',
             prefix + b' katcp-library aiokatcp-0.1 aiokatcp-0.1\n',
             prefix + b' katcp-device dummy-1.0 dummy-build-1.0.0\n'])
+
+
+@timelimit
+class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
+    async def setUp(self) -> None:
+        patcher = unittest.mock.patch('time.time', return_value=123456789.0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        await super().setUp()
 
     async def test_start_twice(self) -> None:
         """Calling start twice raises :exc:`RuntimeError`"""
@@ -117,7 +128,7 @@ class TestDeviceServer(asynctest.TestCase):
         await self._get_version_info()
         await self._write(b'?help[1]\n')
         commands = sorted([
-            'increment-counter', 'echo', 'bytes-arg', 'double', 'wait', 'crash', 'show-msg',
+            'increment-counter', 'echo', 'bytes-arg', 'double', 'wait', 'crash',
             'client-list', 'sensor-list', 'sensor-sampling', 'sensor-value',
             'halt', 'help', 'watchdog', 'version-list'
         ])
@@ -158,8 +169,9 @@ class TestDeviceServer(asynctest.TestCase):
         await self._write(b'?sensor-list[4]\n')
         await self._check_reply([
             br'#sensor-list[4] counter-queries number\_of\_?counter\_queries \@ integer' + b'\n',
+            br'#sensor-list[4] float-sensor generic\_float\_sensor \@ float' + b'\n',
             br'#sensor-list[4] foo nonsense \@ discrete first-value second-value' + b'\n',
-            b'!sensor-list[4] ok 2\n'])
+            b'!sensor-list[4] ok 3\n'])
 
     async def test_sensor_list_simple_filter(self) -> None:
         await self._get_version_info()
@@ -179,8 +191,9 @@ class TestDeviceServer(asynctest.TestCase):
         await self._write(b'?sensor-list[6] /[a-z-]+/\n')
         await self._check_reply([
             br'#sensor-list[6] counter-queries number\_of\_?counter\_queries \@ integer' + b'\n',
+            br'#sensor-list[6] float-sensor generic\_float\_sensor \@ float' + b'\n',
             br'#sensor-list[6] foo nonsense \@ discrete first-value second-value' + b'\n',
-            b'!sensor-list[6] ok 2\n'])
+            b'!sensor-list[6] ok 3\n'])
 
     async def test_sensor_list_regex_filter_empty(self) -> None:
         await self._get_version_info()
@@ -199,8 +212,9 @@ class TestDeviceServer(asynctest.TestCase):
         await self._write(b'?sensor-value[9]\n')
         await self._check_reply([
             b'#sensor-value[9] 123456789.0 1 counter-queries nominal 0\n',
+            b'#sensor-value[9] 123456789.0 1 float-sensor unknown 0.0\n',
             b'#sensor-value[9] 123456789.0 1 foo unknown first-value\n',
-            b'!sensor-value[9] ok 2\n'])
+            b'!sensor-value[9] ok 3\n'])
 
     async def test_sensor_value_filter(self) -> None:
         # The other filter tests are omitted since they're covered by the
@@ -309,6 +323,52 @@ class TestDeviceServer(asynctest.TestCase):
             b'#disconnect server\\_shutting\\_down\n',
             b''])
         await stop_task
+
+
+class TestDeviceServerClocked(DeviceServerTestMixin, asynctest.ClockedTestCase):
+    """Tests for :class:`.DeviceServer` that use a fake clock.
+
+    These are largely to do with sensor sampling.
+    """
+    def _mock_time(self) -> float:
+        return self.loop.time() - self._start_time + 123456789.0
+
+    async def setUp(self) -> None:
+        self._start_time = self.loop.time()
+        patcher = unittest.mock.patch('time.time', new=self._mock_time)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        await super().setUp()
+
+    async def test_sensor_strategy_invalid(self) -> None:
+        """Invalid strategy for ``?sensor-strategy``"""
+        await self._get_version_info()
+        await self._write(b'?sensor-sampling float-sensor carrot\n')
+        await self._check_reply([
+            br"!sensor-sampling fail b'carrot'\_is\_not\_a\_valid\_value\_for\_Strategy" + b'\n'])
+
+    async def test_sensor_strategy_none_params(self) -> None:
+        """None strategy must not accept parameters"""
+        await self._get_version_info()
+        await self._write(b'?sensor-sampling float-sensor none 4\n')
+        await self._check_reply([
+            br'!sensor-sampling fail Expected\_0\_strategy\_arguments,\_found\_1' + b'\n'])
+
+    async def test_sensor_strategy_period(self) -> None:
+        await self._get_version_info()
+        await self._write(b'?sensor-sampling float-sensor period 2.5\n')
+        await self._check_reply([
+            b'#sensor-status 123456789.0 1 float-sensor unknown 0.0\n',
+            b'!sensor-sampling ok float-sensor period 2.5\n'])
+        await self.advance(3.0)
+        self.server.sensors['float-sensor'].value = 1.25
+        await self.advance(5.0)
+        await self._write(b'?watchdog\n')
+        await self._check_reply([
+            b'#sensor-status 123456789.0 1 float-sensor unknown 0.0\n',
+            b'#sensor-status 123456792.0 1 float-sensor nominal 1.25\n',
+            b'#sensor-status 123456792.0 1 float-sensor nominal 1.25\n',
+            b'!watchdog ok\n'])
 
 
 class TestDeviceServerMeta(unittest.TestCase):

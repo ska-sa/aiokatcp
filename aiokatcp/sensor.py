@@ -4,7 +4,7 @@ import abc
 import asyncio
 from typing import Generic, TypeVar, Type, List, Tuple, Iterable, Optional, Any, Callable, cast
 # Imports only used for type comments, otherwise unused
-from typing import Set     # noqa: F401
+from typing import Set, Dict     # noqa: F401
 
 from . import core
 
@@ -131,11 +131,11 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
         DIFFERENTIAL_RATE = 6
 
     def __init__(self, sensor: Sensor[_T], observer: Callable[[Sensor[_T], Reading[_T]], None],
-                 loop: asyncio.AbstractEventLoop, *,
+                 loop: asyncio.AbstractEventLoop,
                  difference: Optional[_T] = None,
                  shortest: core.Timestamp = core.Timestamp(0),
                  longest: core.Timestamp = None,
-                 always_update: bool = False) -> None:
+                 *, always_update: bool = False) -> None:
         self.sensor = sensor
         self.observer = observer
         self.shortest = float(shortest)
@@ -216,7 +216,7 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
             cls.Strategy.EVENT_RATE: (_SensorSamplerEventRate, [core.Timestamp, core.Timestamp]),
             cls.Strategy.DIFFERENTIAL_RATE:
                 (_SensorSamplerDifferentialRate, [sensor.stype, core.Timestamp, core.Timestamp])
-        }
+        }   # type: Dict[SensorSampler.Strategy, Tuple[Optional[Type[SensorSampler]], List[Type]]]
         if strategy in (cls.Strategy.DIFFERENTIAL, cls.Strategy.DIFFERENTIAL_RATE):
             if sensor.stype not in (int, float):
                 raise TypeError('differential strategies only valid for integer and float sensors')

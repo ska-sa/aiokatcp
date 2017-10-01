@@ -5,7 +5,9 @@ import logging
 import traceback
 import io
 import re
-from typing import Callable, Awaitable, Sequence, Iterable, Optional, List, Tuple, Any
+from typing import (
+    Callable, Awaitable, Sequence, Iterable, Optional, List, Tuple, Any,
+    Union, KeysView, ValuesView, ItemsView)
 # Only used in type comments, so flake8 complains
 from typing import Dict, Set    # noqa: F401
 
@@ -142,6 +144,66 @@ class DeviceServerMeta(type):
         return result
 
 
+class SensorSet:
+    def __init__(self, connections: Set[ClientConnection]) -> None:
+        self._connections = connections
+        self._sensors = {}       # type: Dict[str, sensor.Sensor]
+
+    def add(self, s: sensor.Sensor):
+        if s.name in self._sensors:
+            if self._sensors[s.name] is not s:
+                del self[s.name]
+            else:
+                return
+        self._sensors[s.name] = s
+
+    def remove(self, s: sensor.Sensor) -> None:
+        if s not in self:
+            raise KeyError('{} is not currently a sensor'.format(s.name))
+        del self[s.name]
+
+    def discard(self, sensor: sensor.Sensor) -> None:
+        try:
+            self.remove(sensor)
+        except KeyError:
+            pass
+
+    def __delitem__(self, name: str) -> None:
+        s = self._sensors.pop(name)
+        for conn in self._connections:
+            conn.set_sampler(s, None)
+
+    def __getitem__(self, name: str) -> sensor.Sensor:
+        return self._sensors[name]
+
+    def get(self, name: str, default: sensor.Sensor = None) -> Optional[sensor.Sensor]:
+        return self._sensors.get(name, default)
+
+    def __contains__(self, s: Union[str, sensor.Sensor]) -> bool:
+        if isinstance(s, sensor.Sensor):
+            return s.name in self._sensors and self._sensors[s.name] is s
+        else:
+            return s in self._sensors
+
+    def __len__(self) -> int:
+        return len(self._sensors)
+
+    def __bool__(self) -> bool:
+        return bool(self._sensors)
+
+    def __iter__(self) -> Iterable:
+        return iter(self._sensors)
+
+    def keys(self) -> KeysView[str]:
+        return self._sensors.keys()
+
+    def values(self) -> ValuesView[sensor.Sensor]:
+        return self._sensors.values()
+
+    def items(self) -> ItemsView[str, sensor.Sensor]:
+        return self._sensors.items()
+
+
 class DeviceServer(metaclass=DeviceServerMeta):
     _request_handlers = {}   # type: Dict[str, _RequestHandler]
 
@@ -166,7 +228,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         self._host = host
         self._port = port
         self._stopping = False
-        self._sensors = {}         # type: Dict[str, sensor.Sensor]
+        self.sensors = SensorSet(self._connections)
 
     async def start(self) -> None:
         """Start the server running on the event loop.
@@ -212,14 +274,6 @@ class DeviceServer(metaclass=DeviceServerMeta):
 
     async def join(self) -> None:
         await self._stopped.wait()
-
-    def add_sensor(self, s: sensor.Sensor) -> None:
-        self._sensors[s.name] = s
-
-    def remove_sensor(self, s: sensor.Sensor) -> None:
-        del self._sensors[s.name]
-        for conn in self._connections:
-            conn.set_sampler(s, None)
 
     @property
     def server(self):
@@ -457,17 +511,17 @@ class DeviceServer(metaclass=DeviceServerMeta):
             which does not exist.
         """
         if name is None:
-            matched = self._sensors.values()   # type: Iterable[sensor.Sensor]
+            matched = self.sensors.values()   # type: Iterable[sensor.Sensor]
         elif name.startswith('/') and name.endswith('/') and len(name) > 1:
             try:
                 name_re = re.compile(name[1:-1])
             except re.error as error:
                 raise FailReply(str(error)) from error
-            matched = (sensor for sensor in self._sensors.values() if name_re.search(sensor.name))
-        elif name not in self._sensors:
+            matched = (sensor for sensor in self.sensors.values() if name_re.search(sensor.name))
+        elif name not in self.sensors:
             raise FailReply('unknown sensor {!r}'.format(name))
         else:
-            matched = [self._sensors[name]]
+            matched = [self.sensors[name]]
         return sorted(matched, key=lambda sensor: sensor.name)
 
     async def request_sensor_list(self, ctx: RequestContext, name: str = None) -> int:
@@ -639,7 +693,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
 
         """
         try:
-            s = self._sensors[name]
+            s = self.sensors[name]
         except KeyError:
             raise FailReply('unknown sensor {!r}'.format(name))
         if strategy is None:
@@ -655,7 +709,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             params = sampler.parameters()
         else:
             params = (sensor.SensorSampler.Strategy.NONE,)
-        return params
+        return (name,) + params
 
     async def request_client_list(self, ctx: RequestContext) -> None:
         """Request the list of connected clients.

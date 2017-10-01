@@ -169,7 +169,7 @@ Sensors
 
 To provide a sensor from your server, create a
 :class:`~aiokatcp.sensor.Sensor` and attach it to your server by calling
-:meth:`~aiokatcp.server.DeviceServer.add_sensor`. It is a good idea to do this
+``self.sensors.add``. It is a good idea to do this
 from your ``__init__`` method so that it is present before any client
 connects, but it is also possible to dynamically modify the sensors (although
 at present it is up to the user to send appropriate ``#interface-changed``
@@ -182,6 +182,7 @@ An example:
     sensor = aiokatcp.Sensor(
         int, 'counter-queries', 'number times ?counter was called',
         default=0, initial_status=aiokatcp.Sensor.Status.NOMINAL)
+    self.sensors.add(sensor)
 
 The first argument is the sensor type, which again is one of the types
 described under :ref:`type-conversions`. If it is an enum type, the default
@@ -190,16 +191,16 @@ appropriate to the type.
 
 To update the sensor value, use :meth:`.Sensor.set_value`.
 
-.. todo::
-
-    Add a :meth:`remove_sensor` method.
-
 .. note::
 
     There is currently no support for providing extra parameters, such as the
     nominal range for numeric sensors, since these values are marked as
     deprecated. For discrete sensors, the parameters are automatically
     computed as the possible values of the enumeration.
+
+The :attr:`.DeviceServer.sensors` attribute implements both a dictionary-like
+and a set-like interface to allow sensors to be added and removed. Sensor
+metadata (such as the name or type) should not be mutated after creation.
 
 Cancellation
 ------------
