@@ -1,7 +1,6 @@
 - revisit exception handling when socket closes or half-closes
 - make Connection a generic
 - check if TCP_NODELAY is active
-- mass_inform
 - strict timestamp parsing
 - mechanism to enforce human readable ASCII on certain strings
 - timestamp_or_now type

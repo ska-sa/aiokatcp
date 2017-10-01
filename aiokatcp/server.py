@@ -405,6 +405,11 @@ class DeviceServer(metaclass=DeviceServerMeta):
             pass
             # TODO: handle other message types
 
+    def mass_inform(self, *args : Any) -> None:
+        msg = core.Message.inform(*args)
+        for conn in self._connections:
+            conn.write_message(msg)
+
     async def request_help(self, ctx: RequestContext, name: str = None) -> None:
         """Return help on the available requests.
 
