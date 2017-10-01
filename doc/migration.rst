@@ -40,6 +40,7 @@ Device server
 Sensors
 -------
 - The status is now an enum type, :class:`.Sensor.Status`.
+- There is no Observer class: just pass a callable.
 
 General
 -------

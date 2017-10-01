@@ -5,7 +5,7 @@ import logging
 import traceback
 import io
 import re
-from typing import Callable, Awaitable, Sequence, Iterable, Optional, List, Any
+from typing import Callable, Awaitable, Sequence, Iterable, Optional, List, Tuple, Any
 # Only used in type comments, so flake8 complains
 from typing import Dict, Set    # noqa: F401
 
@@ -18,8 +18,36 @@ _RequestReply = Awaitable[Optional[Sequence]]
 _RequestHandler = Callable[['DeviceServer', 'RequestContext', core.Message], _RequestReply]
 
 
+class ClientConnection(connection.Connection):
+    def __init__(self, owner: 'DeviceServer',
+                 reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        super().__init__(owner, reader, writer, True)
+        self._samplers = {}     # type: Dict[sensor.Sensor, sensor.SensorSampler]
+
+    async def stop(self) -> None:
+        for sampler in self._samplers.values():
+            sampler.close()
+        self._samplers = {}
+        await super().stop()
+
+    def set_sampler(self, s: sensor.Sensor, sampler: Optional[sensor.SensorSampler]) -> None:
+        if s in self._samplers:
+            self._samplers[s].close()
+            del self._samplers[s]
+        if sampler is not None:
+            self._samplers[s] = sampler
+
+    def get_sampler(self, s: sensor.Sensor) -> Optional[sensor.SensorSampler]:
+        return self._samplers.get(s)
+
+    def sensor_update(self, s: sensor.Sensor, reading: sensor.Reading):
+        msg = core.Message.inform(
+            'sensor-status', reading.timestamp, 1, s.name, reading.status, reading.value)
+        self.write_message(msg)
+
+
 class RequestContext(object):
-    def __init__(self, conn: connection.Connection, req: core.Message) -> None:
+    def __init__(self, conn: ClientConnection, req: core.Message) -> None:
         self.conn = conn
         self.req = req
         self._replied = False
@@ -126,7 +154,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             raise TypeError('{.__name__} does not define VERSION'.format(self.__class__))
         if not self.BUILD_STATE:
             raise TypeError('{.__name__} does not define BUILD_STATE'.format(self.__class__))
-        self._connections = set()  # type: Set[connection.Connection]
+        self._connections = set()  # type: Set[ClientConnection]
         self._pending = set()      # type: Set[asyncio.Task]
         if loop is None:
             loop = asyncio.get_event_loop()
@@ -188,6 +216,11 @@ class DeviceServer(metaclass=DeviceServerMeta):
     def add_sensor(self, s: sensor.Sensor) -> None:
         self._sensors[s.name] = s
 
+    def remove_sensor(self, s: sensor.Sensor) -> None:
+        del self._sensors[s.name]
+        for conn in self._connections:
+            conn.set_sampler(s, None)
+
     @property
     def server(self):
         return self._server
@@ -212,7 +245,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
 
     async def _client_connected_cb(
             self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        conn = connection.Connection(self, reader, writer, is_server=True)
+        conn = ClientConnection(self, reader, writer)
         # Copy the connection list, to avoid mutation while iterating and to
         # exclude the new connection from it.
         connections = list(self._connections)
@@ -273,7 +306,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             ctx.reply(*ret)
         await ctx.drain()
 
-    def handle_message(self, conn: connection.Connection, msg: core.Message) -> None:
+    def handle_message(self, conn: ClientConnection, msg: core.Message) -> None:
         if self._stopping:
             return
         if msg.mtype == core.Message.Type.REQUEST:
@@ -550,6 +583,79 @@ class DeviceServer(metaclass=DeviceServerMeta):
         """
         sensors = self._get_sensors(name)
         ctx.informs((s.timestamp, 1, s.name, s.status, s.value) for s in sensors)
+
+    async def request_sensor_sampling(
+            self, ctx: RequestContext, name: str,
+            strategy: sensor.SensorSampler.Strategy = None,
+            *args: bytes) -> Tuple:
+        """Configure or query the way a sensor is sampled.
+
+        Sampled values are reported asynchronously using the #sensor-status
+        message.
+
+        Parameters
+        ----------
+        name
+            Name of the sensor whose sampling strategy to query or configure.
+        strategy
+            Type of strategy to use to report the sensor value. The
+            differential strategy type may only be used with integer or float
+            sensors. If this parameter is supplied, it sets the new strategy.
+        *args
+            Additional strategy parameters (dependent on the strategy type).
+            For the differential strategy, the parameter is an integer or float
+            giving the amount by which the sensor value may change before an
+            updated value is sent.
+            For the period strategy, the parameter is the sampling period
+            in float seconds.
+            The event strategy has no parameters. Note that this has changed
+            from KATCPv4.
+            For the event-rate strategy, a minimum period between updates and
+            a maximum period between updates (both in float seconds) must be
+            given. If the event occurs more than once within the minimum period,
+            only one update will occur. Whether or not the event occurs, the
+            sensor value will be updated at least once per maximum period.
+
+        Returns
+        -------
+        success : {'ok', 'fail'}
+            Whether the sensor-sampling request succeeded.
+        name : str
+            Name of the sensor queried or configured.
+        strategy : :class:`.SensorSampler.Strategy`
+            Name of the new or current sampling strategy for the sensor.
+        params : list of str
+            Additional strategy parameters (see description under Parameters).
+
+        Examples
+        --------
+        ::
+
+            ?sensor-sampling cpu.power.on
+            !sensor-sampling ok cpu.power.on none
+
+            ?sensor-sampling cpu.power.on period 500
+            !sensor-sampling ok cpu.power.on period 500
+
+        """
+        try:
+            s = self._sensors[name]
+        except KeyError:
+            raise FailReply('unknown sensor {!r}'.format(name))
+        if strategy is None:
+            sampler = ctx.conn.get_sampler(s)
+        else:
+            try:
+                observer = ctx.conn.sensor_update
+                sampler = sensor.SensorSampler.factory(s, observer, self.loop, strategy, *args)
+            except (TypeError, ValueError) as error:
+                raise FailReply(str(error)) from error
+            ctx.conn.set_sampler(s, sampler)
+        if sampler is not None:
+            params = sampler.parameters()
+        else:
+            params = (sensor.SensorSampler.Strategy.NONE,)
+        return params
 
     async def request_client_list(self, ctx: RequestContext) -> None:
         """Request the list of connected clients.

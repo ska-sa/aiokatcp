@@ -118,7 +118,7 @@ class TestDeviceServer(asynctest.TestCase):
         await self._write(b'?help[1]\n')
         commands = sorted([
             'increment-counter', 'echo', 'bytes-arg', 'double', 'wait', 'crash', 'show-msg',
-            'client-list', 'sensor-list', 'sensor-value',
+            'client-list', 'sensor-list', 'sensor-sampling', 'sensor-value',
             'halt', 'help', 'watchdog', 'version-list'
         ])
         expected = [re.compile(br'^#help\[1\] ' + cmd.encode('ascii') + b' [^ ]+$\n')
