@@ -9,7 +9,7 @@ from typing import List   # noqa: F401
 
 import asynctest
 
-from aiokatcp.core import Address
+from aiokatcp.core import Message, Address
 from aiokatcp.connection import FailReply
 from aiokatcp.server import DeviceServer, RequestContext
 from aiokatcp.sensor import Sensor
@@ -340,21 +340,55 @@ class TestDeviceServerClocked(DeviceServerTestMixin, asynctest.ClockedTestCase):
         self.addCleanup(patcher.stop)
         await super().setUp()
 
-    async def test_sensor_strategy_invalid(self) -> None:
+    async def test_sensor_sampling_invalid(self) -> None:
         """Invalid strategy for ``?sensor-strategy``"""
         await self._get_version_info()
         await self._write(b'?sensor-sampling float-sensor carrot\n')
         await self._check_reply([
             br"!sensor-sampling fail b'carrot'\_is\_not\_a\_valid\_value\_for\_Strategy" + b'\n'])
 
-    async def test_sensor_strategy_none_params(self) -> None:
+    async def test_sensor_sampling_none_params(self) -> None:
         """None strategy must not accept parameters"""
         await self._get_version_info()
         await self._write(b'?sensor-sampling float-sensor none 4\n')
         await self._check_reply([
-            br'!sensor-sampling fail Expected\_0\_strategy\_arguments,\_found\_1' + b'\n'])
+            br'!sensor-sampling fail expected\_0\_strategy\_arguments,\_found\_1' + b'\n'])
 
-    async def test_sensor_strategy_period(self) -> None:
+    async def test_sensor_sampling_too_few_params(self) -> None:
+        await self._get_version_info()
+        await self._write(b'?sensor-sampling float-sensor event-rate 4\n')
+        await self._check_reply([
+            br'!sensor-sampling fail expected\_2\_strategy\_arguments,\_found\_1' + b'\n'])
+
+    async def test_sensor_sampling_too_many_params(self) -> None:
+        await self._get_version_info()
+        await self._write(b'?sensor-sampling float-sensor event-rate 4 5 6\n')
+        await self._check_reply([
+            br'!sensor-sampling fail expected\_2\_strategy\_arguments,\_found\_3' + b'\n'])
+
+    async def test_sensor_sampling_bad_parameter(self) -> None:
+        await self._get_version_info()
+        await self._write(b'?sensor-sampling float-sensor period foo\n')
+        await self._check_reply([
+            br"!sensor-sampling fail could\_not\_convert\_string\_to\_float:\_'foo'" + b'\n'])
+
+    async def test_sensor_sampling_auto(self) -> None:
+        await self._get_version_info()
+        await self._write(b'?sensor-sampling float-sensor auto\n')
+        await self._check_reply([
+            b'#sensor-status 123456789.0 1 float-sensor unknown 0.0\n',
+            b'!sensor-sampling ok float-sensor auto\n'])
+        # Set to a new value
+        await self.advance(1.0)
+        self.server.sensors['float-sensor'].value = 1.25
+        # Set to the same value again - must still update
+        await self.advance(1.0)
+        self.server.sensors['float-sensor'].value = 1.25
+        await self._check_reply([
+            b'#sensor-status 123456790.0 1 float-sensor nominal 1.25\n',
+            b'#sensor-status 123456791.0 1 float-sensor nominal 1.25\n'])
+
+    async def test_sensor_sampling_period(self) -> None:
         await self._get_version_info()
         await self._write(b'?sensor-sampling float-sensor period 2.5\n')
         await self._check_reply([
@@ -369,6 +403,153 @@ class TestDeviceServerClocked(DeviceServerTestMixin, asynctest.ClockedTestCase):
             b'#sensor-status 123456792.0 1 float-sensor nominal 1.25\n',
             b'#sensor-status 123456792.0 1 float-sensor nominal 1.25\n',
             b'!watchdog ok\n'])
+
+    async def test_sensor_sampling_period_zero(self) -> None:
+        await self._get_version_info()
+        await self._write(b'?sensor-sampling float-sensor period 0.0\n')
+        await self._check_reply([
+            br'!sensor-sampling fail period\_must\_be\_positive' + b'\n'])
+
+    async def test_sensor_sampling_event(self) -> None:
+        await self._get_version_info()
+        await self._write(b'?sensor-sampling float-sensor event\n')
+        await self._check_reply([
+            b'#sensor-status 123456789.0 1 float-sensor unknown 0.0\n',
+            b'!sensor-sampling ok float-sensor event\n'])
+        # Set to a new value
+        await self.advance(1.0)
+        self.server.sensors['float-sensor'].value = 1.25
+        # Set to the same value again - must not update
+        await self.advance(1.0)
+        self.server.sensors['float-sensor'].value = 1.25
+        # Set to the same value, but change the status
+        await self.advance(1.0)
+        self.server.sensors['float-sensor'].set_value(1.25, status=Sensor.Status.WARN)
+        await self._check_reply([
+            b'#sensor-status 123456790.0 1 float-sensor nominal 1.25\n',
+            b'#sensor-status 123456792.0 1 float-sensor warn 1.25\n'])
+
+    async def test_sensor_sampling_differential_bad_type(self) -> None:
+        await self._get_version_info()
+        await self._write(b'?sensor-sampling foo differential 1\n')
+        await self._check_reply([
+            br'!sensor-sampling fail differential\_strategies\_only\_valid\_for\_integer'
+            br'\_and\_float\_sensors' + b'\n'])
+
+    async def test_sensor_sampling_differential(self) -> None:
+        await self._get_version_info()
+        await self._write(b'?sensor-sampling float-sensor differential 1.5\n')
+        await self._check_reply([
+            b'#sensor-status 123456789.0 1 float-sensor unknown 0.0\n',
+            b'!sensor-sampling ok float-sensor differential 1.5\n'])
+        # Set to a valid value, less than the difference away (but a status change)
+        await self.advance(1.0)
+        self.server.sensors['float-sensor'].value = 1.25
+        # Set to the same value
+        await self.advance(1.0)
+        self.server.sensors['float-sensor'].value = 1.25
+        # Set to a new value, within the delta
+        await self.advance(1.0)
+        self.server.sensors['float-sensor'].value = 2.5
+        # Set to a new value, within the delta of the last update
+        await self.advance(1.0)
+        self.server.sensors['float-sensor'].value = 0.2
+        # Set to a new value, outside the delta
+        await self.advance(1.0)
+        self.server.sensors['float-sensor'].value = -1.0
+        await self._check_reply([
+            b'#sensor-status 123456790.0 1 float-sensor nominal 1.25\n',
+            b'#sensor-status 123456794.0 1 float-sensor nominal -1.0\n'])
+
+    async def test_sensor_sampling_event_rate(self) -> None:
+        await self._get_version_info()
+        await self._write(b'?sensor-sampling float-sensor event-rate 1.0 10.0\n')
+        await self._check_reply([
+            b'#sensor-status 123456789.0 1 float-sensor unknown 0.0\n',
+            b'!sensor-sampling ok float-sensor event-rate 1.0 10.0\n'])
+        # Set to a valid value, after the short period has passed
+        await self.advance(1.0)
+        self.server.sensors['float-sensor'].value = 1.25
+        # Change the twice value, within the short period
+        await self.advance(0.25)
+        self.server.sensors['float-sensor'].value = 1.0
+        await self.advance(0.25)
+        self.server.sensors['float-sensor'].value = 0.5
+        # Leave it alone until just before the long period triggers
+        await self.advance(10.25)
+        # Inject a message directly into the server, so that its reply can
+        # be reliably sequenced relative to the other informs.
+        conn = next(iter(self.server._connections))
+        self.server.handle_message(conn, Message.request('watchdog'))
+        # Wait for the long period to trigger
+        await self.advance(0.5)
+
+        await self._check_reply([
+            b'#sensor-status 123456790.0 1 float-sensor nominal 1.25\n',
+            b'#sensor-status 123456790.5 1 float-sensor nominal 0.5\n',
+            b'!watchdog ok\n',
+            b'#sensor-status 123456790.5 1 float-sensor nominal 0.5\n'])
+
+    async def test_sensor_sampling_differential_rate(self) -> None:
+        await self._get_version_info()
+        await self._write(b'?sensor-sampling float-sensor differential-rate 1.5 1.0 10.0\n')
+        await self._check_reply([
+            b'#sensor-status 123456789.0 1 float-sensor unknown 0.0\n',
+            b'!sensor-sampling ok float-sensor differential-rate 1.5 1.0 10.0\n'])
+        # Set to a valid value, after the short period has passed
+        await self.advance(1.0)
+        self.server.sensors['float-sensor'].value = 1.25
+        # Change the twice value, within the short period
+        await self.advance(0.25)
+        self.server.sensors['float-sensor'].value = 5.0
+        await self.advance(0.25)
+        self.server.sensors['float-sensor'].value = 0.5
+        # Let it trigger, then change it, but not enough to trigger
+        await self.advance(4.0)
+        self.server.sensors['float-sensor'].value = 1.5
+        # Leave it alone until just before the long period triggers
+        await self.advance(6.25)
+        # Inject a message directly into the server, so that its reply can
+        # be reliably sequenced relative to the other informs.
+        conn = next(iter(self.server._connections))
+        self.server.handle_message(conn, Message.request('watchdog'))
+        # Wait for the long period to trigger
+        await self.advance(0.5)
+
+        await self._check_reply([
+            b'#sensor-status 123456790.0 1 float-sensor nominal 1.25\n',
+            b'#sensor-status 123456790.5 1 float-sensor nominal 0.5\n',
+            b'!watchdog ok\n',
+            b'#sensor-status 123456794.5 1 float-sensor nominal 1.5\n'])
+
+    async def test_sensor_sampling_none(self) -> None:
+        await self._get_version_info()
+        await self._write(b'?sensor-sampling float-sensor event\n')
+        await self._check_reply([
+            b'#sensor-status 123456789.0 1 float-sensor unknown 0.0\n',
+            b'!sensor-sampling ok float-sensor event\n'])
+        await self._write(b'?sensor-sampling float-sensor none\n')
+        await self._check_reply([
+            b'!sensor-sampling ok float-sensor none\n'])
+        self.server.sensors['float-sensor'].value = 1.0
+        # Must not report the update
+        await self._write(b'?watchdog\n')
+        await self._check_reply([b'!watchdog ok\n'])
+
+    async def test_sensor_sampling_query(self) -> None:
+        await self._get_version_info()
+        await self._write(b'?sensor-sampling float-sensor event\n'
+                          b'?sensor-sampling float-sensor\n')
+        await self._check_reply([
+            b'#sensor-status 123456789.0 1 float-sensor unknown 0.0\n',
+            b'!sensor-sampling ok float-sensor event\n',
+            b'!sensor-sampling ok float-sensor event\n'])
+
+    async def test_sensor_sampling_unknown_sensor(self) -> None:
+        await self._get_version_info()
+        await self._write(b'?sensor-sampling bad-sensor event\n')
+        await self._check_reply([
+            br"!sensor-sampling fail unknown\_sensor\_'bad-sensor'" + b'\n'])
 
 
 class TestDeviceServerMeta(unittest.TestCase):

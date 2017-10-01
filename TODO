@@ -7,8 +7,7 @@
 - timestamp_or_now type
 - Sphinx and type hints
 - Test coverage
-- required requests (restart, logging, sensor sampling)
-- sensor sampling
+- required requests (restart, logging)
 - fill in TODOs in the documentation, and make them actually appear somewhere
 - tidy up the rendering of the documentation: there are some issues e.g. the Informs
   sections of the request docstrings aren't valid numpydoc.

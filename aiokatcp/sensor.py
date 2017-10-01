@@ -141,6 +141,8 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
         self.shortest = float(shortest)
         if longest is not None:
             self.longest = float(longest)  # type: Optional[float]
+            if self.longest <= 0:
+                raise ValueError('period must be positive')
         else:
             self.longest = None
         self.difference = difference
@@ -149,6 +151,7 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
         self._callback_handle = None    # type: Optional[asyncio.Handle]
         self._last_time = 0.0
         self._last_value = None         # type: _T
+        self._last_status = None        # type: Sensor.Status
         self._changed = False
         self.sensor.attach(self._receive_update)
         self._send_update(loop.time(), sensor.reading)
@@ -164,10 +167,11 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
         self.observer(self.sensor, reading)
         self._last_time = sched_time
         self._last_value = reading.value
+        self._last_status = reading.status
         self._changed = False
         self._clear_callback()
         if self.longest is not None:
-            next_time = sched_time + self.longest
+            next_time = max(self.loop.time(), sched_time + self.longest)
             self._callback_handle = self.loop.call_at(
                 next_time, self._send_update, next_time, None)
 
@@ -183,13 +187,15 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
         else:
             assert sensor.stype in (int, float)
             changed = abs(cast(Any, reading.value) - self._last_value) > self.difference
+        if reading.status != self._last_status:
+            changed = True
 
         if changed:
             self._changed = True
             self._clear_callback()
             sched_time = self._last_time + self.shortest
             now = self.loop.time()
-            if not self.shortest or now > sched_time:
+            if not self.shortest or now >= sched_time:
                 self._send_update(now, reading)
             else:
                 self._callback_handle = self.loop.call_at(
@@ -201,7 +207,7 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def parameters(self) -> Tuple:
-        pass
+        pass       # pragma: no cover
 
     @classmethod
     def factory(cls, sensor: Sensor[_T], observer: Callable[[Sensor[_T], Reading[_T]], None],
@@ -222,7 +228,7 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
                 raise TypeError('differential strategies only valid for integer and float sensors')
         out_cls, types = classes_types[strategy]
         if len(types) != len(args):
-            raise ValueError('Expected {} strategy arguments, found {}'.format(
+            raise ValueError('expected {} strategy arguments, found {}'.format(
                              len(types), len(args)))
         decoded_args = [core.decode(type_, arg) for type_, arg in zip(types, args)]
         if out_cls is None:

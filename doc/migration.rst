@@ -36,6 +36,9 @@ Device server
   integer. In aiokatcp, it is a full-blown class
   (:class:`~aiokatcp.core.Address`) and the host part uses the
   :mod:`ipaddress` module.
+- Instead of :meth:`add_sensor` and so on, there is a
+  :attr:`.DeviceServer.sensors` attribute that behaves like either a dictionary
+  or a set.
 
 Sensors
 -------
