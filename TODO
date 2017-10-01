@@ -8,6 +8,5 @@
 - Test coverage
 - required requests (restart, logging)
 - fill in TODOs in the documentation, and make them actually appear somewhere
-- tidy up the rendering of the documentation: there are some issues e.g. the Informs
-  sections of the request docstrings aren't valid numpydoc.
+- tidy up the rendering of the documentation: there are some issues
 - check if mock_transport is going to be useful

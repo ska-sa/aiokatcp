@@ -178,4 +178,18 @@ texinfo_documents = [
 ]
 
 
+# -- Hacky approach to make Informs sections in docstrings work
+# Based on https://michaelgoerz.net/notes/extending-sphinx-napoleon-docstring-sections.html
 
+from sphinx.ext.napoleon.docstring import NumpyDocstring
+
+def parse_informs_section(self, section):
+    return self._format_fields('Informs', self._consume_fields())
+
+def patched_parse(self):
+    self._sections['informs'] = self._parse_informs_section
+    self._orig_parse()
+
+NumpyDocstring._orig_parse = NumpyDocstring._parse
+NumpyDocstring._parse = patched_parse
+NumpyDocstring._parse_informs_section = parse_informs_section
