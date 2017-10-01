@@ -202,8 +202,15 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
                     sched_time, self._send_update, sched_time, None)
 
     def close(self) -> None:
+        """Stop monitoring the sensor.
+
+        This should be called when the sampler is no longer needed. It is not
+        valid to call any methods on the sampler after this.
+        """
         self._clear_callback()
         self.sensor.detach(self._receive_update)
+        self.sensor = None
+        self.observer = None
 
     @abc.abstractmethod
     def parameters(self) -> Tuple:
