@@ -21,12 +21,12 @@ Device server
   greater freedom in version format).
 - The ``@request`` and ``@return_reply`` decorators no longer exist, as they
   are effectively the defaults, and the type information is provided by Python
-  type annotations. If you need raw access to the message, give your method a
-  `*args` argument with no annotation and a `msg` keyword-only argument.
+  type annotations.
 - The return code (``ok``, ``fail`` or ``invalid``) no longer forms part of
   the handler return value. Returning a value implies ``ok`` while raising an
   exception implies ``fail``. It's now also acceptable to return nothing,
-  which will send an ``ok`` without further arguments.
+  which will send an ``ok`` without further arguments if no reply has been
+  sent.
 - :exc:`AsyncReply` is gone. All request handlers are asynchronous now. If you
   need to serialise access to the device, use asyncio locks.
 - The kattypes types (:class:`Int` etc) have been replaced by plain Python
@@ -51,5 +51,5 @@ General
 - None of the code is thread-safe, including sensor updates. It is recommended
   that code using aiokatcp is single-threaded, but where that is not possible
   it needs to use asyncio primitives (such as
-  :meth:`AbstractEventLoop.call_soon_threadsafe` to ensure that aiokatcp
-  structures are touched only by the thread running the event loop).
+  :meth:`AbstractEventLoop.call_soon_threadsafe`) to ensure that aiokatcp
+  structures are touched only by the thread running the event loop.
