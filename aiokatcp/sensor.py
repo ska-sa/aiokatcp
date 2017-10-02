@@ -2,6 +2,7 @@ import enum
 import time
 import abc
 import asyncio
+import warnings
 from typing import Generic, TypeVar, Type, List, Tuple, Iterable, Optional, Any, Callable, cast
 # Imports only used for type comments, otherwise unused
 from typing import Set, Dict     # noqa: F401
@@ -136,15 +137,15 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
                  shortest: core.Timestamp = core.Timestamp(0),
                  longest: core.Timestamp = None,
                  *, always_update: bool = False) -> None:
-        self.sensor = sensor
-        self.observer = observer
-        self.shortest = float(shortest)
         if longest is not None:
             self.longest = float(longest)  # type: Optional[float]
             if self.longest <= 0:
                 raise ValueError('period must be positive')
         else:
             self.longest = None
+        self.shortest = float(shortest)
+        self.sensor = sensor
+        self.observer = observer
         self.difference = difference
         self.always_update = always_update
         self.loop = loop
@@ -155,6 +156,11 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
         self._changed = False
         self.sensor.attach(self._receive_update)
         self._send_update(loop.time(), sensor.reading)
+
+    def __del__(self) -> None:
+        if getattr(self, 'sensor', None) is not None:
+            warnings.warn('unclosed SensorSampler {!r}'.format(self), ResourceWarning)
+            self.close()
 
     def _clear_callback(self) -> None:
         if self._callback_handle is not None:
