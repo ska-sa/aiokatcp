@@ -18,13 +18,15 @@ from .connection import FailReply
 
 logger = logging.getLogger(__name__)
 _RequestReply = Awaitable[Optional[Sequence]]
-_RequestHandler = Callable[['DeviceServer', 'RequestContext', core.Message], _RequestReply]
+_RequestHandler = Callable[['DeviceServer', 'RequestContext'], _RequestReply]
 
 
 class ClientConnection(connection.Connection):
+    """Server's view of the connection from a single client."""
     def __init__(self, owner: 'DeviceServer',
                  reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         super().__init__(owner, reader, writer, True)
+        #: Maps sensors to their samplers, for sensors that are being sampled
         self._samplers = {}     # type: Dict[sensor.Sensor, sensor.SensorSampler]
 
     async def stop(self) -> None:
@@ -34,6 +36,7 @@ class ClientConnection(connection.Connection):
         await super().stop()
 
     def set_sampler(self, s: sensor.Sensor, sampler: Optional[sensor.SensorSampler]) -> None:
+        """Set or clear the sampler for a sensor."""
         if s in self._samplers:
             self._samplers[s].close()
             del self._samplers[s]
@@ -41,15 +44,26 @@ class ClientConnection(connection.Connection):
             self._samplers[s] = sampler
 
     def get_sampler(self, s: sensor.Sensor) -> Optional[sensor.SensorSampler]:
+        """Retrieve the sampler for a sensor"""
         return self._samplers.get(s)
 
     def sensor_update(self, s: sensor.Sensor, reading: sensor.Reading):
+        """Report a new sensor value. This is used as the callback for the sampler."""
         msg = core.Message.inform(
             'sensor-status', reading.timestamp, 1, s.name, reading.status, reading.value)
         self.write_message(msg)
 
 
 class RequestContext(object):
+    """Interface for informs and replies to a request.
+
+    Parameters
+    ----------
+    conn
+        Client connection from which the request originated
+    req
+        The request itself
+    """
     def __init__(self, conn: ClientConnection, req: core.Message) -> None:
         self.conn = conn
         self.req = req
@@ -57,9 +71,22 @@ class RequestContext(object):
 
     @property
     def replied(self) -> bool:
+        """Whether a reply has currently been sent"""
         return self._replied
 
     def reply(self, *args: Any) -> None:
+        """Send a reply to the request.
+
+        Parameters
+        ----------
+        *args
+            The fields of the reply
+
+        Raises
+        ------
+        RuntimeError
+            If the request has already been replied to.
+        """
         if self._replied:
             raise RuntimeError('request ?{} has already been replied to'.format(self.req.name))
         msg = core.Message.reply_to_request(self.req, *args)
@@ -67,13 +94,36 @@ class RequestContext(object):
         self._replied = True
 
     def inform(self, *args: Any) -> None:
+        """Send an inform in response to the request.
+
+        Parameters
+        ----------
+        *args
+            The fields of the inform
+
+        Raises
+        ------
+        RuntimeError
+            If the request has already been replied to.
+        """
         if self._replied:
             raise RuntimeError('request ?{} has already been replied to'.format(self.req.name))
         msg = core.Message.inform_reply(self.req, *args)
         self.conn.write_message(msg)
 
     def informs(self, informs: Iterable[Iterable], *, send_reply=True) -> None:
-        """Write a sequence of informs and send an ok reply with the count."""
+        """Write a sequence of informs and send an ``ok`` reply with the count.
+
+        Parameters
+        ----------
+        informs
+            Each element is an iterable of fields in the inform.
+
+        Raises
+        ------
+        RuntimeError
+            If the request has already been replied to.
+        """
         if self._replied:
             raise RuntimeError('request ?{} has already been replied to'.format(self.req.name))
         msgs = [core.Message.inform_reply(self.req, *inform) for inform in informs]
@@ -84,6 +134,7 @@ class RequestContext(object):
             self._replied = True
 
     async def drain(self) -> None:
+        """Wait for the outgoing queue to be below a threshold."""
         await self.conn.drain()
 
 
@@ -105,9 +156,9 @@ class DeviceServerMeta(type):
         # Exclude transferring __annotations__ from the wrapped function,
         # because the decorator does not preserve signature.
         @functools.wraps(value, assigned=['__module__', '__name__', '__qualname__', '__doc__'])
-        async def wrapper(self, ctx, msg: core.Message) -> Optional[Sequence]:
+        async def wrapper(self, ctx: RequestContext) -> Optional[Sequence]:
             args = [self, ctx]
-            for argument in msg.arguments:
+            for argument in ctx.req.arguments:
                 if len(args) >= len(pos):
                     if var_pos is None:
                         raise FailReply('too many arguments for {}'.format(name))
@@ -146,6 +197,12 @@ class DeviceServerMeta(type):
 
 
 class SensorSet:
+    """A dict-like and set-like collection of sensors.
+
+    It stores a corresponding list of connections, and removing a sensor from
+    the set clears any samplers on the corresponding connection.
+    """
+
     class _Sentinel(enum.Enum):
         """Internal enum used to signal that no default is provided to pop"""
         NO_DEFAULT = 0
@@ -155,6 +212,7 @@ class SensorSet:
         self._sensors = {}       # type: Dict[str, sensor.Sensor]
 
     def _removed(self, s: sensor.Sensor):
+        """Clear a sensor's samplers from all connections."""
         for conn in self._connections:
             conn.set_sampler(s, None)
 
@@ -236,6 +294,18 @@ class SensorSet:
     def copy(self) -> Dict[str, sensor.Sensor]:
         return self._sensors.copy()
 
+    add.__doc__ = set.add.__doc__
+    remove.__doc__ = set.remove.__doc__
+    discard.__doc__ = set.discard.__doc__
+    clear.__doc__ = dict.clear.__doc__
+    popitem.__doc__ = dict.popitem.__doc__
+    pop.__doc__ = dict.pop.__doc__
+    get.__doc__ = dict.get.__doc__
+    keys.__doc__ = dict.keys.__doc__
+    values.__doc__ = dict.values.__doc__
+    items.__doc__ = dict.items.__doc__
+    copy.__doc__ = dict.copy.__doc__
+
 
 class DeviceServer(metaclass=DeviceServerMeta):
     _request_handlers = {}   # type: Dict[str, _RequestHandler]
@@ -306,10 +376,12 @@ class DeviceServer(metaclass=DeviceServerMeta):
             self._stopped.set()
 
     async def join(self) -> None:
+        """Block until the server has stopped"""
         await self._stopped.wait()
 
     @property
-    def server(self):
+    def server(self) -> asyncio.AbstractServer:
+        """Return the underlying TCP server"""
         return self._server
 
     def send_version_info(self, ctx: RequestContext, *, send_reply=True) -> None:
@@ -348,6 +420,11 @@ class DeviceServer(metaclass=DeviceServerMeta):
             old_conn.write_message(msg)
 
     def _handle_request_done_callback(self, ctx: RequestContext, task: asyncio.Task) -> None:
+        """Completion callback for request handlers.
+
+        It deals with cancellation and error conditions, and ensures that
+        exactly one reply is returned.
+        """
         error_msg = None
         self._pending.discard(task)
         if task.cancelled():
@@ -375,13 +452,18 @@ class DeviceServer(metaclass=DeviceServerMeta):
             # message in a reply - use an out-of-band inform instead.
             ctx.conn.write_message(core.Message.inform('log', 'error', error_msg))
 
-    async def _handle_request(self, ctx: RequestContext, msg: core.Message) -> None:
+    async def _handle_request(self, ctx: RequestContext) -> None:
+        """Task for handling an incoming request.
+
+        If the server is halted while the request is being handled, this task
+        gets cancelled.
+        """
         try:
-            handler = self._request_handlers[msg.name]
+            handler = self._request_handlers[ctx.req.name]
         except KeyError:
-            ret = (core.Message.INVALID, 'unknown request {}'.format(msg.name))  # type: Any
+            ret = (core.Message.INVALID, 'unknown request {}'.format(ctx.req.name))  # type: Any
         else:
-            ret = await handler(self, ctx, msg)
+            ret = await handler(self, ctx)
             if ctx.replied and ret is not None:
                 raise RuntimeError('handler both replied and returned a value')
             if ret is None:
@@ -398,7 +480,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             return
         if msg.mtype == core.Message.Type.REQUEST:
             ctx = RequestContext(conn, msg)
-            task = self.loop.create_task(self._handle_request(ctx, msg))
+            task = self.loop.create_task(self._handle_request(ctx))
             self._pending.add(task)
             task.add_done_callback(functools.partial(self._handle_request_done_callback, ctx))
         else:
@@ -406,6 +488,13 @@ class DeviceServer(metaclass=DeviceServerMeta):
             # TODO: handle other message types
 
     def mass_inform(self, *args: Any) -> None:
+        """Send an asynchronous inform to all clients.
+
+        Parameters
+        ----------
+        *args
+            Fields for the inform
+        """
         msg = core.Message.inform(*args)
         for conn in self._connections:
             conn.write_message(msg)
