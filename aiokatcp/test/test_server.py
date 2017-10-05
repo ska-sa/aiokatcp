@@ -4,7 +4,7 @@ import asyncio
 import ipaddress
 import unittest
 import unittest.mock
-from typing import Tuple, Iterable, Union, Pattern, SupportsBytes, cast
+from typing import Tuple, Iterable, Union, Pattern, SupportsBytes, Type, cast
 from typing import List   # noqa: F401
 
 import asynctest
@@ -68,13 +68,26 @@ class DummyServer(DeviceServer):
         raise RuntimeError("help I fell over")
 
 
+class BadServer(DummyServer):
+    """Server with some badly-behaved requests."""
+    async def request_double_reply(self, ctx: RequestContext) -> None:
+        """Tries to send a reply twice"""
+        ctx.reply('ok', 'reply1')
+        ctx.reply('ok', 'reply2')
+
+    async def request_reply_return(self, ctx: RequestContext) -> int:
+        """Sends an explicit reply and returns a value"""
+        ctx.reply('ok', 'reply1')
+        return 3
+
+
 class DeviceServerTestMixin(asynctest.TestCase):
     """Mixin for device server tests.
 
     It creates a server and a reader and writer that form a client.
     """
-    async def make_server(self) -> DummyServer:
-        server = DummyServer(loop=self.loop)
+    async def make_server(self, server_cls: Type[DummyServer]) -> DummyServer:
+        server = server_cls(loop=self.loop)
         await server.start()
         self.addCleanup(server.stop)
         return server
@@ -87,7 +100,7 @@ class DeviceServerTestMixin(asynctest.TestCase):
         return remote_reader, remote_writer
 
     async def setUp(self) -> None:
-        self.server = await self.make_server()
+        self.server = await self.make_server(DummyServer)
         self.remote_reader, self.remote_writer = await self.make_client(self.server)
 
     async def _readline(self) -> bytes:
@@ -105,7 +118,7 @@ class DeviceServerTestMixin(asynctest.TestCase):
             else:
                 self.assertRegex(actual, expected)
 
-    async def _get_version_info(self, prefix: bytes = b'#version-connect') -> None:
+    async def get_version_info(self, prefix: bytes = b'#version-connect') -> None:
         await self._check_reply([
             prefix + b' katcp-protocol 5.0-MI\n',
             prefix + ' katcp-library aiokatcp-{} aiokatcp-{}\n'.format(
@@ -127,7 +140,7 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
             await self.server.start()
 
     async def test_help(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?help[1]\n')
         commands = sorted([
             'increment-counter', 'echo', 'bytes-arg', 'double', 'wait', 'crash',
@@ -140,25 +153,25 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
         await self._check_reply(expected)
 
     async def test_help_command(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?help[1] increment-counter\n')
         await self._check_reply([
             br'#help[1] increment-counter Increment\_a\_counter' + b'\n',
             b'!help[1] ok 1\n'])
 
     async def test_help_bad_command(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?help[1] increment_counter\n')  # note: _ instead of -
         await self._check_reply([
             br'!help[1] fail request\_increment_counter\_is\_not\_known' + b'\n'])
 
     async def test_watchdog(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?watchdog[2]\n')
         await self._check_reply([b'!watchdog[2] ok\n'])
 
     async def test_client_list(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?client-list[3]\n')
         host, port = self.remote_writer.get_extra_info('sockname')
         client_addr = Address(ipaddress.ip_address(host), port)
@@ -167,7 +180,7 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
             b'!client-list[3] ok 1\n'])
 
     async def test_sensor_list_no_filter(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-list[4]\n')
         await self._check_reply([
             br'#sensor-list[4] counter-queries number\_of\_?counter\_queries \@ integer' + b'\n',
@@ -176,20 +189,20 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
             b'!sensor-list[4] ok 3\n'])
 
     async def test_sensor_list_simple_filter(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-list[5] foo\n')
         await self._check_reply([
             br'#sensor-list[5] foo nonsense \@ discrete first-value second-value' + b'\n',
             b'!sensor-list[5] ok 1\n'])
 
     async def test_sensor_list_simple_no_match(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-list[5] bar\n')
         await self._check_reply([
             br"!sensor-list[5] fail unknown\_sensor\_'bar'" + b'\n'])
 
     async def test_sensor_list_regex_filter(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-list[6] /[a-z-]+/\n')
         await self._check_reply([
             br'#sensor-list[6] counter-queries number\_of\_?counter\_queries \@ integer' + b'\n',
@@ -198,19 +211,19 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
             b'!sensor-list[6] ok 3\n'])
 
     async def test_sensor_list_regex_filter_empty(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-list[7] /unmatched/\n')
         await self._check_reply([
             b'!sensor-list[7] ok 0\n'])
 
     async def test_sensor_list_regex_bad_regex(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-list[8] /(/\n')
         await self._check_reply([
             re.compile(br'^!sensor-list\[8\] fail .+\n$')])
 
     async def test_sensor_value(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-value[9]\n')
         await self._check_reply([
             b'#sensor-value[9] 123456789.0 1 counter-queries nominal 0\n',
@@ -221,20 +234,20 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
     async def test_sensor_value_filter(self) -> None:
         # The other filter tests are omitted since they're covered by the
         # sensor-list tests.
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-value[9] counter-queries\n')
         await self._check_reply([
             b'#sensor-value[9] 123456789.0 1 counter-queries nominal 0\n',
             b'!sensor-value[9] ok 1\n'])
 
     async def test_version_list(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?version-list[10]\n')
-        await self._get_version_info(prefix=b'#version-list[10]')
+        await self.get_version_info(prefix=b'#version-list[10]')
         await self._check_reply([b'!version-list[10] ok 3\n'])
 
     async def test_halt(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?halt[11]\n')
         await self._check_reply([
             b'!halt[11] ok\n',
@@ -243,7 +256,7 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
         await self.server.join()
 
     async def test_halt_while_waiting(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?wait[1]\n?halt[2]\n')
         await self._check_reply([
             b'!halt[2] ok\n',
@@ -252,47 +265,47 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
             b''])    # Empty line indicates EOF
 
     async def test_too_few_params(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?double\n')
         await self._check_reply([re.compile(br'^!double fail .*\n$')])
 
     async def test_too_many_params(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?double 1 2 3\n')
         await self._check_reply([re.compile(br'^!double fail .*\n$')])
 
     async def test_unknown_request(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?cheese[1]\n')
         await self._check_reply([
             re.compile(br'^!cheese\[1\] invalid unknown\\_request\\_cheese\n$')])
 
     async def test_crash_request(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?crash\n')
         await self._check_reply([
             re.compile(br'^!crash fail .*help\\_I\\_fell\\_over.*$')])
 
     async def test_variadic(self) -> None:
         """Test a request that takes a *args."""
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?echo hello world\n')
         await self._check_reply([b'!echo ok hello world\n'])
 
     async def test_no_annotation(self) -> None:
         """Argument without annotation is passed through raw"""
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?bytes-arg raw\n')
         await self._check_reply([b'!bytes-arg ok raw\n'])
 
     async def test_bad_arg_type(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?double bad\n')
         await self._check_reply([
             br"!double fail could\_not\_convert\_string\_to\_float:\_'bad'" + b'\n'])
 
     async def test_concurrent(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?wait[1]\n?echo[2] test\n')
         await self._check_reply([b'!echo[2] ok test\n'])
         self.server.event.set()
@@ -300,7 +313,7 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
 
     async def test_client_connected_inform(self) -> None:
         """A second client connecting sends ``#client-connected`` to the first"""
-        await self._get_version_info()
+        await self.get_version_info()
         host, port = self.server.server.sockets[0].getsockname()    # type: ignore
         reader2, writer2 = await asyncio.open_connection(host, port, loop=self.loop)
         self.addCleanup(writer2.close)
@@ -310,7 +323,7 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
         await self._check_reply([b'#client-connected ' + client_addr_bytes + b'\n'])
 
     async def test_message_while_stopping(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?wait\n')
         # Wait for the request_wait to be launched
         await self.server.wait_reached.wait()
@@ -344,38 +357,38 @@ class TestDeviceServerClocked(DeviceServerTestMixin, asynctest.ClockedTestCase):
 
     async def test_sensor_sampling_invalid(self) -> None:
         """Invalid strategy for ``?sensor-strategy``"""
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-sampling float-sensor carrot\n')
         await self._check_reply([
             br"!sensor-sampling fail b'carrot'\_is\_not\_a\_valid\_value\_for\_Strategy" + b'\n'])
 
     async def test_sensor_sampling_none_params(self) -> None:
         """None strategy must not accept parameters"""
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-sampling float-sensor none 4\n')
         await self._check_reply([
             br'!sensor-sampling fail expected\_0\_strategy\_arguments,\_found\_1' + b'\n'])
 
     async def test_sensor_sampling_too_few_params(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-sampling float-sensor event-rate 4\n')
         await self._check_reply([
             br'!sensor-sampling fail expected\_2\_strategy\_arguments,\_found\_1' + b'\n'])
 
     async def test_sensor_sampling_too_many_params(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-sampling float-sensor event-rate 4 5 6\n')
         await self._check_reply([
             br'!sensor-sampling fail expected\_2\_strategy\_arguments,\_found\_3' + b'\n'])
 
     async def test_sensor_sampling_bad_parameter(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-sampling float-sensor period foo\n')
         await self._check_reply([
             br"!sensor-sampling fail could\_not\_convert\_string\_to\_float:\_'foo'" + b'\n'])
 
     async def test_sensor_sampling_auto(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-sampling float-sensor auto\n')
         await self._check_reply([
             b'#sensor-status 123456789.0 1 float-sensor unknown 0.0\n',
@@ -391,7 +404,7 @@ class TestDeviceServerClocked(DeviceServerTestMixin, asynctest.ClockedTestCase):
             b'#sensor-status 123456791.0 1 float-sensor nominal 1.25\n'])
 
     async def test_sensor_sampling_period(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-sampling float-sensor period 2.5\n')
         await self._check_reply([
             b'#sensor-status 123456789.0 1 float-sensor unknown 0.0\n',
@@ -407,13 +420,13 @@ class TestDeviceServerClocked(DeviceServerTestMixin, asynctest.ClockedTestCase):
             b'!watchdog ok\n'])
 
     async def test_sensor_sampling_period_zero(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-sampling float-sensor period 0.0\n')
         await self._check_reply([
             br'!sensor-sampling fail period\_must\_be\_positive' + b'\n'])
 
     async def test_sensor_sampling_event(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-sampling float-sensor event\n')
         await self._check_reply([
             b'#sensor-status 123456789.0 1 float-sensor unknown 0.0\n',
@@ -432,14 +445,14 @@ class TestDeviceServerClocked(DeviceServerTestMixin, asynctest.ClockedTestCase):
             b'#sensor-status 123456792.0 1 float-sensor warn 1.25\n'])
 
     async def test_sensor_sampling_differential_bad_type(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-sampling foo differential 1\n')
         await self._check_reply([
             br'!sensor-sampling fail differential\_strategies\_only\_valid\_for\_integer'
             br'\_and\_float\_sensors' + b'\n'])
 
     async def test_sensor_sampling_differential(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-sampling float-sensor differential 1.5\n')
         await self._check_reply([
             b'#sensor-status 123456789.0 1 float-sensor unknown 0.0\n',
@@ -464,7 +477,7 @@ class TestDeviceServerClocked(DeviceServerTestMixin, asynctest.ClockedTestCase):
             b'#sensor-status 123456794.0 1 float-sensor nominal -1.0\n'])
 
     async def test_sensor_sampling_event_rate(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-sampling float-sensor event-rate 1.0 10.0\n')
         await self._check_reply([
             b'#sensor-status 123456789.0 1 float-sensor unknown 0.0\n',
@@ -493,7 +506,7 @@ class TestDeviceServerClocked(DeviceServerTestMixin, asynctest.ClockedTestCase):
             b'#sensor-status 123456790.5 1 float-sensor nominal 0.5\n'])
 
     async def test_sensor_sampling_differential_rate(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-sampling float-sensor differential-rate 1.5 1.0 10.0\n')
         await self._check_reply([
             b'#sensor-status 123456789.0 1 float-sensor unknown 0.0\n',
@@ -525,7 +538,7 @@ class TestDeviceServerClocked(DeviceServerTestMixin, asynctest.ClockedTestCase):
             b'#sensor-status 123456794.5 1 float-sensor nominal 1.5\n'])
 
     async def test_sensor_sampling_none(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-sampling float-sensor event\n')
         await self._check_reply([
             b'#sensor-status 123456789.0 1 float-sensor unknown 0.0\n',
@@ -539,7 +552,7 @@ class TestDeviceServerClocked(DeviceServerTestMixin, asynctest.ClockedTestCase):
         await self._check_reply([b'!watchdog ok\n'])
 
     async def test_sensor_sampling_query(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-sampling float-sensor event\n'
                           b'?sensor-sampling float-sensor\n')
         await self._check_reply([
@@ -548,10 +561,34 @@ class TestDeviceServerClocked(DeviceServerTestMixin, asynctest.ClockedTestCase):
             b'!sensor-sampling ok float-sensor event\n'])
 
     async def test_sensor_sampling_unknown_sensor(self) -> None:
-        await self._get_version_info()
+        await self.get_version_info()
         await self._write(b'?sensor-sampling bad-sensor event\n')
         await self._check_reply([
             br"!sensor-sampling fail unknown\_sensor\_'bad-sensor'" + b'\n'])
+
+
+@timelimit
+class TestBadDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
+    async def setUp(self) -> None:
+        patcher = unittest.mock.patch('time.time', return_value=123456789.0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.server = await self.make_server(BadServer)
+        self.remote_reader, self.remote_writer = await self.make_client(self.server)
+
+    async def test_double_reply(self) -> None:
+        await self.get_version_info()
+        await self._write(b'?double-reply\n')
+        await self._check_reply([
+            b'!double-reply ok reply1\n',
+            re.compile(b'^#log error Traceback')])
+
+    async def test_reply_return(self) -> None:
+        await self.get_version_info()
+        await self._write(b'?reply-return\n')
+        await self._check_reply([
+            b'!reply-return ok reply1\n',
+            re.compile(b'^#log error Traceback')])
 
 
 class TestDeviceServerMeta(unittest.TestCase):
