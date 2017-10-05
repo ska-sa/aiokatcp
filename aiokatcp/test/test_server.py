@@ -339,6 +339,11 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
             b''])
         await stop_task
 
+    async def test_mass_inform(self) -> None:
+        await self.get_version_info()
+        self.server.mass_inform('test-inform', 123)
+        await self._check_reply([b'#test-inform 123\n'])
+
 
 class TestDeviceServerClocked(DeviceServerTestMixin, asynctest.ClockedTestCase):
     """Tests for :class:`.DeviceServer` that use a fake clock.
