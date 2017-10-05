@@ -2,6 +2,7 @@ import logging
 import asyncio
 import re
 import ipaddress
+import socket
 from typing import Any, Optional, SupportsBytes, Iterable, cast
 
 from . import core
@@ -70,6 +71,9 @@ class Connection(object):
     def __init__(self, owner: Any,
                  reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                  is_server: bool) -> None:
+        # Set TCP_NODELAY to avoid unnecessary transmission delays. This is
+        # on by default in asyncio from Python 3.6, but not in 3.5.
+        writer.get_extra_info('socket').setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self.owner = owner
         self.reader = reader
         self.writer = writer  # type: Optional[asyncio.StreamWriter]
