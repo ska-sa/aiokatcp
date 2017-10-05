@@ -80,6 +80,16 @@ class BadServer(DummyServer):
         ctx.reply('ok', 'reply1')
         return 3
 
+    async def request_inform_after_reply(self, ctx: RequestContext) -> None:
+        """Call inform after reply"""
+        ctx.reply('ok', 'reply1')
+        ctx.inform('inform1')
+
+    async def request_informs_after_reply(self, ctx: RequestContext) -> None:
+        """Call informs after reply"""
+        ctx.reply('ok', 'reply1')
+        ctx.informs(['inform1'])
+
 
 class DeviceServerTestMixin(asynctest.TestCase):
     """Mixin for device server tests.
@@ -593,6 +603,20 @@ class TestBadDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
         await self._write(b'?reply-return\n')
         await self._check_reply([
             b'!reply-return ok reply1\n',
+            re.compile(b'^#log error Traceback')])
+
+    async def test_inform_after_reply(self) -> None:
+        await self.get_version_info()
+        await self._write(b'?inform-after-reply\n')
+        await self._check_reply([
+            b'!inform-after-reply ok reply1\n',
+            re.compile(b'^#log error Traceback')])
+
+    async def test_informs_after_reply(self) -> None:
+        await self.get_version_info()
+        await self._write(b'?informs-after-reply\n')
+        await self._check_reply([
+            b'!informs-after-reply ok reply1\n',
             re.compile(b'^#log error Traceback')])
 
 
