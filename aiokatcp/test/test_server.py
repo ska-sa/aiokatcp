@@ -9,6 +9,7 @@ from typing import List   # noqa: F401
 
 import asynctest
 
+import aiokatcp
 from aiokatcp.core import Message, Address
 from aiokatcp.connection import FailReply
 from aiokatcp.server import DeviceServer, RequestContext
@@ -107,7 +108,8 @@ class DeviceServerTestMixin(asynctest.TestCase):
     async def _get_version_info(self, prefix: bytes = b'#version-connect') -> None:
         await self._check_reply([
             prefix + b' katcp-protocol 5.0-MI\n',
-            prefix + b' katcp-library aiokatcp-0.1 aiokatcp-0.1\n',
+            prefix + ' katcp-library aiokatcp-{} aiokatcp-{}\n'.format(
+                aiokatcp.__minor_version__, aiokatcp.__version__).encode('ascii'),
             prefix + b' katcp-device dummy-1.0 dummy-build-1.0.0\n'])
 
 

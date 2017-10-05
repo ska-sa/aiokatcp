@@ -12,6 +12,7 @@ from typing import (
 # Only used in type comments, so flake8 complains
 from typing import Dict, Set    # noqa: F401
 
+import aiokatcp
 from . import core, connection, sensor
 from .connection import FailReply
 
@@ -395,10 +396,11 @@ class DeviceServer(metaclass=DeviceServerMeta):
         num_informs
             Number of informs sent
         """
+        version = 'aiokatcp-{}'.format(aiokatcp.__version__)
+        api_version = 'aiokatcp-{}'.format(aiokatcp.__minor_version__)
         ctx.informs([
             ('katcp-protocol', '5.0-MI'),
-            # TODO: use katversion to get version number
-            ('katcp-library', 'aiokatcp-0.1', 'aiokatcp-0.1'),
+            ('katcp-library', api_version, version),
             ('katcp-device', self.VERSION, self.BUILD_STATE),
         ], send_reply=send_reply)
 
