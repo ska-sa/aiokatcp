@@ -100,6 +100,19 @@ class TestSensorSet(unittest.TestCase):
         self.conn.set_sampler.assert_any_call(self.sensors[0], None)
         self.conn.set_sampler.assert_any_call(self.sensors[1], None)
 
+    def test_pop_absent(self):
+        # Non-existent name
+        with self.assertRaises(KeyError):
+            self.ss.pop('name4')
+        # Non-existent with defaults
+        self.assertIsNone(self.ss.pop('name4', None))
+        self.assertEqual(self.ss.pop('name4', 'foo'), 'foo')
+        # Remove one
+        self.conn.set_sampler.assert_not_called()
+        self.assertIs(self.ss.pop('name0'), self.sensors[0])
+        self._assert_sensors(self.ss, [])
+        self.conn.set_sampler.assert_called_once_with(self.sensors[0], None)
+
     def test_delitem(self):
         # Try to remove non-existent name
         with self.assertRaises(KeyError):
@@ -125,6 +138,43 @@ class TestSensorSet(unittest.TestCase):
         self.assertEqual(self.ss.get('name4', 'foo'), 'foo')
         # Existing name
         self.assertIs(self.ss.get('name0'), self.sensors[0])
+
+    def test_len(self):
+        self.assertEqual(len(self.ss), 1)
+        self.ss.add(self.sensors[1])
+        self.assertEqual(len(self.ss), 2)
+
+    def test_contains(self):
+        self.assertIn(self.sensors[0], self.ss)
+        self.assertNotIn(self.alt_sensors[0], self.ss)
+        self.assertNotIn(self.sensors[1], self.ss)
+
+    def test_bool(self):
+        self.assertTrue(self.ss)
+        self.ss.clear()
+        self.assertFalse(self.ss)
+
+    def test_keys(self):
+        self.ss.add(self.sensors[1])
+        self.assertEqual(sorted(self.ss.keys()), ['name0', 'name1'])
+
+    def test_values(self):
+        self.ss.add(self.sensors[1])
+        self.assertEqual(sorted(self.ss.values(), key=lambda x: x.name),
+                         [self.sensors[0], self.sensors[1]])
+
+    def test_items(self):
+        self.ss.add(self.sensors[1])
+        self.assertEqual(sorted(self.ss.items()), [
+            ('name0', self.sensors[0]),
+            ('name1', self.sensors[1])
+        ])
+
+    def test_iter(self):
+        self.assertEqual(sorted(iter(self.ss)), ['name0'])
+
+    def test_copy(self):
+        self.assertEqual(self.ss.copy(), {'name0': self.sensors[0]})
 
 
 class DummyServer(DeviceServer):
