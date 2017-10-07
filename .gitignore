@@ -1,5 +1,6 @@
 /cover
 /.coverage
 /.mypy_cache
+/aiokatcp.egg-info
 *.pyc
 __pycache__
