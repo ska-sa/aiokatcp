@@ -91,7 +91,7 @@ class TestSensorSet(unittest.TestCase):
         self.ss.add(self.sensors[1])
         items = []
         try:
-            for i in range(100):   # To prevent infinite loop if it's broken
+            for _ in range(100):   # To prevent infinite loop if it's broken
                 items.append(self.ss.popitem())
         except KeyError:
             pass
