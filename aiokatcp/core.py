@@ -1,6 +1,7 @@
 import enum
 import re
 import io
+import logging
 import ipaddress
 from typing import (
     Match, Any, Callable, Union, Type, Iterable, SupportsBytes, Generic, TypeVar, Optional, cast)
@@ -111,6 +112,32 @@ class Timestamp(float):
     distinguished. It represents time in seconds as a UNIX timestamp.
     """
     pass
+
+
+class LogLevel(enum.IntEnum):
+    """katcp log level, with values matching Python log levels"""
+    ALL = logging.NOTSET
+    TRACE = 0
+    DEBUG = logging.DEBUG
+    INFO = logging.INFO
+    WARN = logging.WARNING
+    ERROR = logging.ERROR
+    FATAL = logging.CRITICAL
+    OFF = logging.CRITICAL + 10     # Higher than any level in logging module
+
+    @classmethod
+    def from_python(cls, level: int) -> 'LogLevel':
+        """Map Python log level to katcp log level"""
+        try:
+            # Common case: value matches exactly
+            return cls(level)
+        except ValueError:
+            # General case: round down to the next level
+            ans = cls.ALL
+            for member in cls.__members__.values():
+                if member > ans and member <= level and member != cls.OFF:
+                    ans = member
+            return member
 
 
 class TypeInfo(Generic[_T_contra]):
@@ -236,6 +263,7 @@ register_type(Timestamp, 'timestamp',
               lambda value: repr(value).encode('ascii'),
               lambda cls, raw: cls(raw.decode('ascii')))
 register_type(enum.Enum, 'discrete', _encode_enum, _decode_enum, _default_enum)
+register_type(enum.IntEnum, 'discrete', _encode_enum, _decode_enum, _default_enum)
 
 
 def encode(value: Any) -> bytes:

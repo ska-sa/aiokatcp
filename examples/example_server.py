@@ -49,6 +49,8 @@ class Server(aiokatcp.DeviceServer):
 
 async def main():
     server = Server('localhost', 4444)
+    handler = Server.LogHandler(server)
+    logging.getLogger().addHandler(handler)
     await server.start()
     await server.join()
 

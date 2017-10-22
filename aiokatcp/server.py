@@ -6,6 +6,7 @@ import traceback
 import enum
 import io
 import re
+import time
 from typing import (
     Callable, Awaitable, Sequence, Iterable, Optional, List, Tuple, Any,
     Union, KeysView, ValuesView, ItemsView)
@@ -314,6 +315,44 @@ class DeviceServer(metaclass=DeviceServerMeta):
     VERSION = None           # type: str
     BUILD_STATE = None       # type: str
 
+    class LogHandler(logging.Handler):
+        """Log handler that issues log messages as ``#log`` informs.
+
+        It is automatically initialised with a filter that discard log messages
+        from the aiokatcp module, because otherwise one may get into an infinite
+        recursion where log messages are communications with a client are
+        communicated to the client.
+
+        It is also initialised with a default formatter that emits only the
+        the log message itself.
+
+        Typical usage to inform clients about all log messages in the application
+        is
+
+        .. code:: python
+
+            logging.getLogger().addHandler(DeviceServer.LogHandler(server))
+        """
+        def _self_filter(self, record: logging.LogRecord) -> bool:
+            return not record.name.startswith('aiokatcp.') \
+                and record.levelno >= self._server._log_level \
+                and self._server._log_level != core.LogLevel.OFF
+
+        def __init__(self, server: 'DeviceServer') -> None:
+            super().__init__()
+            self._server = server
+            self.addFilter(self._self_filter)
+            self.setFormatter(logging.Formatter('%(filename)s:%(lineno)d: %(message)s'))
+
+        def emit(self, record: logging.LogRecord) -> None:
+            try:
+                msg = self.format(record)
+                self._server.mass_inform(
+                    'log', core.LogLevel.from_python(record.levelno),
+                    record.created, record.name, msg)
+            except Exception:
+                self.handleError(record)
+
     def __init__(self, host: str, port: int, *, limit=connection.DEFAULT_LIMIT, loop=None) -> None:
         super().__init__()
         if not self.VERSION:
@@ -326,6 +365,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             loop = asyncio.get_event_loop()
         self.loop = loop
         self._limit = limit
+        self._log_level = core.LogLevel.WARN
         self._server = None        # type: Optional[asyncio.events.AbstractServer]
         self._server_lock = asyncio.Lock(loop=loop)
         self._stopped = asyncio.Event(loop=loop)
@@ -452,7 +492,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
         elif error_msg is not None:
             # We somehow replied before failing, so can't put the error
             # message in a reply - use an out-of-band inform instead.
-            ctx.conn.write_message(core.Message.inform('log', 'error', error_msg))
+            ctx.conn.write_message(core.Message.inform(
+                'log', 'error', time.time(), __name__, error_msg))
 
     async def _handle_request(self, ctx: RequestContext) -> None:
         """Task for handling an incoming request.
@@ -870,3 +911,34 @@ class DeviceServer(metaclass=DeviceServerMeta):
 
         """
         ctx.informs((conn.address,) for conn in self._connections)
+
+    async def request_log_level(self, ctx: RequestContext, level: core.LogLevel = None) -> None:
+        """Query or set the current logging level.
+
+        Parameters
+        ----------
+        level : {'all', 'trace', 'debug', 'info', 'warn', 'error', 'fatal', 'off'}, optional
+            Name of the logging level to set the device server to (the default
+            is to leave the log level unchanged).
+
+        Returns
+        -------
+        success : {'ok', 'fail'}
+            Whether the request succeeded.
+        level : {'all', 'trace', 'debug', 'info', 'warn', 'error', 'fatal', 'off'}
+            The log level after processing the request.
+
+        Examples
+        --------
+        ::
+
+            ?log-level
+            !log-level ok warn
+
+            ?log-level info
+            !log-level ok info
+
+        """
+        if level is not None:
+            self._log_level = level
+        return self._log_level
