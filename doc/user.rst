@@ -8,3 +8,4 @@ User manual
    tutorial
    migration
    unicode
+   logging
