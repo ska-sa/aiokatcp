@@ -3,6 +3,7 @@ import asyncio
 import re
 import ipaddress
 import socket
+import time
 from typing import Any, Optional, SupportsBytes, Iterable, cast
 
 from . import core
@@ -138,7 +139,7 @@ class Connection(object):
                 if self.is_server:
                     # TODO: #log informs are supposed to go to all clients
                     self.write_message(
-                        core.Message.inform('log', 'error', str(error)))
+                        core.Message.inform('log', 'error', time.time(), __name__, str(error)))
             else:
                 if msg is None:   # EOF received
                     break
