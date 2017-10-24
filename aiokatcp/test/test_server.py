@@ -309,8 +309,8 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
         await self._write(b'?help[1]\n')
         commands = sorted([
             'increment-counter', 'echo', 'bytes-arg', 'double', 'wait', 'crash',
-            'client-list', 'sensor-list', 'sensor-sampling', 'sensor-value',
-            'halt', 'help', 'watchdog', 'version-list'
+            'client-list', 'log-level', 'sensor-list', 'sensor-sampling',
+            'sensor-value', 'halt', 'help', 'watchdog', 'version-list'
         ])
         expected = [re.compile(br'^#help\[1\] ' + cmd.encode('ascii') + b' [^ ]+$\n')
                     for cmd in commands]   # type: List[Union[bytes, Pattern[bytes]]]
