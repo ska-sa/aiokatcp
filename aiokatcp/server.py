@@ -912,7 +912,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
         """
         ctx.informs((conn.address,) for conn in self._connections)
 
-    async def request_log_level(self, ctx: RequestContext, level: core.LogLevel = None) -> None:
+    async def request_log_level(
+            self, ctx: RequestContext, level: core.LogLevel = None) -> core.LogLevel:
         """Query or set the current logging level.
 
         Parameters
