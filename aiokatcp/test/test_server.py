@@ -4,6 +4,7 @@ import asyncio
 import ipaddress
 import unittest
 import unittest.mock
+import logging
 from typing import Tuple, Iterable, Union, Pattern, SupportsBytes, Type, cast
 from typing import List   # noqa: F401
 
@@ -508,6 +509,26 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
         await self.get_version_info()
         self.server.mass_inform('test-inform', 123)
         await self._check_reply([b'#test-inform 123\n'])
+
+    async def test_log_level(self) -> None:
+        # We have to use a name that doesn't start with aiokatcp., because
+        # those get filtered out.
+        logger = logging.getLogger('_aiokatcp.test.test_logger')
+        logger.propagate = False
+        logger.level = logging.DEBUG
+        handler = DummyServer.LogHandler(self.server)
+        logger.addHandler(handler)
+        self.addCleanup(logger.removeHandler, handler)
+        await self.get_version_info()
+        await self._write(b'?log-level\n')
+        await self._check_reply([b'!log-level ok warn\n'])
+        logger.info('foo')  # Should not be reported
+        await self._write(b'?log-level info\n')
+        await self._check_reply([b'!log-level ok info\n'])
+        logger.info('bar')  # Should be reported
+        await self._check_reply([
+            re.compile(br'^#log info 123456789\.0 _aiokatcp.test.test_logger '
+                       br'test_server\.py:\d+:\\_bar\n')])
 
 
 class TestDeviceServerClocked(DeviceServerTestMixin, asynctest.ClockedTestCase):
