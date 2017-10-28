@@ -149,23 +149,20 @@ the client. The can be done by calling :meth:`.RequestContext.inform` (a
 coroutine) with the arguments. It automatically includes the appropriate
 message ID and name.
 
-.. todo::
+A convention used in a number of the standard katcp requests is to reply by
+sending a sequence of informs, followed by a reply containing the number of
+such informs. This can be achieved using :meth:`.RequestContext.informs`. Note
+that this sends the reply as well, so if you use this your handler must not
+return a value. Using this function may be more efficient that sending the
+messages individually, because the messages are passed to the TCP socket as a
+unit. On the other hand, this does require memory to hold the entire reply.
 
-    Provide a :meth:`informs` method to send a block of informs (plus the
-    reply?) in a single block, to avoid running to problems with Nagle's
-    algorithm.
-
-.. todo::
-
-    Provide a :meth:`mass_inform` method to inform send an asynchronous inform
-    to all clients.
+Informs can also be asynchronous, to inform clients about events occurring in
+the server. An asynchronous inform can be sent to all clients using
+:meth:`.DeviceServer.mass_inform`.
 
 Sensors
 -------
-
-.. todo::
-
-    There is no sensor sampling support yet
 
 To provide a sensor from your server, create a
 :class:`~aiokatcp.sensor.Sensor` and attach it to your server by calling
