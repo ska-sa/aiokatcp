@@ -215,6 +215,16 @@ then you do not need to worry.
 Graceful shutdown
 -----------------
 
-.. todo::
+Apart from the ``?halt`` request, the server can be stopped from code with
+:meth:`.DeviceServer.stop` or :meth:`.DeviceServer.halt`. The former is a
+coroutine that completes when the server has shut down; the latter is a thin
+wrapper which schedules the former as an asyncio task and returns immediately.
+The latter is useful as a callback for a signal handler, e.g.
 
-    Write a note on the recommended way to handle Ctrl-C.
+.. code:: python
+
+   asyncio.get_event_loop().add_signal_handler(signal.SIGINT, server.halt)
+
+The ``?halt`` request is implemented in terms of :meth:`~.DeviceServer.halt`
+and hence :meth:`~.DeviceServer.stop`. Thus, additional shutdown behaviour can
+be added to the server by overriding :meth:`~.DeviceServer.stop`.

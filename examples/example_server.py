@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import enum
+import signal
 from typing import Tuple
 
 import aiokatcp
@@ -52,6 +53,7 @@ async def main():
     handler = Server.LogHandler(server)
     logging.getLogger().addHandler(handler)
     await server.start()
+    asyncio.get_event_loop().add_signal_handler(signal.SIGINT, server.halt)
     await server.join()
 
 

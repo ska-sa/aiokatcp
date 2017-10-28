@@ -416,6 +416,21 @@ class DeviceServer(metaclass=DeviceServerMeta):
                     await client.stop()
             self._stopped.set()
 
+    def halt(self, cancel: bool = True) -> asyncio.Task:
+        """Begin server shutdown, but do not wait for it to complete.
+
+        Parameters
+        ----------
+        cancel
+            If true (default), cancel any pending asynchronous requests.
+
+        Returns
+        -------
+        task
+            Task that is performing the stop.
+        """
+        return self.loop.create_task(self.stop(cancel))
+
     async def join(self) -> None:
         """Block until the server has stopped"""
         await self._stopped.wait()
@@ -610,7 +625,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             !halt ok
 
         """
-        self.loop.create_task(self.stop())
+        self.halt()
 
     async def request_watchdog(self, ctx: RequestContext) -> None:
         """Check that the server is still alive.
