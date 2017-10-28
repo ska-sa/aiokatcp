@@ -545,15 +545,17 @@ class DeviceServer(metaclass=DeviceServerMeta):
             pass
             # TODO: handle other message types
 
-    def mass_inform(self, *args: Any) -> None:
+    def mass_inform(self, name: str, *args: Any) -> None:
         """Send an asynchronous inform to all clients.
 
         Parameters
         ----------
+        name
+            Inform name
         *args
             Fields for the inform
         """
-        msg = core.Message.inform(*args)
+        msg = core.Message.inform(name, *args)
         for conn in self._connections:
             conn.write_message(msg)
 
