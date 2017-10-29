@@ -114,6 +114,14 @@ class Timestamp(float):
     pass
 
 
+class Now(enum.Enum):
+    """Singleton for representing a timestamp specified as ``now`` in the protocol."""
+    NOW = 0
+
+
+TimestampOrNow = Union[Timestamp, Now]
+
+
 class LogLevel(enum.IntEnum):
     """katcp log level, with values matching Python log levels"""
     ALL = logging.NOTSET
@@ -241,6 +249,10 @@ def _default_enum(cls: Type[_E]) -> _E:
     return next(iter(cast(Iterable, cls)))
 
 
+def _not_implemented(value) -> None:
+    raise NotImplementedError('{!r} cannot be encoded'.format(value))
+
+
 register_type(int, 'integer',
               lambda value: str(value).encode('ascii'),
               lambda cls, raw: cls(raw.decode('ascii')))
@@ -262,6 +274,9 @@ register_type(Address, 'address',
 register_type(Timestamp, 'timestamp',
               lambda value: repr(value).encode('ascii'),
               lambda cls, raw: cls(raw.decode('ascii')))
+register_type(TimestampOrNow, 'timestamp',
+              lambda value: NotImplemented,
+              lambda cls, raw: Now.NOW if raw == b'now' else Timestamp(raw.decode('ascii')))
 register_type(enum.Enum, 'discrete', _encode_enum, _decode_enum, _default_enum)
 register_type(enum.IntEnum, 'discrete', _encode_enum, _decode_enum, _default_enum)
 

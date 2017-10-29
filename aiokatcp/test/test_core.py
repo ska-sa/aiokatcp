@@ -6,7 +6,8 @@ import unittest.mock
 from typing import SupportsBytes, cast
 
 from aiokatcp.core import (
-    Message, KatcpSyntaxError, Address, Timestamp, encode, decode, register_type, get_type)
+    Message, KatcpSyntaxError, Address, Timestamp, TimestampOrNow, Now,
+    encode, decode, register_type, get_type)
 
 
 class MyEnum(enum.Enum):
@@ -92,6 +93,8 @@ class TestEncodeDecode(unittest.TestCase):
         (float, -123.5, b'-123.5'),
         (float, 1e+20, b'1e+20'),
         (Timestamp, Timestamp(123.5), b'123.5'),
+        (TimestampOrNow, Timestamp(123.5), b'123.5'),
+        (TimestampOrNow, Now.NOW, b'now'),
         (Address, Address(ipaddress.ip_address('127.0.0.1')), b'127.0.0.1'),
         (MyEnum, MyEnum.TWO_FACE, b'two-face'),
         (OverrideEnum, OverrideEnum.JOKER, b'carrot')
@@ -106,7 +109,8 @@ class TestEncodeDecode(unittest.TestCase):
         (MyEnum, b'two_face'),
         (MyEnum, b'TWO-FACE'),
         (MyEnum, b'bad-value'),
-        (OverrideEnum, b'joker')
+        (OverrideEnum, b'joker'),
+        (TimestampOrNow, b'later')
     ]
 
     def test_encode(self) -> None:

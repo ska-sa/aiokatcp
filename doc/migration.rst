@@ -7,11 +7,23 @@ the most important:
 
 Messages
 --------
-
 - The message arguments are pass to :class:`~aiokatcp.core.Message` as a
   `*args`, rather than a single list argument.
 - The `mid` (message ID) argument is keyword-only.
 - The message types are an enum, :class:`.Message.Type`.
+
+Types
+-----
+- The kattypes types (:class:`Int` etc) have been replaced by plain Python
+  types and a type registration system. The discrete type has been replaced by
+  enums.
+- In katcp-python, addresses were represented as a tuple of a string and an
+  integer. In aiokatcp, it is a full-blown class
+  (:class:`~aiokatcp.core.Address`) and the host part uses the
+  :mod:`ipaddress` module.
+- :class:`~.TimestampOrNow` is not a real type. Instead, it is an alias for
+  ``Union[Timestamp, Now]``. The actual value received on decoding is either a
+  :class:`~.Timestamp` or is :const:`.Now.NOW`.
 
 Device server
 -------------
@@ -29,13 +41,6 @@ Device server
   sent.
 - :exc:`AsyncReply` is gone. All request handlers are asynchronous now. If you
   need to serialise access to the device, use asyncio locks.
-- The kattypes types (:class:`Int` etc) have been replaced by plain Python
-  types and a type registration system. The discrete type has been replaced by
-  enums.
-- In katcp-python, addresses were represented as a tuple of a string and an
-  integer. In aiokatcp, it is a full-blown class
-  (:class:`~aiokatcp.core.Address`) and the host part uses the
-  :mod:`ipaddress` module.
 - Instead of :meth:`add_sensor` and so on, there is a
   :attr:`.DeviceServer.sensors` attribute that behaves like either a dictionary
   or a set.
