@@ -29,3 +29,14 @@ is high enough for both. There are a few options to deal with this:
 2. Override :meth:`.DeviceServer.request_log_level` in your subclass and use
    the requested level to change the level of the root logger. In this
    case, ``?log-level`` affects all logging in the application.
+
+Logger adapters
+---------------
+A :class:`.Connection` contains a :attr:`~.Connection.logger` attribute which
+is a :class:`logging.LoggerAdapter`. It provides an extra `address`
+attribute to log records. Similarly, :class:`.RequestContext` cotnains a
+:attr:`~.RequestContext.Logger` which adds `address` and `req` attributes.
+
+By themselves, this has no effect on logging. However, you could provide a
+custom formatter for your log handlers that will display this information when
+provided.

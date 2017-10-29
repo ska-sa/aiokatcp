@@ -83,6 +83,7 @@ class Connection(object):
         self._drain_lock = asyncio.Lock(loop=owner.loop)
         self.is_server = is_server
         self._task = None     # type: Optional[asyncio.Task]
+        self.logger = logging.LoggerAdapter(logger, dict(address=self.address))
 
     def start(self) -> asyncio.Task:
         self._task = self.owner.loop.create_task(self._run())
@@ -105,8 +106,9 @@ class Connection(object):
             # cast to work around https://github.com/python/mypy/issues/3989
             raw = b''.join(bytes(cast(SupportsBytes, msg)) for msg in msgs)
             self.writer.write(raw)
+            self.logger.debug('Sent message %r', raw)
         except ConnectionError as error:
-            logger.warning('Connection closed before message could be sent: %s', error)
+            self.logger.warning('Connection closed before message could be sent: %s', error)
             self._close_writer()
 
     def write_message(self, msg: core.Message) -> None:
@@ -125,7 +127,7 @@ class Connection(object):
                 try:
                     await self.writer.drain()
                 except ConnectionError as error:
-                    logger.warning('Connection closed while draining: %s', error)
+                    self.logger.warning('Connection closed while draining: %s', error)
                     self._close_writer()
 
     async def _run(self) -> None:
@@ -135,7 +137,7 @@ class Connection(object):
             try:
                 msg = await read_message(self.reader)
             except core.KatcpSyntaxError as error:
-                logger.warning('Malformed message received', exc_info=True)
+                self.logger.warning('Malformed message received', exc_info=True)
                 if self.is_server:
                     # TODO: #log informs are supposed to go to all clients
                     self.write_message(
@@ -143,6 +145,7 @@ class Connection(object):
             else:
                 if msg is None:   # EOF received
                     break
+
                 self.owner.handle_message(self, msg)
 
     def _done_callback(self, task: asyncio.Future) -> None:
@@ -150,7 +153,7 @@ class Connection(object):
             try:
                 task.result()
             except Exception as error:
-                logger.exception('Exception in connection handler')
+                self.logger.exception('Exception in connection handler')
 
     async def stop(self) -> None:
         task = self._task

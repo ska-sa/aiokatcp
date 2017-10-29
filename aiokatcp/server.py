@@ -70,6 +70,8 @@ class RequestContext(object):
         self.conn = conn
         self.req = req
         self._replied = False
+        # Can't just wrap conn.logger, because LoggerAdapters can't be stacked
+        self.logger = logging.LoggerAdapter(logger, dict(address=conn.address, req=req))
 
     @property
     def replied(self) -> bool:
@@ -487,7 +489,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         if task.cancelled():
             if ctx.replied:
                 return     # Cancelled while draining the reply - not critical
-            logger.info('request %r cancelled', ctx.req.name)
+            ctx.logger.info('request %r cancelled', ctx.req.name)
             error_msg = 'request cancelled'
         else:
             try:
@@ -495,8 +497,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
             except FailReply as error:
                 error_msg = str(error)
             except Exception:
-                logger.exception('uncaught exception while handling %r',
-                                 ctx.req.name, exc_info=True)
+                ctx.logger.exception('uncaught exception while handling %r',
+                                     ctx.req.name, exc_info=True)
                 output = io.StringIO('uncaught exception:\n')
                 traceback.print_exc(file=output)
                 error_msg = output.getvalue()
