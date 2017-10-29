@@ -6,7 +6,7 @@ import ipaddress
 from typing import (
     Match, Any, Callable, Union, Type, Iterable, SupportsBytes, Generic, TypeVar, Optional, cast)
 # Only used in type comments, so flake8 complains
-from typing import Dict   # noqa: F401
+from typing import Dict, List   # noqa: F401
 
 
 _T = TypeVar('_T')
@@ -249,10 +249,6 @@ def _default_enum(cls: Type[_E]) -> _E:
     return next(iter(cast(Iterable, cls)))
 
 
-def _not_implemented(value) -> None:
-    raise NotImplementedError('{!r} cannot be encoded'.format(value))
-
-
 register_type(int, 'integer',
               lambda value: str(value).encode('ascii'),
               lambda cls, raw: cls(raw.decode('ascii')))
@@ -274,9 +270,6 @@ register_type(Address, 'address',
 register_type(Timestamp, 'timestamp',
               lambda value: repr(value).encode('ascii'),
               lambda cls, raw: cls(raw.decode('ascii')))
-register_type(TimestampOrNow, 'timestamp',
-              lambda value: NotImplemented,
-              lambda cls, raw: Now.NOW if raw == b'now' else Timestamp(raw.decode('ascii')))
 register_type(enum.Enum, 'discrete', _encode_enum, _decode_enum, _default_enum)
 register_type(enum.IntEnum, 'discrete', _encode_enum, _decode_enum, _default_enum)
 
@@ -301,13 +294,17 @@ def encode(value: Any) -> bytes:
     return get_type(type(value)).encode(value)
 
 
-def decode(cls: Type[_T], value: bytes) -> _T:
+def decode(cls: Any, value: bytes) -> Any:
     """Decode value in katcp message to a type.
+
+    If a union type is provided, the value must decode successfully (i.e.,
+    without raising :exc:`ValueError`) for exactly one of the types in the
+    union, otherwise a :exc:`ValueError` is raised.
 
     Parameters
     ----------
     cls
-        The target type
+        The target type, or a :class:`typing.Union` of types.
     value
         Raw (but unescaped) value in katcp message
 
@@ -316,13 +313,29 @@ def decode(cls: Type[_T], value: bytes) -> _T:
     ValueError
         if `value` does not have a valid value for `cls`
     TypeError
-        if `cls` is not a registered type
+        if `cls` is not a registered type or union of registered
+        types.
 
     See also
     --------
     :func:`register_type`
     """
-    return get_type(cls).decode(cls, value)
+    if type(cls) == type(Union) and cls.__union_params__ is not None:
+        values = []     # type: List[Any]
+        for type_ in cls.__union_params__:
+            try:
+                values.append(decode(type_, value))
+            except ValueError:
+                pass
+        if len(values) == 1:
+            return values[0]
+        elif len(values) == 0:
+            raise ValueError('None of the types in {} could decode {}'.format(
+                cls, value))
+        else:
+            raise ValueError('{} is ambiguous for {}'.format(value, cls))
+    else:
+        return get_type(cls).decode(cls, value)
 
 
 class KatcpSyntaxError(ValueError):

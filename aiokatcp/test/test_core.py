@@ -3,7 +3,7 @@ import json
 import ipaddress
 import unittest
 import unittest.mock
-from typing import SupportsBytes, cast
+from typing import SupportsBytes, Union, cast
 
 from aiokatcp.core import (
     Message, KatcpSyntaxError, Address, Timestamp, TimestampOrNow, Now,
@@ -110,7 +110,8 @@ class TestEncodeDecode(unittest.TestCase):
         (MyEnum, b'TWO-FACE'),
         (MyEnum, b'bad-value'),
         (OverrideEnum, b'joker'),
-        (TimestampOrNow, b'later')
+        (TimestampOrNow, b'later'),
+        (Union[int, float], b'123')
     ]
 
     def test_encode(self) -> None:
