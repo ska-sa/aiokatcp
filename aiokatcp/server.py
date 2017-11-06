@@ -145,7 +145,7 @@ class RequestContext(object):
 class DeviceServerMeta(type):
     @classmethod
     def _wrap(cls, name: str, value: Callable[..., _RequestReply]) -> _RequestHandler:
-        sig = inspect.signature(value, follow_wrapped=False)
+        sig = inspect.signature(value)
         pos = []
         var_pos = None
         for parameter in sig.parameters.values():
