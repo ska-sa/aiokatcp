@@ -288,7 +288,7 @@ class DeviceServerTestMixin(asynctest.TestCase):
         await self._check_reply([
             prefix + b' katcp-protocol 5.0-MI\n',
             prefix + ' katcp-library aiokatcp-{} aiokatcp-{}\n'.format(
-                aiokatcp.__minor_version__, aiokatcp.__version__).encode('ascii'),
+                aiokatcp.minor_version(), aiokatcp.__version__).encode('ascii'),
             prefix + b' katcp-device dummy-1.0 dummy-build-1.0.0\n'])
 
 

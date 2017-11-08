@@ -64,7 +64,7 @@ author = 'Bruce Merry'
 # built documents.
 #
 # The short X.Y version.
-version = aiokatcp.__minor_version__
+version = aiokatcp.minor_version()
 # The full version, including alpha/beta/rc tags.
 release = aiokatcp.__version__
 

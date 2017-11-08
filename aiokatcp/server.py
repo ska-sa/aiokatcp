@@ -454,7 +454,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             Number of informs sent
         """
         version = 'aiokatcp-{}'.format(aiokatcp.__version__)
-        api_version = 'aiokatcp-{}'.format(aiokatcp.__minor_version__)
+        api_version = 'aiokatcp-{}'.format(aiokatcp.minor_version())
         ctx.informs([
             ('katcp-protocol', '5.0-MI'),
             ('katcp-library', api_version, version),

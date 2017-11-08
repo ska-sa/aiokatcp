@@ -9,7 +9,8 @@ else:
     __version__ = _katversion.get_version(__path__[0])   # type: ignore  # mypy issue 1422
 # END VERSION CHECK
 
-__minor_version__ = '.'.join(__version__.split('.')[:2])
+def minor_version():
+    return '.'.join(__version__.split('.')[:2])
 
 from .core import (                                   # noqa: F401
     Message, KatcpSyntaxError, Address, Timestamp,
