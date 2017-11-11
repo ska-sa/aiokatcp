@@ -179,7 +179,7 @@ class Connection(object):
         if not task.cancelled():
             try:
                 task.result()
-            except Exception as error:
+            except Exception:
                 self.logger.exception('Exception in connection handler')
 
     async def stop(self) -> None:

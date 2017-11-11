@@ -269,7 +269,7 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
         out_cls, types = classes_types[strategy]
         if len(types) != len(args):
             raise ValueError('expected {} strategy arguments, found {}'.format(
-                             len(types), len(args)))
+                len(types), len(args)))
         decoded_args = [core.decode(type_, arg) for type_, arg in zip(types, args)]
         if out_cls is None:
             return None
@@ -296,10 +296,6 @@ class _SensorSamplerPeriod(SensorSampler[_T]):
 
 
 class _SensorSamplerEvent(SensorSampler[_T]):
-    def __init__(self, sensor: Sensor[_T], observer: Callable[[Sensor[_T], Reading[_T]], None],
-                 loop: asyncio.AbstractEventLoop) -> None:
-        super().__init__(sensor, observer, loop)
-
     def parameters(self) -> Tuple[SensorSampler.Strategy]:
         return (SensorSampler.Strategy.EVENT,)
 

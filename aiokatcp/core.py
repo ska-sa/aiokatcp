@@ -123,7 +123,7 @@ class Address(object):
     def __eq__(self, other):
         if not isinstance(other, Address):
             return NotImplemented
-        return (self._host, self._port) == (other._host, other._port)
+        return (self._host, self._port) == (other.host, other.port)
 
     def __ne__(self, other):
         return not self == other
@@ -356,7 +356,7 @@ def decode(cls: Any, value: bytes) -> Any:
                 pass
         if len(values) == 1:
             return values[0]
-        elif len(values) == 0:
+        elif not values:
             raise ValueError('None of the types in {} could decode {}'.format(
                 cls, value))
         else:

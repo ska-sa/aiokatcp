@@ -171,7 +171,7 @@ class RequestContext(object):
 
 class DeviceServerMeta(type):
     @classmethod
-    def _wrap(cls, name: str, value: Callable[..., _RequestReply]) -> _RequestHandler:
+    def _wrap(mcs, name: str, value: Callable[..., _RequestReply]) -> _RequestHandler:
         sig = inspect.signature(value)
         pos = []
         var_pos = None
@@ -212,18 +212,18 @@ class DeviceServerMeta(type):
 
         return wrapper
 
-    def __new__(cls, name, bases, namespace, **kwds):
+    def __new__(mcs, name, bases, namespace, **kwds):
         namespace.setdefault('_request_handlers', {})
         for base in bases:
             namespace['_request_handlers'].update(getattr(base, '_request_handlers', {}))
-        result = type.__new__(cls, name, bases, namespace)
+        result = type.__new__(mcs, name, bases, namespace)
         request_handlers = getattr(result, '_request_handlers')
         for key, value in namespace.items():
             if key.startswith('request_') and inspect.isfunction(value):
                 request_name = key[8:].replace('_', '-')
                 if value.__doc__ is None:
                     raise TypeError('{} must have a docstring'.format(key))
-                request_handlers[request_name] = cls._wrap(request_name, value)
+                request_handlers[request_name] = mcs._wrap(request_name, value)
         return result
 
 
@@ -741,7 +741,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         return sorted(matched, key=lambda sensor: sensor.name)
 
     async def request_sensor_list(self, ctx: RequestContext, name: str = None) -> int:
-        """Request the list of sensors.
+        r"""Request the list of sensors.
 
         The list of sensors is sent as a sequence of #sensor-list informs.
 

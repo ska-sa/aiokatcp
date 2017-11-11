@@ -806,47 +806,47 @@ class TestBadDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
         await self._write(b'?reply-return\n')
         await self._check_reply([
             b'!reply-return ok reply1\n',
-            re.compile(b'^#log error [0-9.]+ aiokatcp\.server Traceback')])
+            re.compile(br'^#log error [0-9.]+ aiokatcp\.server Traceback')])
 
     async def test_inform_after_reply(self) -> None:
         await self.get_version_info()
         await self._write(b'?inform-after-reply\n')
         await self._check_reply([
             b'!inform-after-reply ok reply1\n',
-            re.compile(b'^#log error [0-9.]+ aiokatcp\.server Traceback')])
+            re.compile(br'^#log error [0-9.]+ aiokatcp\.server Traceback')])
 
     async def test_informs_after_reply(self) -> None:
         await self.get_version_info()
         await self._write(b'?informs-after-reply\n')
         await self._check_reply([
             b'!informs-after-reply ok reply1\n',
-            re.compile(b'^#log error [0-9.]+ aiokatcp\.server Traceback')])
+            re.compile(br'^#log error [0-9.]+ aiokatcp\.server Traceback')])
 
 
 class TestDeviceServerMeta(unittest.TestCase):
     """Test that the metaclass picks up invalid constructions"""
     def test_missing_help(self) -> None:
         with self.assertRaises(TypeError):
-            class BadServer(DummyServer):
+            class MyBadServer(DummyServer):
                 def request_no_help(self):
                     pass
 
     def test_too_few_parameters(self) -> None:
         with self.assertRaises(TypeError):
-            class BadServer(DummyServer):
+            class MyBadServer(DummyServer):
                 def request_too_few(self):
                     """Not enough parameters"""
 
     def test_missing_version(self) -> None:
         with self.assertRaises(TypeError) as cm:
-            class BadServer(DeviceServer):
+            class MyBadServer(DeviceServer):
                 BUILD_INFO = 'build-info'
-            BadServer('127.0.0.1', 0)
-        self.assertEqual(str(cm.exception), 'BadServer does not define VERSION')
+            MyBadServer('127.0.0.1', 0)
+        self.assertEqual(str(cm.exception), 'MyBadServer does not define VERSION')
 
     def test_missing_build_state(self) -> None:
         with self.assertRaises(TypeError) as cm:
-            class BadServer(DeviceServer):
+            class MyBadServer(DeviceServer):
                 VERSION = 'version'
-            BadServer('127.0.0.1', 0)
-        self.assertEqual(str(cm.exception), 'BadServer does not define BUILD_STATE')
+            MyBadServer('127.0.0.1', 0)
+        self.assertEqual(str(cm.exception), 'MyBadServer does not define BUILD_STATE')
