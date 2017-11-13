@@ -31,7 +31,8 @@ import io
 import logging
 import ipaddress
 from typing import (
-    Match, Any, Callable, Union, Type, Iterable, SupportsBytes, Generic, TypeVar, Optional, cast)
+    Match, Any, Callable, Union, Type, Iterable, SupportsBytes, Tuple,
+    Generic, TypeVar, Optional, cast)
 # Only used in type comments, so flake8 complains
 from typing import Dict, List   # noqa: F401
 
@@ -321,6 +322,21 @@ def encode(value: Any) -> bytes:
     return get_type(type(value)).encode(value)
 
 
+def _union_args(cls: Any) -> Optional[Tuple[Type]]:
+    """Convert ``Union[T1, T2]`` to (T1, T2).
+
+    Returns ``None`` if `cls` is not a specific :class:`typing.Union` type.
+    """
+    if type(cls) != type(Union):
+        return None
+    try:
+        # Python 3.5.3 onwards
+        args = cls.__args__
+    except AttributeError:
+        args = cls.__union_params__
+    return args
+
+
 def decode(cls: Any, value: bytes) -> Any:
     """Decode value in katcp message to a type.
 
@@ -347,9 +363,9 @@ def decode(cls: Any, value: bytes) -> Any:
     --------
     :func:`register_type`
     """
-    if type(cls) == type(Union) and cls.__union_params__ is not None:
+    if _union_args(cls) is not None:
         values = []     # type: List[Any]
-        for type_ in cls.__union_params__:
+        for type_ in _union_args(cls):
             try:
                 values.append(decode(type_, value))
             except ValueError:
