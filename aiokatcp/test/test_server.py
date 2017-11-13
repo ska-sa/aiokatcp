@@ -480,7 +480,7 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
             re.compile(br'^!crash fail .*help\\_I\\_fell\\_over.*$')])
 
     async def test_variadic(self) -> None:
-        """Test a request that takes a *args."""
+        """Test a request that takes a ``*args``."""
         await self.get_version_info()
         await self._write(b'?echo hello world\n')
         await self._check_reply([b'!echo ok hello world\n'])
