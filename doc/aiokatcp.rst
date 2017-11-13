@@ -1,13 +1,6 @@
 aiokatcp package
 ================
 
-Subpackages
------------
-
-.. toctree::
-
-    aiokatcp.test
-
 Submodules
 ----------
 
