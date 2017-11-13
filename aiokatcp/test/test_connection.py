@@ -134,7 +134,7 @@ class TestConnection(asynctest.TestCase):
         #: Set ready once the connection has been established
         self._ready = asyncio.Event(loop=self.loop)
         self.server = await asyncio.start_server(
-            self._client_connected_cb, 'localhost', 0, loop=self.loop)
+            self._client_connected_cb, '127.0.0.1', 0, loop=self.loop)
         host, port = self.server.sockets[0].getsockname()    # type: ignore
         self.owner = asynctest.MagicMock()
         self.owner.loop = self.loop
