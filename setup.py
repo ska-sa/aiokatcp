@@ -39,6 +39,7 @@ setup(
     author='Bruce Merry',
     author_email='bmerry@ska.ac.za',
     description='Asynchronous I/O implementation of the katcp protocol',
+    url='https://github.com/ska-sa/aiokatcp',
     license='BSD',
     platforms=['OS Independent'],
     keywords='asyncio katcp',
