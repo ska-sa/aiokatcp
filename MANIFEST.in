@@ -1,0 +1,4 @@
+include examples/*.py
+include LICENSE.txt
+graft doc
+prune doc/_build
