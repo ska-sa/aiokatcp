@@ -1,4 +1,5 @@
 /cover
+/dist
 /.coverage
 /.mypy_cache
 /aiokatcp.egg-info
