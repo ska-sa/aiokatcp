@@ -1,0 +1,10 @@
+language: python
+sudo: false
+python:
+    - 3.5
+    - 3.6
+script:
+    - nosetests --with-coverage --cover-erase --cover-package aiokatcp
+    - flake8 aiokatcp examples
+    - mypy --ignore-missing-imports aiokatcp examples
+after_success: coveralls

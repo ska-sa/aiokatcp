@@ -1,0 +1,7 @@
+katversion
+asynctest
+async-timeout
+coverage
+python-coveralls
+flake8
+mypy

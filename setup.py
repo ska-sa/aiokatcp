@@ -29,7 +29,7 @@
 
 from setuptools import setup, find_packages
 
-tests_require = ['asynctest', 'async-timeout']
+tests_require = ['asynctest', 'async-timeout', 'nose']
 docs_require = ['sphinx', 'sphinx-autodoc-typehints', 'sphinxcontrib-asyncio', 'sphinx-rtd-theme']
 
 setup(
