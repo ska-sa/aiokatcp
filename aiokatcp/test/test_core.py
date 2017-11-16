@@ -279,6 +279,10 @@ class TestMessage(unittest.TestCase):
         msg = Message.parse(b'?test message \\0\\n\\r\\t\\e\\_binary\n')
         self.assertEqual(msg, Message.request('test', 'message', b'\0\n\r\t\x1b binary'))
 
+    def test_parse_cr(self) -> None:
+        msg = Message.parse(b'?test message withcarriagereturn\r')
+        self.assertEqual(msg, Message.request('test', 'message', b'withcarriagereturn'))
+
     def test_parse_mid(self) -> None:
         msg = Message.parse(b'?test[222] message \\0\\n\\r\\t\\e\\_binary\n')
         self.assertEqual(msg, Message.request('test', 'message', b'\0\n\r\t\x1b binary', mid=222))

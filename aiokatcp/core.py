@@ -386,19 +386,19 @@ class Message(object):
         Type.REPLY: b'!',
         Type.INFORM: b'#',
     }
-    _REVERSE__TYPE_SYMBOLS = {
+    _REVERSE_TYPE_SYMBOLS = {
         value: key for (key, value) in _TYPE_SYMBOLS.items()}
 
     _NAME_RE = re.compile('^[A-Za-z][A-Za-z0-9-]*$', re.ASCII)
-    _WHITESPACE_RE = re.compile(br'[ \t\n]+')
+    _WHITESPACE_RE = re.compile(br'[ \t]+')
     _HEADER_RE = re.compile(
         br'^[!#?]([A-Za-z][A-Za-z0-9-]*)(?:\[([1-9][0-9]*)\])?$')
     #: Characters that must be escaped in an argument
     _ESCAPE_RE = re.compile(br'[\\ \0\n\r\x1b\t]')
     _UN_ESCAPE_RE = re.compile(br'\\(.)')
     #: Characters not allowed to appear in an argument
-    # (space, tab newline are omitted because they are split on already)
-    _SPECIAL_RE = re.compile(br'[\0\r\x1b]')
+    # (space, tab are omitted because they are split on already)
+    _SPECIAL_RE = re.compile(br'[\0\r\n\x1b]')
 
     _ESCAPE_LOOKUP = {
         b'\\': b'\\',
@@ -497,9 +497,9 @@ class Message(object):
         try:
             if not raw or raw[:1] not in b'?#!':
                 raise KatcpSyntaxError('message does not start with message type')
-            if raw[-1:] != b'\n':
+            if raw[-1:] not in (b'\r', b'\n'):
                 raise KatcpSyntaxError('message does not end with newline')
-            parts = cls._WHITESPACE_RE.split(raw)
+            parts = cls._WHITESPACE_RE.split(raw[:-1])
             match = cls._HEADER_RE.match(parts[0])
             if not match:
                 raise KatcpSyntaxError('could not parse name and message ID')
@@ -509,7 +509,7 @@ class Message(object):
                 mid = int(mid_raw)
             else:
                 mid = None
-            mtype = cls._REVERSE__TYPE_SYMBOLS[raw[:1]]
+            mtype = cls._REVERSE_TYPE_SYMBOLS[raw[:1]]
             # Create the message first without arguments, to avoid the argument
             # encoding and let us store raw bytes.
             msg = cls(mtype, name, mid=mid)
