@@ -332,6 +332,11 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
         with self.assertRaises(RuntimeError):
             await self.server.start()
 
+    async def test_carriage_return(self) -> None:
+        await self.get_version_info()
+        await self._write(b'?watchdog[2]\r')
+        await self._check_reply([b'!watchdog[2] ok\n'])
+
     async def test_help(self) -> None:
         await self.get_version_info()
         await self._write(b'?help[1]\n')

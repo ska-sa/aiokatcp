@@ -411,13 +411,18 @@ class DeviceServer(metaclass=DeviceServerMeta):
         RuntimeError
             if the server is already running
         """
+        def factory():
+            # Based on asyncio.start_server, but using ConvertCRProtocol
+            reader = asyncio.StreamReader(limit=self._limit, loop=self.loop)
+            protocol = connection.ConvertCRProtocol(
+                reader, self._client_connected_cb, loop=self.loop)
+            return protocol
+
         async with self._server_lock:
             if self._server is not None:
                 raise RuntimeError('Server is already running')
             self._stopped.clear()
-            self._server = await asyncio.start_server(
-                self._client_connected_cb, self._host, self._port,
-                limit=self._limit, loop=self.loop)
+            self._server = await self.loop.create_server(factory, self._host, self._port)
             self._stopping = False
 
     async def stop(self, cancel: bool = True) -> None:

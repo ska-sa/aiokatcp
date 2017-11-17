@@ -277,13 +277,21 @@ class TestMessage(unittest.TestCase):
 
     def test_parse(self) -> None:
         msg = Message.parse(b'?test message \\0\\n\\r\\t\\e\\_binary\n')
-        self.assertEqual(msg, Message.request('test', 'message', b'\0\n\r\t\x1b binary'))
+        self.assertEqual(msg, Message.request('test', b'message', b'\0\n\r\t\x1b binary'))
+
+    def test_parse_cr(self) -> None:
+        msg = Message.parse(b'?test message withcarriagereturn\r')
+        self.assertEqual(msg, Message.request('test', b'message', b'withcarriagereturn'))
+
+    def test_parse_trailing_whitespace(self) -> None:
+        msg = Message.parse(b'?test message  \n')
+        self.assertEqual(msg, Message.request('test', b'message'))
 
     def test_parse_mid(self) -> None:
         msg = Message.parse(b'?test[222] message \\0\\n\\r\\t\\e\\_binary\n')
-        self.assertEqual(msg, Message.request('test', 'message', b'\0\n\r\t\x1b binary', mid=222))
+        self.assertEqual(msg, Message.request('test', b'message', b'\0\n\r\t\x1b binary', mid=222))
         msg = Message.parse(b'?test[1] message\n')
-        self.assertEqual(msg, Message.request('test', 'message', mid=1))
+        self.assertEqual(msg, Message.request('test', b'message', mid=1))
 
     def test_parse_empty(self) -> None:
         self.assertRaises(KatcpSyntaxError, Message.parse, b'')

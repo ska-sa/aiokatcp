@@ -38,7 +38,18 @@ from . import core
 
 logger = logging.getLogger(__name__)
 DEFAULT_LIMIT = 16 * 1024**2
-_BLANK_RE = re.compile(br'^[ \t]*\n?$')
+_BLANK_RE = re.compile(br'^[ \t]*[\r\n]?$')
+
+
+class ConvertCRProtocol(asyncio.StreamReaderProtocol):
+    """Protocol that converts incoming carriage returns to newlines.
+
+    This simplifies extracting the data with :class:`asyncio.StreamReader`,
+    whose :meth:`~asyncio.StreamReader.readuntil` method is limited to a single
+    separator.
+    """
+    def data_received(self, data):
+        super().data_received(data.replace(b'\r', b'\n'))
 
 
 async def _discard_to_eol(stream: asyncio.StreamReader) -> None:
