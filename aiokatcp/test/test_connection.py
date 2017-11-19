@@ -121,7 +121,7 @@ class TestConnection(asynctest.TestCase):
         await conn.drain()
         self.ok_done.release()
 
-    def _ok_handler(self, conn, msg):
+    async def _ok_handler(self, conn, msg):
         self.loop.create_task(self._ok_reply(conn, msg))
 
     async def setUp(self) -> None:
@@ -138,7 +138,7 @@ class TestConnection(asynctest.TestCase):
         host, port = self.server.sockets[0].getsockname()    # type: ignore
         self.owner = asynctest.MagicMock()
         self.owner.loop = self.loop
-        self.owner.handle_message = asynctest.Mock(side_effect=self._ok_handler)
+        self.owner.handle_message = asynctest.CoroutineMock(side_effect=self._ok_handler)
         self.remote_reader, self.remote_writer = await asyncio.open_connection(
             host, port, loop=self.loop)
         # Ensure the server side of the connection is ready

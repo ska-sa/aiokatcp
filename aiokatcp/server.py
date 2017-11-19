@@ -339,6 +339,24 @@ class SensorSet:
 
 
 class DeviceServer(metaclass=DeviceServerMeta):
+    """Server that handles katcp.
+
+    Parameters
+    ----------
+    host
+        Hostname to listen on (empty for all interfaces)
+    port
+        Port number to listen on
+    limit
+        Maximum line length in a request
+    max_pending
+        Maximum number of asynchronous requests that can be in progress.
+        Once this number of reached, new requests are blocked.
+    loop
+        Event loop on which the server will run, defaulting to
+        ``asyncio.get_event_loop()``.
+    """
+
     _request_handlers = {}   # type: Dict[str, _RequestHandler]
 
     VERSION = None           # type: str
@@ -382,7 +400,9 @@ class DeviceServer(metaclass=DeviceServerMeta):
             except Exception:
                 self.handleError(record)
 
-    def __init__(self, host: str, port: int, *, limit=connection.DEFAULT_LIMIT, loop=None) -> None:
+    def __init__(self, host: str, port: int, *,
+                 limit: int = connection.DEFAULT_LIMIT, max_pending: int = 100,
+                 loop: asyncio.AbstractEventLoop = None) -> None:
         super().__init__()
         if not self.VERSION:
             raise TypeError('{.__name__} does not define VERSION'.format(self.__class__))
@@ -390,6 +410,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             raise TypeError('{.__name__} does not define BUILD_STATE'.format(self.__class__))
         self._connections = set()  # type: Set[ClientConnection]
         self._pending = set()      # type: Set[asyncio.Task]
+        self._pending_space = asyncio.Semaphore(value=max_pending, loop=loop)
         if loop is None:
             loop = asyncio.get_event_loop()
         self.loop = loop
@@ -517,7 +538,9 @@ class DeviceServer(metaclass=DeviceServerMeta):
         exactly one reply is returned.
         """
         error_msg = None
-        self._pending.discard(task)
+        if task in self._pending:
+            self._pending.discard(task)
+            self._pending_space.release()
         if task.cancelled():
             if ctx.replied:
                 return     # Cancelled while draining the reply - not critical
@@ -567,10 +590,11 @@ class DeviceServer(metaclass=DeviceServerMeta):
             ctx.reply(*ret)
         await ctx.drain()
 
-    def handle_message(self, conn: ClientConnection, msg: core.Message) -> None:
+    async def handle_message(self, conn: ClientConnection, msg: core.Message) -> None:
         if self._stopping:
             return
         if msg.mtype == core.Message.Type.REQUEST:
+            await self._pending_space.acquire()
             ctx = RequestContext(conn, msg)
             task = self.loop.create_task(self._handle_request(ctx))
             self._pending.add(task)

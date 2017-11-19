@@ -183,8 +183,7 @@ class Connection(object):
             else:
                 if msg is None:   # EOF received
                     break
-
-                self.owner.handle_message(self, msg)
+                await self.owner.handle_message(self, msg)
 
     def _done_callback(self, task: asyncio.Future) -> None:
         if not task.cancelled():

@@ -718,7 +718,7 @@ class TestDeviceServerClocked(DeviceServerTestMixin, asynctest.ClockedTestCase):
         # Inject a message directly into the server, so that its reply can
         # be reliably sequenced relative to the other informs.
         conn = next(iter(self.server._connections))
-        self.server.handle_message(conn, Message.request('watchdog'))
+        await self.server.handle_message(conn, Message.request('watchdog'))
         # Wait for the long period to trigger
         await self.advance(0.5)
 
@@ -750,7 +750,7 @@ class TestDeviceServerClocked(DeviceServerTestMixin, asynctest.ClockedTestCase):
         # Inject a message directly into the server, so that its reply can
         # be reliably sequenced relative to the other informs.
         conn = next(iter(self.server._connections))
-        self.server.handle_message(conn, Message.request('watchdog'))
+        await self.server.handle_message(conn, Message.request('watchdog'))
         # Wait for the long period to trigger
         await self.advance(0.5)
 
