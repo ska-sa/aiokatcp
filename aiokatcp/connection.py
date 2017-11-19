@@ -125,6 +125,7 @@ class Connection(object):
 
     def start(self) -> asyncio.Task:
         self._task = self.owner.loop.create_task(self._run())
+        assert self._task is not None       # to keep mypy happy
         self._task.add_done_callback(self._done_callback)
         return self._task
 

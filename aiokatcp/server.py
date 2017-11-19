@@ -491,7 +491,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         await self._stopped.wait()
 
     @property
-    def server(self) -> asyncio.AbstractServer:
+    def server(self) -> Optional[asyncio.AbstractServer]:
         """Return the underlying TCP server"""
         return self._server
 

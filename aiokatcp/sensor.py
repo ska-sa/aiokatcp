@@ -171,15 +171,15 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
         else:
             self.longest = None
         self.shortest = float(shortest)
-        self.sensor = sensor
-        self.observer = observer
+        self.sensor = sensor            # type: Optional[Sensor[_T]]
+        self.observer = observer        # type: Optional[Callable[[Sensor[_T], Reading[_T]], None]]
         self.difference = difference
         self.always_update = always_update
         self.loop = loop
         self._callback_handle = None    # type: Optional[asyncio.Handle]
         self._last_time = 0.0
-        self._last_value = None         # type: _T
-        self._last_status = None        # type: Sensor.Status
+        self._last_value = None         # type: Optional[_T]
+        self._last_status = None        # type: Optional[Sensor.Status]
         self._changed = False
         self.sensor.attach(self._receive_update)
         self._send_update(loop.time(), sensor.reading)
@@ -195,6 +195,8 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
             self._callback_handle = None
 
     def _send_update(self, sched_time: float, reading: Optional[Reading[_T]]) -> None:
+        assert self.sensor is not None
+        assert self.observer is not None
         if reading is None:
             reading = self.sensor.reading
         self.observer(self.sensor, reading)
@@ -241,8 +243,9 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
         valid to call any methods on the sampler after this.
         """
         self._clear_callback()
-        self.sensor.detach(self._receive_update)
-        self.sensor = None
+        if self.sensor is not None:
+            self.sensor.detach(self._receive_update)
+            self.sensor = None
         self.observer = None
 
     @abc.abstractmethod
@@ -306,6 +309,7 @@ class _SensorSamplerDifferential(SensorSampler[_T]):
         super().__init__(sensor, observer, loop, difference=difference)
 
     def parameters(self) -> Tuple[SensorSampler.Strategy, _T]:
+        assert self.difference is not None      # To keep mypy happy
         return (SensorSampler.Strategy.DIFFERENTIAL, self.difference)
 
 
@@ -317,6 +321,9 @@ class _SensorSamplerEventRate(SensorSampler[_T]):
         super().__init__(sensor, observer, loop, shortest=shortest, longest=longest)
 
     def parameters(self) -> Tuple[SensorSampler.Strategy, core.Timestamp, core.Timestamp]:
+        # assertions to keep mypy happy
+        assert self.shortest is not None
+        assert self.longest is not None
         return (SensorSampler.Strategy.EVENT_RATE,
                 core.Timestamp(self.shortest),
                 core.Timestamp(self.longest))
@@ -332,6 +339,10 @@ class _SensorSamplerDifferentialRate(SensorSampler[_T]):
                          difference=difference, shortest=shortest, longest=longest)
 
     def parameters(self) -> Tuple[SensorSampler.Strategy, _T, core.Timestamp, core.Timestamp]:
+        # assertions to keep mypy happy
+        assert self.difference is not None
+        assert self.shortest is not None
+        assert self.longest is not None
         return (SensorSampler.Strategy.DIFFERENTIAL_RATE,
                 self.difference,
                 core.Timestamp(self.shortest),

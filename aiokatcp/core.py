@@ -363,9 +363,10 @@ def decode(cls: Any, value: bytes) -> Any:
     --------
     :func:`register_type`
     """
-    if _union_args(cls) is not None:
+    union_args = _union_args(cls)
+    if union_args is not None:
         values = []     # type: List[Any]
-        for type_ in _union_args(cls):
+        for type_ in union_args:
             try:
                 values.append(decode(type_, value))
             except ValueError:

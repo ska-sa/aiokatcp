@@ -108,22 +108,6 @@ class TestReadMessage(asynctest.TestCase):
 
 @timelimit
 class TestConnection(asynctest.TestCase):
-    def _client_connected_cb(self, reader: asyncio.StreamReader,
-                             writer: asyncio.StreamWriter) -> None:
-        self.reader = reader
-        self.writer = writer
-        self._ready.set()
-
-    async def _ok_reply(self, conn, msg):
-        if self.ok_wait:
-            await self.ok_wait.acquire()
-        conn.write_message(Message.reply_to_request(msg, 'ok'))
-        await conn.drain()
-        self.ok_done.release()
-
-    async def _ok_handler(self, conn, msg):
-        self.loop.create_task(self._ok_reply(conn, msg))
-
     async def setUp(self) -> None:
         self.writer = None       # type: Optional[asyncio.StreamWriter]
         self.reader = None       # type: Optional[asyncio.StreamReader]
@@ -150,6 +134,22 @@ class TestConnection(asynctest.TestCase):
         self.remote_writer.close()
         if self.writer:
             self.writer.close()
+
+    def _client_connected_cb(self, reader: asyncio.StreamReader,
+                             writer: asyncio.StreamWriter) -> None:
+        self.reader = reader
+        self.writer = writer
+        self._ready.set()
+
+    async def _ok_reply(self, conn, msg):
+        if self.ok_wait:
+            await self.ok_wait.acquire()
+        conn.write_message(Message.reply_to_request(msg, 'ok'))
+        await conn.drain()
+        self.ok_done.release()
+
+    async def _ok_handler(self, conn, msg):
+        self.loop.create_task(self._ok_reply(conn, msg))
 
     async def test_write_message(self) -> None:
         conn = Connection(self.owner, self.reader, self.writer, True)
