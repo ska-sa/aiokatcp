@@ -106,6 +106,10 @@ class FailReply(Exception):
     """Indicate to the remote end that a request failed, without backtrace"""
 
 
+class InvalidReply(Exception):
+    """Indicate to the remote end that a request was unrecognised"""
+
+
 class Connection(object):
     def __init__(self, owner: Any,
                  reader: asyncio.StreamReader, writer: asyncio.StreamWriter,

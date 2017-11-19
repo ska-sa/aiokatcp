@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright 2017 National Research Foundation (Square Kilometre Array)
 #
 # Redistribution and use in source and binary forms, with or without
@@ -25,25 +27,24 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# BEGIN VERSION CHECK
-# Get package version when locally imported from repo or via -e develop install
-try:
-    import katversion as _katversion
-except ImportError:
-    import time as _time
-    __version__ = "0.0+unknown.{}".format(_time.strftime('%Y%m%d%H%M'))
-else:
-    __version__ = _katversion.get_version(__path__[0])   # type: ignore  # mypy issue 1422
-# END VERSION CHECK
+import asyncio
+import logging
 
-from .core import (                                   # noqa: F401
-    Message, KatcpSyntaxError, Address, Timestamp,
-    encode, decode, register_type, get_type, TypeInfo)
-from .connection import Connection, FailReply, InvalidReply      # noqa: F401
-from .server import DeviceServer, RequestContext, SensorSet      # noqa: F401
-from .client import Client                            # noqa: F401
-from .sensor import Reading, Sensor, SensorSampler    # noqa: F401
+import aiokatcp
 
 
-def minor_version():
-    return '.'.join(__version__.split('.')[:2])
+async def main():
+    client = await aiokatcp.Client.connect('localhost', 4444)
+    try:
+        value, _ = await client.request('sleep', '10')
+        print(value)
+    finally:
+        await client.close()
+
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
+    loop = asyncio.get_event_loop()
+    loop.set_debug(True)
+    loop.run_until_complete(main())
+    loop.close()

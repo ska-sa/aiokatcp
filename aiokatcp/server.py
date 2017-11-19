@@ -42,7 +42,7 @@ from typing import Dict, Set    # noqa: F401
 
 import aiokatcp
 from . import core, connection, sensor
-from .connection import FailReply
+from .connection import FailReply, InvalidReply
 
 
 logger = logging.getLogger(__name__)
@@ -538,6 +538,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         exactly one reply is returned.
         """
         error_msg = None
+        error_type = core.Message.FAIL
         if task in self._pending:
             self._pending.discard(task)
             self._pending_space.release()
@@ -551,6 +552,9 @@ class DeviceServer(metaclass=DeviceServerMeta):
                 task.result()
             except FailReply as error:
                 error_msg = str(error)
+            except InvalidReply as error:
+                error_msg = str(error)
+                error_type = core.Message.INVALID
             except Exception:
                 ctx.logger.exception('uncaught exception while handling %r',
                                      ctx.req.name, exc_info=True)
@@ -560,7 +564,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         if not ctx.replied:
             if error_msg is None:
                 error_msg = 'request handler returned without replying'
-            ctx.reply(core.Message.FAIL, error_msg)
+            ctx.reply(error_type, error_msg)
         elif error_msg is not None:
             # We somehow replied before failing, so can't put the error
             # message in a reply - use an out-of-band inform instead.
