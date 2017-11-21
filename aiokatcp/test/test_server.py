@@ -397,7 +397,7 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
         await self.get_version_info()
         await self._write(b'?sensor-list[5] bar\n')
         await self._check_reply([
-            br"!sensor-list[5] fail unknown\_sensor\_'bar'" + b'\n'])
+            br"!sensor-list[5] fail Unknown\_sensor\_'bar'" + b'\n'])
 
     async def test_sensor_list_regex_filter(self) -> None:
         await self.get_version_info()
@@ -787,7 +787,7 @@ class TestDeviceServerClocked(DeviceServerTestMixin, asynctest.ClockedTestCase):
         await self.get_version_info()
         await self._write(b'?sensor-sampling bad-sensor event\n')
         await self._check_reply([
-            br"!sensor-sampling fail unknown\_sensor\_'bad-sensor'" + b'\n'])
+            br"!sensor-sampling fail Unknown\_sensor\_'bad-sensor'" + b'\n'])
 
 
 @timelimit

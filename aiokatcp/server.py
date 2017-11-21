@@ -764,7 +764,9 @@ class DeviceServer(metaclass=DeviceServerMeta):
                 raise FailReply(str(error)) from error
             matched = (sensor for sensor in self.sensors.values() if name_re.search(sensor.name))
         elif name not in self.sensors:
-            raise FailReply('unknown sensor {!r}'.format(name))
+            # Do not change the wording: katcp.inspecting_client does a string
+            # check for "Unknown sensor".
+            raise FailReply('Unknown sensor {!r}'.format(name))
         else:
             matched = [self.sensors[name]]
         return sorted(matched, key=lambda sensor: sensor.name)
@@ -940,7 +942,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         try:
             s = self.sensors[name]
         except KeyError:
-            raise FailReply('unknown sensor {!r}'.format(name))
+            raise FailReply('Unknown sensor {!r}'.format(name))
         if strategy is None:
             sampler = ctx.conn.get_sampler(s)
         else:
