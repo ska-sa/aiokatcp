@@ -54,6 +54,7 @@ setup(
         'Topic :: Scientific/Engineering :: Astronomy'
     ],
     tests_require=tests_require,
+    install_requires=['decorator>=4.1'],
     setup_requires=['katversion'],
     extras_require={
         'test': tests_require,

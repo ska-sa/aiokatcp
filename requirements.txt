@@ -9,6 +9,7 @@ asynctest==0.11.1
 certifi==2017.11.5        # via requests
 chardet==3.0.4            # via requests
 coverage==4.0.3
+decorator==4.1.2
 flake8==3.5.0
 idna==2.6                 # via requests
 katversion==0.7

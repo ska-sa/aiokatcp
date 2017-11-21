@@ -47,7 +47,7 @@ from .connection import FailReply, InvalidReply
 
 logger = logging.getLogger(__name__)
 _RequestReply = Awaitable[Optional[Sequence]]
-_RequestHandler = Callable[['DeviceServer', 'RequestContext'], _RequestReply]
+_RequestHandler = Callable[['DeviceServer', 'RequestContext', core.Message], _RequestReply]
 
 
 class ClientConnection(connection.Connection):
@@ -172,45 +172,7 @@ class RequestContext(object):
 class DeviceServerMeta(type):
     @classmethod
     def _wrap(mcs, name: str, value: Callable[..., _RequestReply]) -> _RequestHandler:
-        sig = inspect.signature(value)
-        pos = []
-        var_pos = None
-        for parameter in sig.parameters.values():
-            if parameter.kind == inspect.Parameter.VAR_POSITIONAL:
-                var_pos = parameter
-            elif parameter.kind in (inspect.Parameter.POSITIONAL_ONLY,
-                                    inspect.Parameter.POSITIONAL_OR_KEYWORD):
-                pos.append(parameter)
-        if len(pos) < 2 and var_pos is None:
-            raise TypeError('Handler must accept at least two positional arguments')
-
-        # Exclude transferring __annotations__ from the wrapped function,
-        # because the decorator does not preserve signature.
-        @functools.wraps(value, assigned=['__module__', '__name__', '__qualname__', '__doc__'])
-        async def wrapper(self, ctx: RequestContext) -> Optional[Sequence]:
-            args = [self, ctx]
-            for argument in ctx.req.arguments:
-                if len(args) >= len(pos):
-                    if var_pos is None:
-                        raise FailReply('too many arguments for {}'.format(name))
-                    else:
-                        hint = var_pos.annotation
-                else:
-                    hint = pos[len(args)].annotation
-                if hint is inspect.Signature.empty:
-                    hint = bytes
-                try:
-                    args.append(core.decode(hint, argument))
-                except ValueError as error:
-                    raise FailReply(str(error)) from error
-            try:
-                awaitable = value(*args)
-            except TypeError as error:
-                raise FailReply(str(error)) from error  # e.g. too few arguments
-            ret = await awaitable
-            return ret
-
-        return wrapper
+        return connection.wrap_handler(name, value, 2)
 
     def __new__(mcs, name, bases, namespace, **kwds):
         namespace.setdefault('_request_handlers', {})
@@ -582,7 +544,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         except KeyError:
             ret = (core.Message.INVALID, 'unknown request {}'.format(ctx.req.name))  # type: Any
         else:
-            ret = await handler(self, ctx)
+            ret = await handler(self, ctx, ctx.req)
             if ctx.replied and ret is not None:
                 raise RuntimeError('handler both replied and returned a value')
             if ret is None:

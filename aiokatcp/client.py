@@ -28,6 +28,7 @@
 import asyncio
 import logging
 import re
+import warnings
 from typing import Any, List, Callable, Tuple
 # Only used in type comments, so flake8 complains
 from typing import Dict   # noqa: F401
@@ -63,6 +64,11 @@ class Client:
         self._run_task = loop.create_task(self._run())
         self._connected_callbacks = []  # type: List[Callable[[], None]]
         self._disconnected_callbacks = []   # type: List[Callable[[], None]]
+
+    def __del__(self) -> None:
+        if self._run_task is not None:
+            warnings.warn('unclosed Client {!r}'.format(self), ResourceWarning)
+            self._run_task.cancel()
 
     async def handle_message(self, conn: connection.Connection, msg: core.Message) -> None:
         if msg.mtype == core.Message.Type.REQUEST:
@@ -171,6 +177,7 @@ class Client:
         self._run_task.cancel()
         try:
             await self._run_task
+            self._run_task = None
         except asyncio.CancelledError:
             pass
 
