@@ -3,7 +3,6 @@
 - strict timestamp parsing
 - mechanism to enforce human readable ASCII on certain strings
 - Sphinx and type hints
-- Test coverage
 - required requests (restart)
 - tidy up the rendering of the documentation: there are some issues
 - check if mock_transport is going to be useful
@@ -13,3 +12,5 @@
 - documentation for client
 - more interesting client example
 - Ctrl-C handler in example client
+- exponential randomised backoff for client reconnects
+- more control over client auto-reconnect, and access to the last exception

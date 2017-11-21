@@ -213,6 +213,13 @@ class Client(metaclass=ClientMeta):
         except asyncio.CancelledError:
             pass
 
+    # Make client a context manager that self-closes
+    async def __aenter__(self) -> 'Client':
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.close()
+
     async def wait_connected(self) -> None:
         await self._connected.wait()
 

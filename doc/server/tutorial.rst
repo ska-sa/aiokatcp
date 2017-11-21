@@ -1,5 +1,5 @@
-Getting started with aiokatcp
-=============================
+Server tutorial
+===============
 
 Your first server
 -----------------
