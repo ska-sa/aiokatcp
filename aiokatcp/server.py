@@ -171,7 +171,7 @@ class RequestContext(object):
 
 class DeviceServerMeta(type):
     @classmethod
-    def _wrap(mcs, name: str, value: Callable[..., _RequestReply]) -> _RequestHandler:
+    def _wrap_request(mcs, name: str, value: Callable[..., _RequestReply]) -> _RequestHandler:
         return connection.wrap_handler(name, value, 2)
 
     def __new__(mcs, name, bases, namespace, **kwds):
@@ -185,7 +185,7 @@ class DeviceServerMeta(type):
                 request_name = key[8:].replace('_', '-')
                 if value.__doc__ is None:
                     raise TypeError('{} must have a docstring'.format(key))
-                request_handlers[request_name] = mcs._wrap(request_name, value)
+                request_handlers[request_name] = mcs._wrap_request(request_name, value)
         return result
 
 

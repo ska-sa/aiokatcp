@@ -7,3 +7,9 @@
 - required requests (restart)
 - tidy up the rendering of the documentation: there are some issues
 - check if mock_transport is going to be useful
+- add unhandled_request method to server
+- more unification between request/inform wrapping in client and server
+- tests for client
+- documentation for client
+- more interesting client example
+- Ctrl-C handler in example client

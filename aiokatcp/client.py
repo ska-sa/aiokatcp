@@ -29,6 +29,7 @@ import asyncio
 import logging
 import re
 import warnings
+import inspect
 from typing import Any, List, Callable, Tuple
 # Only used in type comments, so flake8 complains
 from typing import Dict   # noqa: F401
@@ -38,6 +39,7 @@ from .connection import FailReply, InvalidReply
 
 
 logger = logging.getLogger(__name__)
+_InformHandler = Callable[['Client', core.Message], None]
 
 
 class _PendingRequest:
@@ -47,7 +49,25 @@ class _PendingRequest:
         self.reply = loop.create_future()
 
 
-class Client:
+class ClientMeta(type):
+    @classmethod
+    def _wrap_inform(mcs, name: str, value: Callable[..., None]) -> _InformHandler:
+        return connection.wrap_handler(name, value, 1)
+
+    def __new__(mcs, name, bases, namespace, **kwds):
+        namespace.setdefault('_inform_handlers', {})
+        for base in bases:
+            namespace['_inform_handlers'].update(getattr(base, '_inform_handlers', {}))
+        result = type.__new__(mcs, name, bases, namespace)
+        inform_handlers = getattr(result, '_inform_handlers')
+        for key, value in namespace.items():
+            if key.startswith('inform_') and inspect.isfunction(value):
+                request_name = key[7:].replace('_', '-')
+                inform_handlers[request_name] = mcs._wrap_inform(request_name, value)
+        return result
+
+
+class Client(metaclass=ClientMeta):
     def __init__(self, host: str, port: int, *,
                  limit: int = connection.DEFAULT_LIMIT,
                  loop: asyncio.AbstractEventLoop = None) -> None:
@@ -93,30 +113,42 @@ class Client:
     def handle_inform(self, msg):
         logger.debug('Received %s', bytes(msg))
         # TODO: provide dispatch mechanism for informs
-        if msg.name == 'version-connect':
-            if len(msg.arguments) >= 2 and msg.arguments[0] == b'katcp-protocol':
-                good = False
-                match = re.match(b'^(\d+)\.(\d+)(?:-(.+))?$', msg.arguments[1])
-                if not match:
-                    logger.warning('Unparsable katcp-protocol %s', msg.arguments[1])
-                else:
-                    major = int(match.group(1))
-                    minor = int(match.group(2))
-                    logger.debug('Protocol version %d.%d', major, minor)
-                    flags = match.group(3)
-                    if major != 5:
-                        logger.warning('Unknown protocol version %d.%d', major, minor)
-                    elif flags is None or b'I' not in flags:
-                        logger.warning('Message IDs not supported, but required by aiokatcp')
-                    else:
-                        good = True
-                if good:
-                    # Safety in case a race condition causes the connection to
-                    # die before this function was called.
-                    if self._connection is not None:
-                        self._on_connected()
-                elif self._connection is not None:
+        handler = self._inform_handlers.get(msg.name, self.__class__.unhandled_inform)
+        try:
+            handler(self, msg)
+        except FailReply as error:
+            logger.warning('error in inform %s: %s', msg.name, error)
+        except Exception:
+            logger.exception('unhandled exception in inform %s', msg.name, exc_info=True)
+
+    def unhandled_inform(self, msg):
+        logger.warning('unknown inform %s', msg.name)
+
+    def inform_version_connect(self, api: str, version: str, build_state: str = None) -> None:
+        if api == 'katcp-protocol':
+            match = re.match('^(\d+)\.(\d+)(?:-(.+))?$', version)
+            error = None
+            if not match:
+                error = 'Unparsable katcp-protocol {!r}'.format(version)
+            else:
+                major = int(match.group(1))
+                minor = int(match.group(2))
+                logger.debug('Protocol version %d.%d', major, minor)
+                flags = match.group(3)
+                if major != 5:
+                    error = 'Unknown protocol version {}.{}'.format(major, minor)
+                elif flags is None or 'I' not in flags:
+                    error = 'Message IDs not supported by server, but required by aiokatcp'
+            if error is None:
+                # Safety in case a race condition causes the connection to
+                # die before this function was called.
+                if self._connection is not None:
+                    self._on_connected()
+            else:
+                logger.warning(error)
+                if self._connection is not None:
                     self.loop.create_task(self._connection.stop())
+        # TODO: add a inform_version handler
 
     def add_connected_callback(self, callback: Callable[[], None]) -> None:
         self._connected_callbacks.append(callback)
