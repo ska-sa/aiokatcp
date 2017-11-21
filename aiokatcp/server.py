@@ -546,7 +546,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
         If the server is halted while the request is being handled, this task
         gets cancelled.
         """
-        handler = self._request_handlers.get(ctx.req.name, self.__class__.unhandled_request)
+        default = self.__class__.unhandled_request  # type: ignore
+        handler = self._request_handlers.get(ctx.req.name, default)
         ret = await handler(self, ctx, ctx.req)
         if ctx.replied and ret is not None:
             raise RuntimeError('handler both replied and returned a value')
