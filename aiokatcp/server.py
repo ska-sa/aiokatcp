@@ -533,25 +533,28 @@ class DeviceServer(metaclass=DeviceServerMeta):
             ctx.conn.write_message(core.Message.inform(
                 'log', 'error', time.time(), __name__, error_msg))
 
+    async def unhandled_request(self, ctx: RequestContext, req: core.Message) -> None:
+        """Called when a request is received for which no handler is registered.
+
+        Subclasses may override this to do dynamic handling.
+        """
+        raise InvalidReply('unknown request {}'.format(req.name))
+
     async def _handle_request(self, ctx: RequestContext) -> None:
         """Task for handling an incoming request.
 
         If the server is halted while the request is being handled, this task
         gets cancelled.
         """
-        try:
-            handler = self._request_handlers[ctx.req.name]
-        except KeyError:
-            ret = (core.Message.INVALID, 'unknown request {}'.format(ctx.req.name))  # type: Any
-        else:
-            ret = await handler(self, ctx, ctx.req)
-            if ctx.replied and ret is not None:
-                raise RuntimeError('handler both replied and returned a value')
-            if ret is None:
-                ret = ()
-            elif not isinstance(ret, tuple):
-                ret = (ret,)
-            ret = (core.Message.OK,) + ret
+        handler = self._request_handlers.get(ctx.req.name, self.__class__.unhandled_request)
+        ret = await handler(self, ctx, ctx.req)
+        if ctx.replied and ret is not None:
+            raise RuntimeError('handler both replied and returned a value')
+        if ret is None:
+            ret = ()
+        elif not isinstance(ret, tuple):
+            ret = (ret,)
+        ret = (core.Message.OK,) + ret
         if not ctx.replied:
             ctx.reply(*ret)
         await ctx.drain()
