@@ -68,6 +68,25 @@ class ClientMeta(type):
 
 
 class Client(metaclass=ClientMeta):
+    """Client that connects to a katcp server.
+
+    The client will automatically connect to the server, and reconnect if
+    the connection is lost. If you want to wait for the initial connection
+    to complete up front, the :meth:`.connect` factory may be preferable to the
+    constructor.
+
+    Parameters
+    ----------
+    host
+        Server hostname
+    port
+        Server port number
+    limit
+        Maximum line length in a message from the server
+    loop
+        Event loop on which the client will run, defaulting to
+        ``asyncio.get_event_loop()``.
+    """
     def __init__(self, host: str, port: int, *,
                  limit: int = connection.DEFAULT_LIMIT,
                  loop: asyncio.AbstractEventLoop = None) -> None:
@@ -122,6 +141,11 @@ class Client(metaclass=ClientMeta):
             logger.exception('unhandled exception in inform %s', msg.name, exc_info=True)
 
     def unhandled_inform(self, msg):
+        """Called if an inform is received for which no handler is registered.
+
+        The default simply logs a warning. Subclasses may override this to
+        provide other behaviour for unknown informs.
+        """
         logger.warning('unknown inform %s', msg.name)
 
     def inform_version_connect(self, api: str, version: str, build_state: str = None) -> None:
@@ -151,13 +175,30 @@ class Client(metaclass=ClientMeta):
         # TODO: add a inform_version handler
 
     def add_connected_callback(self, callback: Callable[[], None]) -> None:
+        """Register a handler that is called when a connection is established.
+
+        The handler is called without arguments. Use a lambda or
+        :func:`functools.partial` if you need arguments. Handlers are called in
+        the order they are registered.
+        """
         self._connected_callbacks.append(callback)
 
     def add_disconnected_callback(self, callback: Callable[[], None]) -> None:
+        """Register a handler that is called when a connection is lost.
+
+        The handler is called without arguments. Use a lambda or
+        :func:`functools.partial` if you need arguments. Handlers are called in
+        the reverse of order of registration.
+        """
         self._disconnected_callbacks.append(callback)
 
     @property
     def is_connected(self):
+        """Whether the connection is currently active.
+
+        Note that this will be ``False`` until the server indicates its
+        protocol version, even if the TCP connection has been established.
+        """
         return self._connected.is_set()
 
     def _on_connected(self):
@@ -173,7 +214,7 @@ class Client(metaclass=ClientMeta):
                 if not req.reply.done():
                     req.reply.set_exception(ConnectionResetError('Connection to server lost'))
             self._pending.clear()
-            for callback in self._disconnected_callbacks:
+            for callback in reversed(self._disconnected_callbacks):
                 callback()
 
     async def _run(self) -> None:
@@ -206,6 +247,11 @@ class Client(metaclass=ClientMeta):
             await asyncio.sleep(1, loop=self.loop)
 
     async def close(self) -> None:
+        """Close the connection and free resources.
+
+        This must only be called once.
+        """
+        # TODO: also needs to abort any pending requests
         self._run_task.cancel()
         try:
             await self._run_task
@@ -221,17 +267,49 @@ class Client(metaclass=ClientMeta):
         await self.close()
 
     async def wait_connected(self) -> None:
+        """Wait until a connection is established."""
         await self._connected.wait()
 
     @classmethod
     async def connect(cls, host: str, port: int, *,
                       limit: int = connection.DEFAULT_LIMIT,
                       loop: asyncio.AbstractEventLoop = None) -> 'Client':
+        """Factory function that creates a client and waits until it is connected.
+
+        Refer to the constructor documentation for details of the parameters.
+        """
         client = cls(host, port, limit=limit, loop=loop)
-        await client.wait_connected()
-        return client
+        try:
+            await client.wait_connected()
+            return client
+        except Exception as error:
+            await client.close()
+            raise error
 
     async def request_raw(self, name: str, *args: Any) -> Tuple[core.Message, List[core.Message]]:
+        """Make a request to the server and await the reply, without decoding it.
+
+        Parameters
+        ----------
+        name
+            Message name
+        args
+            Message arguments, which will be encoded by :class:`~.core.Message`.
+
+        Returns
+        -------
+        reply
+            Reply message
+        informs
+            List of synchronous informs received
+
+        Raises
+        ------
+        BrokenPipeError
+            if not connected at the time the request was made
+        ConnectionError:
+            if the connection was lost before the reply was received
+        """
         if not self.is_connected:
             raise BrokenPipeError('Not connected')
         mid = self._next_mid
@@ -247,6 +325,37 @@ class Client(metaclass=ClientMeta):
             self._pending.pop(mid, None)
 
     async def request(self, name: str, *args: Any) -> Tuple[List[bytes], List[core.Message]]:
+        """Make a request to the server and await the reply.
+
+        It expects the first argument of the reply to be ``ok``, ``fail`` or
+        ``invalid``, and raises exceptions in the latter two cases. If this is
+        undesirable, use :meth:`request_raw` instead.
+
+        Parameters
+        ----------
+        name
+            Message name
+        args
+            Message arguments, which will be encoded by :class:`~.core.Message`.
+
+        Returns
+        -------
+        reply
+            Reply message arguments, excluding the ``ok``
+        informs
+            List of synchronous informs received
+
+        Raises
+        ------
+        FailReply
+            if the server replied with ``fail``
+        InvalidReply
+            if the server replied anything except ``ok`` or ``fail``
+        BrokenPipeError
+            if not connected at the time the request was made
+        ConnectionError:
+            if the connection was lost before the reply was received
+        """
         reply_msg, informs = await self.request_raw(name, *args)
         type_ = core.Message.INVALID if not reply_msg.arguments else reply_msg.arguments[0]
         error = '' if len(reply_msg.arguments) <= 1 else reply_msg.arguments[1]
