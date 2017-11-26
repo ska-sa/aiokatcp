@@ -27,37 +27,13 @@
 
 import asyncio
 import logging
-import functools
-import inspect
 from typing import Optional     # noqa: F401
 
 import asynctest
-import async_timeout
 
 from aiokatcp.core import Message, KatcpSyntaxError
 from aiokatcp.connection import read_message, Connection
-
-
-def timelimit(limit=5.0):
-    if inspect.isfunction(limit) or inspect.isclass(limit):
-        # Used without parameters
-        return timelimit()(limit)
-
-    def decorator(arg):
-        if inspect.isclass(arg):
-            for key, value in arg.__dict__.items():
-                if (inspect.iscoroutinefunction(value) and key.startswith('test_')
-                        and not hasattr(arg, '_timelimit')):
-                    setattr(arg, key, decorator(value))
-            return arg
-        else:
-            @functools.wraps(arg)
-            async def wrapper(self, *args, **kwargs):
-                async with async_timeout.timeout(limit, loop=self.loop):
-                    await arg(self, *args, **kwargs)
-            wrapper._timelimit = limit
-            return wrapper
-    return decorator
+from .test_utils import timelimit
 
 
 class TestReadMessage(asynctest.TestCase):
