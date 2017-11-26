@@ -358,10 +358,10 @@ class Client(metaclass=ClientMeta):
         """
         reply_msg, informs = await self.request_raw(name, *args)
         type_ = core.Message.INVALID if not reply_msg.arguments else reply_msg.arguments[0]
-        error = '' if len(reply_msg.arguments) <= 1 else reply_msg.arguments[1]
+        error = b'' if len(reply_msg.arguments) <= 1 else reply_msg.arguments[1]
         if type_ == core.Message.OK:
             return reply_msg.arguments[1:], informs
         elif type_ == core.Message.FAIL:
-            raise FailReply(error)
+            raise FailReply(error.decode('utf-8', errors='replace'))
         else:
-            raise InvalidReply(error)
+            raise InvalidReply(error.decode('utf-8', errors='replace'))
