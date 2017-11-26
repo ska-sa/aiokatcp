@@ -255,9 +255,10 @@ class Client(metaclass=ClientMeta):
         self._run_task.cancel()
         try:
             await self._run_task
-            self._run_task = None
         except asyncio.CancelledError:
             pass
+        finally:
+            self._run_task = None
 
     # Make client a context manager that self-closes
     async def __aenter__(self) -> 'Client':
