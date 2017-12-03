@@ -30,6 +30,7 @@ import logging
 import re
 import warnings
 import inspect
+import random
 from typing import Any, List, Callable, Tuple
 # Only used in type comments, so flake8 complains
 from typing import Dict   # noqa: F401
@@ -220,8 +221,9 @@ class Client(metaclass=ClientMeta):
             for callback in reversed(self._disconnected_callbacks):
                 callback()
 
-    async def _run(self) -> None:
-        while True:
+    async def _run_once(self) -> bool:
+        """Make a single attempt to connect and run the connection if successful."""
+        try:
             # Open the connection. Based on asyncio.open_connection.
             reader = asyncio.StreamReader(limit=self._limit, loop=self.loop)
             protocol = connection.ConvertCRProtocol(reader, loop=self.loop)
@@ -231,23 +233,33 @@ class Client(metaclass=ClientMeta):
             except ConnectionError as error:
                 logger.warning('Failed to connect to %s:%d: %s',
                                self.host, self.port, error)
-                await asyncio.sleep(1, loop=self.loop)
-                continue
+                return False
             writer = asyncio.StreamWriter(transport, protocol, reader, self.loop)
             self._connection = connection.Connection(self, reader, writer, False)
             # Process replies until connection closes. _on_connected is
             # called by the version-info inform handler.
-            try:
-                connection_task = self._connection.start()
-                await asyncio.wait([connection_task], loop=self.loop)
-            finally:
-                if self._connection:
-                    await self._connection.stop()
-                    self._connection = None
-                if self.is_connected:
-                    self._on_disconnected()
-            # TODO: exponential randomised backoff
-            await asyncio.sleep(1, loop=self.loop)
+            connection_task = self._connection.start()
+            await asyncio.wait([connection_task], loop=self.loop)
+            return self.is_connected
+        finally:
+            if self._connection:
+                await self._connection.stop()
+                self._connection = None
+            if self.is_connected:
+                self._on_disconnected()
+
+    async def _run(self) -> None:
+        backoff = 0.5
+        while True:
+            success = await self._run_once()
+            if success:
+                backoff = 1.0
+            else:
+                # Exponential backoff if connections are failing
+                backoff = min(backoff * 2.0, 60.0)
+            # Pick a random value in [0.5 * backoff, backoff]
+            wait = (random.random() * 1.0) * 0.5 * backoff
+            await asyncio.sleep(wait, loop=self.loop)
 
     async def close(self) -> None:
         """Close the connection and free resources.

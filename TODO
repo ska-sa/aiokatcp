@@ -7,12 +7,10 @@
 - tidy up the rendering of the documentation: there are some issues
 - check if mock_transport is going to be useful
 - add unhandled_request method to server
-- more unification between request/inform wrapping in client and server
 - tests for client
 - documentation for client
 - more interesting client example
 - Ctrl-C handler in example client
-- exponential randomised backoff for client reconnects
 - more control over client auto-reconnect, and access to the last exception
 - provide a way to make local type registrations e.g. that are only applied to
   the current client/server (would also make it possible to use local state in
