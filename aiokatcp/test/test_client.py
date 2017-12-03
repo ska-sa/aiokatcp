@@ -27,12 +27,30 @@
 
 import asyncio
 import re
-from typing import Tuple, Type, Pattern, Match
+import logging
+from typing import Tuple, Type, Pattern, Match, cast
 
 import asynctest
 
-from aiokatcp import Client, FailReply, InvalidReply
+from aiokatcp import Client, FailReply, InvalidReply, Message
 from .test_utils import timelimit
+
+
+class DummyClient(Client):
+    """Client with some informs for testing"""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.foos = asyncio.Queue()
+        self.unhandled = asyncio.Queue()
+
+    def inform_foo(self, string: str, integer: int) -> None:
+        self.foos.put_nowait((string, integer))
+
+    def inform_exception(self) -> None:
+        raise RuntimeError('I crashed')
+
+    def unhandled_inform(self, msg: Message) -> None:
+        self.unhandled.put_nowait(msg)
 
 
 @timelimit
@@ -59,7 +77,7 @@ class TestClient(asynctest.TestCase):
             self,
             server: asyncio.AbstractServer,
             client_queue: asyncio.Queue,
-            client_cls: Type[Client] = Client) \
+            client_cls: Type[Client] = DummyClient) \
             -> Tuple[Client, asyncio.StreamReader, asyncio.StreamWriter]:
         host, port = server.sockets[0].getsockname()    # type: ignore
         client = client_cls(host, port, loop=self.loop)
@@ -144,6 +162,80 @@ class TestClient(asynctest.TestCase):
         await self._write(b'!invalid-request[1]\n')
         with self.assertRaisesRegex(InvalidReply, '^$'):
             await future
+
+    async def test_request_with_informs(self) -> None:
+        await self.test_connect()
+        future = self.loop.create_task(self.client.request('help'))
+        await self._check_received(re.compile(br'^\?help\[1\]\n\Z'))
+        await self._write(b'#help[1] help Show\\_help\n')
+        await self._write(b'#help[1] halt Halt\n')
+        await self._write(b'!help[1] ok 2\n')
+        result = await future
+        self.assertEqual(result, ([b'2'], [
+            Message.inform('help', b'help', b'Show help', mid=1),
+            Message.inform('help', b'halt', b'Halt', mid=1)
+        ]))
+
+    async def test_inform(self) -> None:
+        client = cast(DummyClient, self.client)
+        await self.test_connect()
+        with self.assertLogs(logging.getLogger('aiokatcp.client')) as cm:
+            # Put in bad ones before the good one, so that as soon as we've
+            # received the good one from the queue we can finish the test.
+            await self._write(b'#exception\n#foo bad notinteger\n#foo \xc3\xa9 123\n')
+            inform = await client.foos.get()
+        self.assertRegex(cm.output[0], 'I crashed')
+        self.assertRegex(cm.output[1], 'error in inform')
+        self.assertEqual(inform, ('é', 123))
+
+    async def test_unhandled_inform(self) -> None:
+        client = cast(DummyClient, self.client)
+        await self.test_connect()
+        await self._write(b'#unhandled arg\n')
+        msg = await client.unhandled.get()
+        self.assertEqual(msg, Message.inform('unhandled', b'arg'))
+
+    async def test_unsolicited_reply(self) -> None:
+        await self.test_connect()
+        future = self.loop.create_task(self.client.request('echo'))
+        with self.assertLogs(logging.getLogger('aiokatcp.client'), logging.DEBUG):
+            await self._write(b'!surprise[3]\n!echo[1] ok\n')
+            await future
+
+    async def test_receive_request(self) -> None:
+        await self.test_connect()
+        future = self.loop.create_task(self.client.request('echo'))
+        with self.assertLogs(logging.getLogger('aiokatcp.client')):
+            await self._write(b'?surprise\n!echo[1] ok\n')
+            await future
+
+    async def test_reply_no_mid(self) -> None:
+        await self.test_connect()
+        future = self.loop.create_task(self.client.request('echo'))
+        with self.assertLogs(logging.getLogger('aiokatcp.client')):
+            await self._write(b'!surprise ok\n!echo[1] ok\n')
+            await future
+
+    async def test_unparsable_protocol(self) -> None:
+        with self.assertLogs(logging.getLogger('aiokatcp.client')) as cm:
+            self.remote_writer.write(b'#version-connect katcp-protocol notvalid\n')
+            line = await self.remote_reader.read()
+        self.assertEqual(line, b'')
+        self.assertRegex(cm.output[0], 'Unparsable katcp-protocol')
+
+    async def test_bad_protocol(self) -> None:
+        with self.assertLogs(logging.getLogger('aiokatcp.client')) as cm:
+            self.remote_writer.write(b'#version-connect katcp-protocol 4.0-I\n')
+            line = await self.remote_reader.read()
+        self.assertEqual(line, b'')
+        self.assertRegex(cm.output[0], r'Unknown protocol version 4\.0')
+
+    async def test_bad_flags(self) -> None:
+        with self.assertLogs(logging.getLogger('aiokatcp.client')) as cm:
+            self.remote_writer.write(b'#version-connect katcp-protocol 5.0-M\n')
+            line = await self.remote_reader.read()
+        self.assertEqual(line, b'')
+        self.assertRegex(cm.output[0], r'Message IDs not supported by server')
 
     async def test_no_connection(self) -> None:
         # Open a second client, which will not get the #version-connect
