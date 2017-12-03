@@ -178,6 +178,11 @@ class Client(metaclass=ClientMeta):
                     self.loop.create_task(self._connection.stop())
         # TODO: add a inform_version handler
 
+    def inform_disconnect(self, reason: str) -> None:
+        logger.info('Server disconnected: %s', reason)
+        if self._connection is not None:
+            self.loop.create_task(self._connection.stop())
+
     def add_connected_callback(self, callback: Callable[[], None]) -> None:
         """Register a handler that is called when a connection is established.
 
