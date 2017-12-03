@@ -125,9 +125,12 @@ class Client(metaclass=ClientMeta):
                 elif msg.mtype == core.Message.Type.INFORM:
                     req.informs.append(msg)
                 else:
-                    logger.warning('Unknown message type %s', msg.mtype)
-        else:
+                    logger.warning('Unknown message type %s', msg.mtype)  # pragma: no cover
+        elif msg.mtype == core.Message.Type.INFORM:
             self.handle_inform(msg)
+        else:
+            logger.info('Received unexpected %s (%s) from server without message ID',
+                        msg.mtype.name, msg.name)
 
     def handle_inform(self, msg):
         logger.debug('Received %s', bytes(msg))
