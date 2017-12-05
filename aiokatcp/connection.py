@@ -129,14 +129,11 @@ class Connection(object):
         self.address = core.Address(ipaddress.ip_address(host), port)
         self._drain_lock = asyncio.Lock(loop=owner.loop)
         self.is_server = is_server
-        self._task = None     # type: Optional[asyncio.Task]
         self.logger = logging.LoggerAdapter(logger, dict(address=self.address))
-
-    def start(self) -> asyncio.Task:
         self._task = self.owner.loop.create_task(self._run())
-        assert self._task is not None       # to keep mypy happy
         self._task.add_done_callback(self._done_callback)
-        return self._task
+        self._closing = False
+        self._closed_event = asyncio.Event(loop=owner.loop)
 
     def _close_writer(self):
         if self.writer is not None:
@@ -196,19 +193,32 @@ class Connection(object):
                 await self.owner.handle_message(self, msg)
 
     def _done_callback(self, task: asyncio.Future) -> None:
+        self._closed_event.set()
         if not task.cancelled():
             try:
                 task.result()
             except Exception:
                 self.logger.exception('Exception in connection handler')
 
-    async def stop(self) -> None:
-        task = self._task
-        if task is not None and not task.done():
-            task.cancel()
-            await asyncio.wait([task], loop=self.owner.loop)
-        self._task = None
-        self._close_writer()
+    def close(self) -> None:
+        """Start closing the connection.
+
+        Any currently running message handler will be cancelled. The closing
+        process completes asynchronously. Use :meth:`wait_closed` to wait for
+        things to be completely closed off.
+        """
+        if not self._closing:
+            self._task.cancel()
+            self._close_writer()
+            self._closing = True
+
+    async def wait_closed(self) -> None:
+        """Wait until the connection is closed.
+
+        This can be used either after :meth:`close`, or without :meth:`close`
+        to wait for the remote end to close the connection.
+        """
+        await self._closed_event.wait()
 
 
 @decorator.decorator

@@ -102,13 +102,17 @@ class Client(metaclass=ClientMeta):
         self._pending = {}              # type: Dict[int, _PendingRequest]
         self._next_mid = 1
         self._run_task = loop.create_task(self._run())
+        self._run_task.add_done_callback(self._done_callback)
+        self._closing = False
+        self._closed_event = asyncio.Event(loop=loop)
         self._connected_callbacks = []  # type: List[Callable[[], None]]
         self._disconnected_callbacks = []   # type: List[Callable[[], None]]
 
     def __del__(self) -> None:
-        if self._run_task is not None:
+        if not self._closed_event.is_set():
             warnings.warn('unclosed Client {!r}'.format(self), ResourceWarning)
-            self._run_task.cancel()
+            if not self.loop.is_closed():
+                self.loop.call_soon_threadsafe(self.close)
 
     async def handle_message(self, conn: connection.Connection, msg: core.Message) -> None:
         if msg.mtype == core.Message.Type.REQUEST:
@@ -152,6 +156,11 @@ class Client(metaclass=ClientMeta):
         """
         logger.warning('unknown inform %s', msg.name)
 
+    def _close_connection(self):
+        if self._connection is not None:
+            self._connection.close()
+            self._connection = None
+
     def inform_version_connect(self, api: str, version: str, build_state: str = None) -> None:
         if api == 'katcp-protocol':
             match = re.match('^(\d+)\.(\d+)(?:-(.+))?$', version)
@@ -174,14 +183,12 @@ class Client(metaclass=ClientMeta):
                     self._on_connected()
             else:
                 logger.warning(error)
-                if self._connection is not None:
-                    self.loop.create_task(self._connection.stop())
+                self._close_connection()
         # TODO: add a inform_version handler
 
     def inform_disconnect(self, reason: str) -> None:
         logger.info('Server disconnected: %s', reason)
-        if self._connection is not None:
-            self.loop.create_task(self._connection.stop())
+        self._close_connection()
 
     def add_connected_callback(self, callback: Callable[[], None]) -> None:
         """Register a handler that is called when a connection is established.
@@ -228,30 +235,25 @@ class Client(metaclass=ClientMeta):
 
     async def _run_once(self) -> bool:
         """Make a single attempt to connect and run the connection if successful."""
+        # Open the connection. Based on asyncio.open_connection.
+        reader = asyncio.StreamReader(limit=self._limit, loop=self.loop)
+        protocol = connection.ConvertCRProtocol(reader, loop=self.loop)
         try:
-            # Open the connection. Based on asyncio.open_connection.
-            reader = asyncio.StreamReader(limit=self._limit, loop=self.loop)
-            protocol = connection.ConvertCRProtocol(reader, loop=self.loop)
-            try:
-                transport, _ = await self.loop.create_connection(
-                    lambda: protocol, self.host, self.port)
-            except ConnectionError as error:
-                logger.warning('Failed to connect to %s:%d: %s',
-                               self.host, self.port, error)
-                return False
-            writer = asyncio.StreamWriter(transport, protocol, reader, self.loop)
-            self._connection = connection.Connection(self, reader, writer, False)
-            # Process replies until connection closes. _on_connected is
-            # called by the version-info inform handler.
-            connection_task = self._connection.start()
-            await asyncio.wait([connection_task], loop=self.loop)
-            return self.is_connected
-        finally:
-            if self._connection:
-                await self._connection.stop()
-                self._connection = None
-            if self.is_connected:
-                self._on_disconnected()
+            transport, _ = await self.loop.create_connection(
+                lambda: protocol, self.host, self.port)
+        except ConnectionError as error:
+            logger.warning('Failed to connect to %s:%d: %s',
+                           self.host, self.port, error)
+            return False
+        writer = asyncio.StreamWriter(transport, protocol, reader, self.loop)
+        self._connection = connection.Connection(self, reader, writer, False)
+        # Process replies until connection closes. _on_connected is
+        # called by the version-info inform handler.
+        await self._connection.wait_closed()
+        ret = self.is_connected
+        if self.is_connected:
+            self._on_disconnected()
+        return ret
 
     async def _run(self) -> None:
         backoff = 0.5
@@ -266,26 +268,35 @@ class Client(metaclass=ClientMeta):
             wait = (random.random() * 1.0) * 0.5 * backoff
             await asyncio.sleep(wait, loop=self.loop)
 
-    async def close(self) -> None:
-        """Close the connection and free resources.
+    def _done_callback(self, future: asyncio.Future) -> None:
+        self._close_connection()
+        if self.is_connected:
+            self._on_disconnected()
+        self._closed_event.set()
 
-        This must only be called once.
+    def close(self) -> None:
+        """Start closing the connection.
+
+        Closing completes asynchronously. Use :meth:`wait_closed` to wait
+        for it to be fully complete.
         """
         # TODO: also needs to abort any pending requests
-        self._run_task.cancel()
-        try:
-            await self._run_task
-        except asyncio.CancelledError:
-            pass
-        finally:
-            self._run_task = None
+        if not self._closing:
+            self._run_task.cancel()
+            self._close_connection()    # Ensures the transport gets closed now
+            self._closing = True
+
+    async def wait_closed(self) -> None:
+        """Wait for the process started by :meth:`close` to complete."""
+        await self._closed_event.wait()
 
     # Make client a context manager that self-closes
     async def __aenter__(self) -> 'Client':
         return self
 
-    async def __aexit__(self, exc_type, exc, tb):
-        await self.close()
+    async def __exit__(self, exc_type, exc, tb):
+        self.close()
+        await self.wait_closed()
 
     async def wait_connected(self) -> None:
         """Wait until a connection is established."""
@@ -304,7 +315,7 @@ class Client(metaclass=ClientMeta):
             await client.wait_connected()
             return client
         except Exception as error:
-            await client.close()
+            client.close()
             raise error
 
     async def request_raw(self, name: str, *args: Any) -> Tuple[core.Message, List[core.Message]]:

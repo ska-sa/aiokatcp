@@ -28,6 +28,8 @@
 import asyncio
 import re
 import logging
+import gc
+import unittest
 from typing import Tuple, Type, Pattern, Match, cast
 
 import asynctest
@@ -40,8 +42,8 @@ class DummyClient(Client):
     """Client with some informs for testing"""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.foos = asyncio.Queue()
-        self.unhandled = asyncio.Queue()
+        self.foos = asyncio.Queue(loop=self.loop)
+        self.unhandled = asyncio.Queue(loop=self.loop)
 
     def inform_foo(self, string: str, integer: int) -> None:
         self.foos.put_nowait((string, integer))
@@ -70,6 +72,7 @@ class TestClient(asynctest.TestCase):
 
         client_queue = asyncio.Queue(loop=self.loop)   # type: asyncio.Queue
         server = await asyncio.start_server(callback, '127.0.0.1', 0, loop=self.loop)
+        self.addCleanup(server.wait_closed)
         self.addCleanup(server.close)
         return server, client_queue
 
@@ -81,6 +84,7 @@ class TestClient(asynctest.TestCase):
             -> Tuple[Client, asyncio.StreamReader, asyncio.StreamWriter]:
         host, port = server.sockets[0].getsockname()    # type: ignore
         client = client_cls(host, port, loop=self.loop)
+        self.addCleanup(client.wait_closed)
         self.addCleanup(client.close)
         (reader, writer) = await client_queue.get()
         return client, reader, writer
@@ -241,6 +245,7 @@ class TestClient(asynctest.TestCase):
         # Open a second client, which will not get the #version-connect
         client, reader, writer = \
             await self.make_client(self.server, self.client_queue)
+        self.addCleanup(writer.close)
         with self.assertRaises(BrokenPipeError):
             await client.request('help')
 
@@ -249,3 +254,40 @@ class TestClient(asynctest.TestCase):
         self.remote_writer.close()
         with self.assertRaises(ConnectionResetError):
             await self.client.request('help')
+
+
+class TestUnclosedClient(unittest.TestCase):
+    async def make_server(self) -> Tuple[asyncio.AbstractServer, asyncio.Queue]:
+        """Start a server listening on localhost.
+
+        Returns
+        -------
+        server
+            Asyncio server
+        client_queue
+            Queue which is populated with `(reader, writer)` tuples as they connect
+        """
+        def callback(reader, writer):
+            client_queue.put_nowait((reader, writer))
+
+        client_queue = asyncio.Queue(loop=self.loop)   # type: asyncio.Queue
+        server = await asyncio.start_server(callback, '127.0.0.1', 0, loop=self.loop)
+        return server, client_queue
+
+    async def body(self) -> None:
+        server, client_queue = await self.make_server()
+        host, port = server.sockets[0].getsockname()    # type: ignore
+        client = DummyClient(host, port, loop=self.loop)  # noqa: F841
+        (reader, writer) = await client_queue.get()
+        writer.close()
+        server.close()
+        await server.wait_closed()
+
+    def test(self) -> None:
+        with self.assertWarnsRegex(ResourceWarning, 'unclosed Client'):
+            self.loop = asyncio.new_event_loop()
+            self.loop.run_until_complete(self.body())
+            self.loop.close()
+            # Run a few times for PyPy's benefit
+            gc.collect()
+            gc.collect()

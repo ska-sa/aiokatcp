@@ -111,6 +111,12 @@ class TestConnection(asynctest.TestCase):
         if self.writer:
             self.writer.close()
 
+    def make_connection(self, is_server: bool) -> Connection:
+        conn = Connection(self.owner, self.reader, self.writer, is_server)
+        self.addCleanup(conn.wait_closed)
+        self.addCleanup(conn.close)
+        return conn
+
     def _client_connected_cb(self, reader: asyncio.StreamReader,
                              writer: asyncio.StreamWriter) -> None:
         self.reader = reader
@@ -128,16 +134,14 @@ class TestConnection(asynctest.TestCase):
         self.loop.create_task(self._ok_reply(conn, msg))
 
     async def test_write_message(self) -> None:
-        conn = Connection(self.owner, self.reader, self.writer, True)
+        conn = self.make_connection(True)
         conn.write_message(Message.reply('ok', mid=1))
         await conn.drain()
         line = await self.remote_reader.readline()
         self.assertEqual(line, b'!ok[1]\n')
 
     async def test_run(self) -> None:
-        conn = Connection(self.owner, self.reader, self.writer, True)
-        task = conn.start()
-        self.addCleanup(conn.stop)
+        conn = self.make_connection(True)
         self.remote_writer.write(b'?watchdog[2]\n')
         await self.ok_done.acquire()
         self.owner.handle_message.assert_called_with(conn, Message.request('watchdog', mid=2))
@@ -146,14 +150,12 @@ class TestConnection(asynctest.TestCase):
         # Check that it exits when the client disconnects its write end
         self.remote_writer.write_eof()
         # We need to give the packets time to go through the system
-        await task
+        await conn.wait_closed()
 
     async def test_disconnected(self) -> None:
-        conn = Connection(self.owner, self.reader, self.writer, True)
-        task = conn.start()
+        conn = self.make_connection(True)
         # Don't send the reply until the socket is closed
         self.ok_wait = asyncio.Semaphore(0, loop=self.loop)
-        self.addCleanup(conn.stop)
         self.remote_writer.write(b'?watchdog[2]\n?watchdog[3]\n?watchdog[4]\n')
         self.remote_writer.close()
         await asynctest.exhaust_callbacks(self.loop)
@@ -163,7 +165,7 @@ class TestConnection(asynctest.TestCase):
             # Wait for first two watchdogs and the close to go through
             await self.ok_done.acquire()
             await self.ok_done.acquire()
-            await task
+            await conn.wait_closed()
             self.owner.handle_message.assert_called_with(conn, Message.request('watchdog', mid=4))
         # Note: should only be one warning, not two
         self.assertEqual(1, len(cm.output))
@@ -176,45 +178,34 @@ class TestConnection(asynctest.TestCase):
         await asynctest.exhaust_callbacks(self.loop)
 
     async def test_malformed(self) -> None:
-        conn = Connection(self.owner, self.reader, self.writer, True)
-        task = conn.start()
-        self.addCleanup(conn.stop)
+        conn = self.make_connection(True)
         self.remote_writer.write(b'malformed\n')
         self.remote_writer.write_eof()
         with self.assertLogs('aiokatcp.connection', logging.WARN) as cm:
             # Wait for the close to go through
-            await task
+            await conn.wait_closed()
             self.owner.handle_message.assert_not_called()
         self.assertEqual(len(cm.output), 1)
         self.assertRegex(cm.output[0], 'Malformed message received.*')
 
-    async def test_cancelled_early(self) -> None:
-        conn = Connection(self.owner, self.reader, self.writer, True)
-        task = conn.start()
-        self.addCleanup(conn.stop)
-        task.cancel()
-        with self.assertRaises(asyncio.CancelledError):
-            await task
+    async def test_close_early(self) -> None:
+        conn = self.make_connection(True)
+        conn.close()
+        await conn.wait_closed()
 
-    async def test_cancelled(self) -> None:
-        conn = Connection(self.owner, self.reader, self.writer, True)
-        task = conn.start()
-        self.addCleanup(conn.stop)
+    async def test_close(self) -> None:
+        conn = self.make_connection(True)
         await asynctest.exhaust_callbacks(self.loop)
-        task.cancel()
-        with self.assertRaises(asyncio.CancelledError):
-            await task
+        conn.close()
+        await conn.wait_closed()
 
     async def test_exception(self) -> None:
         self.owner.handle_message.side_effect = RuntimeError('test error')
-        conn = Connection(self.owner, self.reader, self.writer, True)
-        task = conn.start()
-        self.addCleanup(conn.stop)
+        conn = self.make_connection(True)
         await asynctest.exhaust_callbacks(self.loop)
         self.remote_writer.write(b'?watchdog[2]\n')
         self.remote_writer.close()
         with self.assertLogs('aiokatcp.connection', logging.ERROR) as cm:
-            with self.assertRaises(RuntimeError):
-                await task
+            await conn.wait_closed()
         self.assertEqual(len(cm.output), 1)
         self.assertRegex(cm.output[0], '(?s)Exception in connection handler.*test error')

@@ -58,11 +58,11 @@ class ClientConnection(connection.Connection):
         #: Maps sensors to their samplers, for sensors that are being sampled
         self._samplers = {}     # type: Dict[sensor.Sensor, sensor.SensorSampler]
 
-    async def stop(self) -> None:
+    def close(self) -> None:
         for sampler in self._samplers.values():
             sampler.close()
         self._samplers = {}
-        await super().stop()
+        super().close()
 
     def set_sampler(self, s: sensor.Sensor, sampler: Optional[sensor.SensorSampler]) -> None:
         """Set or clear the sampler for a sensor."""
@@ -430,7 +430,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
                 msg = core.Message.inform('disconnect', 'server shutting down')
                 for client in list(self._connections):
                     client.write_message(msg)
-                    await client.stop()
+                    client.close()
+                    await client.wait_closed()
             self._stopped.set()
 
     def halt(self, cancel: bool = True) -> asyncio.Task:
@@ -478,17 +479,19 @@ class DeviceServer(metaclass=DeviceServerMeta):
 
     async def _client_connected_cb(
             self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        async def cleanup():
+            await conn.wait_closed()
+            self._connections.remove(conn)
         conn = ClientConnection(self, reader, writer)
         # Copy the connection list, to avoid mutation while iterating and to
         # exclude the new connection from it.
         connections = list(self._connections)
         self._connections.add(conn)
+        self.loop.create_task(cleanup())
         # Make a fake request context for send_version_info
         request = core.Message.request('version-connect')
         ctx = RequestContext(conn, request)
         self.send_version_info(ctx, send_reply=False)
-        task = conn.start()
-        task.add_done_callback(lambda future: self._connections.remove(conn))
         msg = core.Message.inform('client-connected', conn.address)
         for old_conn in connections:
             old_conn.write_message(msg)
