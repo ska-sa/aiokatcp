@@ -25,6 +25,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import socket
 import asyncio
 import logging
 import functools
@@ -242,3 +243,17 @@ class TestConnection(asynctest.TestCase):
                 await task
         self.assertEqual(len(cm.output), 1)
         self.assertRegex(cm.output[0], '(?s)Exception in connection handler.*test error')
+
+    async def test_ipv6_connection(self) -> None:
+        """
+        Test that the Connection class can instantiate when a IPv6 connection
+        has been made.
+        """
+        sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        sock.bind(('::', 0))
+        ipv6_server = await asyncio.start_server(
+            self._client_connected_cb, sock=sock, loop=self.loop)
+        ipv6_port = ipv6_server.sockets[0].getsockname()[1]
+        ipv6_reader, ipv6_writer = await asyncio.open_connection(
+            '::', ipv6_port, family=socket.AF_INET6, loop=self.loop)
+        conn = Connection(self.owner, ipv6_reader, ipv6_writer, True)
