@@ -241,7 +241,7 @@ class Client(metaclass=ClientMeta):
         try:
             transport, _ = await self.loop.create_connection(
                 lambda: protocol, self.host, self.port)
-        except ConnectionError as error:
+        except OSError as error:
             logger.warning('Failed to connect to %s:%d: %s',
                            self.host, self.port, error)
             return False
