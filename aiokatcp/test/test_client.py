@@ -30,6 +30,7 @@ import re
 import logging
 import gc
 import unittest
+import unittest.mock
 from typing import Tuple, Type, Pattern, Match, cast
 
 import asynctest
@@ -254,6 +255,31 @@ class TestClient(asynctest.TestCase):
         self.remote_writer.close()
         with self.assertRaises(ConnectionResetError):
             await self.client.request('help')
+
+    async def test_disconnected(self) -> None:
+        await self.test_connect()
+        await self._write(b'#disconnect Server\\_exiting\n')
+        await self.client.wait_disconnected()
+        with self.assertRaises(BrokenPipeError):
+            await self.client.request('help')
+
+    async def test_bad_address(self) -> None:
+        client = DummyClient('invalid.invalid', 1)
+        self.addCleanup(client.close)
+        # While invalid.invalid will fail to resolve, it may take some time.
+        # By mocking it, we ensure that the test runs without the need for
+        # an estimated sleep.
+        with unittest.mock.patch.object(self.loop, 'getaddrinfo', side_effect=OSError):
+            with self.assertLogs(logging.getLogger('aiokatcp.client')) as cm:
+                task = self.loop.create_task(client.wait_connected())
+                await asynctest.exhaust_callbacks(self.loop)
+        self.assertRegex(cm.output[0], 'Failed to connect to invalid.invalid:1: ')
+        task.cancel()
+
+    async def test_context_manage(self) -> None:
+        async with self.client:
+            pass
+        await self.client.wait_closed()
 
 
 class TestUnclosedClient(unittest.TestCase):
