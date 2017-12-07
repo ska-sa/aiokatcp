@@ -187,7 +187,8 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
     def __del__(self) -> None:
         if getattr(self, 'sensor', None) is not None:
             warnings.warn('unclosed SensorSampler {!r}'.format(self), ResourceWarning)
-            self.close()
+            if not self.loop.is_closed():
+                self.loop.call_soon_threadsafe(self.close)
 
     def _clear_callback(self) -> None:
         if self._callback_handle is not None:
