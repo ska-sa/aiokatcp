@@ -156,7 +156,7 @@ class TestClient(asynctest.TestCase):
         await self.test_connect()
         future = self.loop.create_task(self.client.request('invalid-request'))
         await self._check_received(re.compile(br'^\?invalid-request\[1\]\n\Z'))
-        await self._write(b'!invalid-request[1] invalid Unknown\_request\n')
+        await self._write(b'!invalid-request[1] invalid Unknown\\_request\n')
         with self.assertRaisesRegex(InvalidReply, '^Unknown request$'):
             await future
 
