@@ -294,7 +294,7 @@ class Client(metaclass=ClientMeta):
     async def __aenter__(self) -> 'Client':
         return self
 
-    async def __exit__(self, exc_type, exc, tb):
+    async def __aexit__(self, exc_type, exc, tb):
         self.close()
         await self.wait_closed()
 
