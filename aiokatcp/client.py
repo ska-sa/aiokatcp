@@ -169,7 +169,7 @@ class Client(metaclass=ClientMeta):
 
     def inform_version_connect(self, api: str, version: str, build_state: str = None) -> None:
         if api == 'katcp-protocol':
-            match = re.match('^(\d+)\.(\d+)(?:-(.+))?$', version)
+            match = re.match(r'^(\d+)\.(\d+)(?:-(.+))?$', version)
             error = None
             if not match:
                 error = 'Unparsable katcp-protocol {!r}'.format(version)
