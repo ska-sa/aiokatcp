@@ -31,6 +31,7 @@ import re
 import warnings
 import inspect
 import random
+import functools
 from typing import Any, List, Callable, Tuple
 # Only used in type comments, so flake8 complains
 from typing import Dict   # noqa: F401
@@ -68,6 +69,11 @@ class ClientMeta(type):
         return result
 
 
+def _make_done(future):
+    if not future.done():
+        future.set_result(None)
+
+
 class Client(metaclass=ClientMeta):
     """Client that connects to a katcp server.
 
@@ -93,8 +99,8 @@ class Client(metaclass=ClientMeta):
                  loop: asyncio.AbstractEventLoop = None) -> None:
         if loop is None:
             loop = asyncio.get_event_loop()
-        self._connected = asyncio.Event(loop=loop)
         self._connection = None         # type: connection.Connection
+        self.is_connected = False
         self.host = host
         self.port = port
         self.loop = loop
@@ -208,24 +214,15 @@ class Client(metaclass=ClientMeta):
         """
         self._disconnected_callbacks.append(callback)
 
-    @property
-    def is_connected(self):
-        """Whether the connection is currently active.
-
-        Note that this will be ``False`` until the server indicates its
-        protocol version, even if the TCP connection has been established.
-        """
-        return self._connected.is_set()
-
     def _on_connected(self):
         if not self.is_connected:
-            self._connected.set()
+            self.is_connected = True
             for callback in self._connected_callbacks:
                 callback()
 
     def _on_disconnected(self):
         if self.is_connected:
-            self._connected.clear()
+            self.is_connected = False
             for req in self._pending.values():
                 if not req.reply.done():
                     req.reply.set_exception(ConnectionResetError('Connection to server lost'))
@@ -300,7 +297,15 @@ class Client(metaclass=ClientMeta):
 
     async def wait_connected(self) -> None:
         """Wait until a connection is established."""
-        await self._connected.wait()
+        future = self.loop.create_future()
+        self.add_connected_callback(functools.partial(_make_done, future))
+        await future
+
+    async def wait_disconnected(self) -> None:
+        """Wait until there is no connection"""
+        future = self.loop.create_future()
+        self.add_disconnected_callback(functools.partial(_make_done, future))
+        await future
 
     @classmethod
     async def connect(cls, host: str, port: int, *,
