@@ -109,6 +109,8 @@ class TestClient(asynctest.TestCase):
     async def test_connect(self) -> None:
         self.remote_writer.write(b'#version-connect katcp-protocol 5.0-IM\n')
         await self.client.wait_connected()
+        # Make sure that wait_connected works when already connected
+        await self.client.wait_connected()
 
     async def test_request_ok(self) -> None:
         await self.test_connect()

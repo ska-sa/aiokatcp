@@ -297,15 +297,17 @@ class Client(metaclass=ClientMeta):
 
     async def wait_connected(self) -> None:
         """Wait until a connection is established."""
-        future = self.loop.create_future()
-        self.add_connected_callback(functools.partial(_make_done, future))
-        await future
+        if not self.is_connected:
+            future = self.loop.create_future()
+            self.add_connected_callback(functools.partial(_make_done, future))
+            await future
 
     async def wait_disconnected(self) -> None:
         """Wait until there is no connection"""
-        future = self.loop.create_future()
-        self.add_disconnected_callback(functools.partial(_make_done, future))
-        await future
+        if self.is_connected:
+            future = self.loop.create_future()
+            self.add_disconnected_callback(functools.partial(_make_done, future))
+            await future
 
     @classmethod
     async def connect(cls, host: str, port: int, *,
