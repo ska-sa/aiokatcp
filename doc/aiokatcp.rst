@@ -4,6 +4,14 @@ aiokatcp package
 Submodules
 ----------
 
+aiokatcp\.client module
+-----------------------
+
+.. automodule:: aiokatcp.client
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 aiokatcp\.connection module
 ---------------------------
 
