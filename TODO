@@ -10,7 +10,6 @@
 - tests for client
 - documentation for client
 - more interesting client example
-- Ctrl-C handler in example client
 - more control over client auto-reconnect, and access to the last exception
 - provide a way to make local type registrations e.g. that are only applied to
   the current client/server (would also make it possible to use local state in

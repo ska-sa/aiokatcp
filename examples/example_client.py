@@ -29,6 +29,7 @@
 
 import asyncio
 import logging
+import signal
 
 import aiokatcp
 
@@ -38,7 +39,7 @@ async def main():
     async with client:
         while True:
             await client.wait_connected()
-            value, _ = await client.request('echo', '10')
+            value, _ = await client.request('echo', 10)
             print(value)
             await asyncio.sleep(1)
 
@@ -47,5 +48,10 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
-    loop.run_until_complete(main())
+    main_task = loop.create_task(main())
+    loop.add_signal_handler(signal.SIGINT, main_task.cancel)
+    try:
+        loop.run_until_complete(main_task)
+    except asyncio.CancelledError:
+        pass
     loop.close()
