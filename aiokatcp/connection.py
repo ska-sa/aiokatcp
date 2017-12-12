@@ -53,7 +53,7 @@ class ConvertCRProtocol(asyncio.StreamReaderProtocol):
     whose :meth:`~asyncio.StreamReader.readuntil` method is limited to a single
     separator.
     """
-    def data_received(self, data):
+    def data_received(self, data: bytes) -> None:
         super().data_received(data.replace(b'\r', b'\n'))
 
 

@@ -32,7 +32,7 @@ import warnings
 import inspect
 import random
 import functools
-from typing import Any, List, Callable, Tuple
+from typing import Any, List, Callable, Tuple, SupportsBytes, cast
 # Only used in type comments, so flake8 complains
 from typing import Dict, Optional   # noqa: F401
 
@@ -143,6 +143,7 @@ class Client(metaclass=ClientMeta):
                 self.loop.call_soon_threadsafe(self.close)
 
     async def handle_message(self, conn: connection.Connection, msg: core.Message) -> None:
+        """Called by :class:`~.Connection` for each incoming message."""
         if msg.mtype == core.Message.Type.REQUEST:
             logger.info('Received unexpected request %s from server', msg.name)
             return
@@ -165,10 +166,11 @@ class Client(metaclass=ClientMeta):
             logger.info('Received unexpected %s (%s) from server without message ID',
                         msg.mtype.name, msg.name)
 
-    def handle_inform(self, msg):
-        logger.debug('Received %s', bytes(msg))
+    def handle_inform(self, msg: core.Message) -> None:
+        logger.debug('Received %s', bytes(cast(SupportsBytes, msg)))
         # TODO: provide dispatch mechanism for informs
-        handler = self._inform_handlers.get(msg.name, self.__class__.unhandled_inform)
+        handler = self._inform_handlers.get(               # type: ignore
+            msg.name, self.__class__.unhandled_inform)     # type: ignore
         try:
             handler(self, msg)
         except FailReply as error:
@@ -176,7 +178,7 @@ class Client(metaclass=ClientMeta):
         except Exception:
             logger.exception('unhandled exception in inform %s', msg.name, exc_info=True)
 
-    def unhandled_inform(self, msg):
+    def unhandled_inform(self, msg: core.Message) -> None:
         """Called if an inform is received for which no handler is registered.
 
         The default simply logs a warning. Subclasses may override this to
@@ -184,7 +186,7 @@ class Client(metaclass=ClientMeta):
         """
         logger.warning('unknown inform %s', msg.name)
 
-    def _close_connection(self):
+    def _close_connection(self) -> None:
         if self._connection is not None:
             self._connection.close()
             self._connection = None
@@ -437,7 +439,7 @@ class Client(metaclass=ClientMeta):
         ------
         BrokenPipeError
             if not connected at the time the request was made
-        ConnectionError:
+        ConnectionError
             if the connection was lost before the reply was received
         """
         if not self.is_connected:
@@ -483,7 +485,7 @@ class Client(metaclass=ClientMeta):
             if the server replied anything except ``ok`` or ``fail``
         BrokenPipeError
             if not connected at the time the request was made
-        ConnectionError:
+        ConnectionError
             if the connection was lost before the reply was received
         """
         reply_msg, informs = await self.request_raw(name, *args)

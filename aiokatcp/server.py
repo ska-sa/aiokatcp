@@ -564,6 +564,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         await ctx.drain()
 
     async def handle_message(self, conn: ClientConnection, msg: core.Message) -> None:
+        """Called by :class:`ClientConnection` for each incoming message."""
         if self._stopping:
             return
         if msg.mtype == core.Message.Type.REQUEST:
