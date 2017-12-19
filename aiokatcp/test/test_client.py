@@ -59,7 +59,7 @@ class DummyClient(Client):
 
 @nottest
 class BaseTestClient(unittest.TestCase):
-    async def make_server(self) -> Tuple[asyncio.AbstractServer, asyncio.Queue]:
+    async def make_server(self, loop) -> Tuple[asyncio.AbstractServer, asyncio.Queue]:
         """Start a server listening on localhost.
 
         Returns
@@ -72,12 +72,16 @@ class BaseTestClient(unittest.TestCase):
         def callback(reader, writer):
             client_queue.put_nowait((reader, writer))
 
-        client_queue = asyncio.Queue(loop=self.loop)   # type: asyncio.Queue
-        server = await asyncio.start_server(callback, '127.0.0.1', 0, loop=self.loop)
+        client_queue = asyncio.Queue(loop=loop)   # type: asyncio.Queue
+        server = await asyncio.start_server(callback, '127.0.0.1', 0, loop=loop)
         self.addCleanup(server.wait_closed)
         self.addCleanup(server.close)
         return server, client_queue
 
+
+@timelimit
+@nottest
+class BaseTestClientAsync(BaseTestClient, asynctest.TestCase):
     async def make_client(
             self,
             server: asyncio.AbstractServer,
@@ -94,7 +98,8 @@ class BaseTestClient(unittest.TestCase):
 
     async def _check_received(self, pattern: Pattern[bytes]) -> Match:
         line = await self.remote_reader.readline()
-        self.assertRegex(line, pattern)
+        # mypy thinks assertRegex requires a Pattern[str]
+        self.assertRegex(line, pattern)    # type: ignore
         return pattern.match(line)
 
     async def _write(self, data: bytes) -> None:
@@ -107,10 +112,6 @@ class BaseTestClient(unittest.TestCase):
         # Make sure that wait_connected works when already connected
         await self.client.wait_connected()
 
-
-@timelimit
-@nottest
-class BaseTestClientAsync(BaseTestClient, asynctest.TestCase):
     async def test_request_ok(self) -> None:
         await self.wait_connected()
         future = self.loop.create_task(self.client.request('echo'))
@@ -246,7 +247,7 @@ class BaseTestClientAsync(BaseTestClient, asynctest.TestCase):
 class TestClient(BaseTestClientAsync):
     @timelimit(1)
     async def setUp(self) -> None:
-        self.server, self.client_queue = await self.make_server()
+        self.server, self.client_queue = await self.make_server(self.loop)
         self.client, self.remote_reader, self.remote_writer = \
             await self.make_client(self.server, self.client_queue)
         self.addCleanup(self.remote_writer.close)
@@ -312,7 +313,7 @@ class TestClient(BaseTestClientAsync):
 class TestClientNoReconnect(BaseTestClientAsync):
     @timelimit(1)
     async def setUp(self) -> None:
-        self.server, self.client_queue = await self.make_server()
+        self.server, self.client_queue = await self.make_server(self.loop)
         self.client, self.remote_reader, self.remote_writer = \
             await self.make_client(self.server, self.client_queue, auto_reconnect=False)
         self.addCleanup(self.remote_writer.close)
@@ -351,13 +352,13 @@ class TestClientNoReconnect(BaseTestClientAsync):
         self.assertFalse(client_task.done())
         writer.close()
         with self.assertRaises(ConnectionAbortedError):
-            client = await client_task
+            await client_task
 
 
 @istest
 class TestUnclosedClient(BaseTestClient, unittest.TestCase):
     async def body(self) -> None:
-        server, client_queue = await self.make_server()
+        server, client_queue = await self.make_server(self.loop)
         host, port = server.sockets[0].getsockname()    # type: ignore
         client = DummyClient(host, port, loop=self.loop)  # noqa: F841
         (reader, writer) = await client_queue.get()
