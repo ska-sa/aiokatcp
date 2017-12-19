@@ -60,5 +60,10 @@ setup(
         'test': tests_require,
         'doc': docs_require
     },
+    entry_points={
+        'console_scripts': [
+            'katcpcmd = aiokatcp.tools.katcpcmd:main'
+        ]
+    },
     python_requires='>=3.5'
 )

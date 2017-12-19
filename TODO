@@ -8,7 +8,6 @@
 - check if mock_transport is going to be useful
 - add unhandled_request method to server
 - documentation for client
-- more interesting client example
 - more control over client auto-reconnect, and access to the last exception
 - provide a way to make local type registrations e.g. that are only applied to
   the current client/server (would also make it possible to use local state in

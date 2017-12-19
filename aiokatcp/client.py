@@ -239,7 +239,7 @@ class Client(metaclass=ClientMeta):
             transport, _ = await self.loop.create_connection(
                 lambda: protocol, self.host, self.port)
         except OSError as error:
-            logger.warning('Failed to connect to %s:%d: %s',
+            logger.warning('Failed to connect to %s:%s: %s',
                            self.host, self.port, error)
             return False
         writer = asyncio.StreamWriter(transport, protocol, reader, self.loop)
@@ -291,7 +291,7 @@ class Client(metaclass=ClientMeta):
     async def __aenter__(self) -> 'Client':
         return self
 
-    async def __aexit__(self, exc_type, exc, tb):
+    async def __aexit__(self, exc_type, exc, tb) -> None:
         self.close()
         await self.wait_closed()
 
