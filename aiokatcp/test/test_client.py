@@ -56,8 +56,7 @@ class DummyClient(Client):
         self.unhandled.put_nowait(msg)
 
 
-@timelimit
-class TestClient(asynctest.TestCase):
+class BaseTestClient(unittest.TestCase):
     async def make_server(self) -> Tuple[asyncio.AbstractServer, asyncio.Queue]:
         """Start a server listening on localhost.
 
@@ -81,15 +80,19 @@ class TestClient(asynctest.TestCase):
             self,
             server: asyncio.AbstractServer,
             client_queue: asyncio.Queue,
-            client_cls: Type[Client] = DummyClient) \
+            client_cls: Type[Client] = DummyClient,
+            auto_reconnect=True) \
             -> Tuple[Client, asyncio.StreamReader, asyncio.StreamWriter]:
         host, port = server.sockets[0].getsockname()    # type: ignore
-        client = client_cls(host, port, loop=self.loop)
+        client = client_cls(host, port, auto_reconnect=auto_reconnect, loop=self.loop)
         self.addCleanup(client.wait_closed)
         self.addCleanup(client.close)
         (reader, writer) = await client_queue.get()
         return client, reader, writer
 
+
+@timelimit
+class TestClient(BaseTestClient, asynctest.TestCase):
     @timelimit(1)
     async def setUp(self) -> None:
         self.server, self.client_queue = await self.make_server()
@@ -297,24 +300,7 @@ class TestClient(asynctest.TestCase):
         await client.wait_closed()
 
 
-class TestUnclosedClient(unittest.TestCase):
-    async def make_server(self) -> Tuple[asyncio.AbstractServer, asyncio.Queue]:
-        """Start a server listening on localhost.
-
-        Returns
-        -------
-        server
-            Asyncio server
-        client_queue
-            Queue which is populated with `(reader, writer)` tuples as they connect
-        """
-        def callback(reader, writer):
-            client_queue.put_nowait((reader, writer))
-
-        client_queue = asyncio.Queue(loop=self.loop)   # type: asyncio.Queue
-        server = await asyncio.start_server(callback, '127.0.0.1', 0, loop=self.loop)
-        return server, client_queue
-
+class TestUnclosedClient(BaseTestClient, unittest.TestCase):
     async def body(self) -> None:
         server, client_queue = await self.make_server()
         host, port = server.sockets[0].getsockname()    # type: ignore
