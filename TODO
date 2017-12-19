@@ -1,5 +1,5 @@
 - revisit exception handling when socket closes or half-closes
-- make Connection a generic
+- make Connection owner a protocol (might need Python 3.6 though)
 - strict timestamp parsing
 - mechanism to enforce human readable ASCII on certain strings
 - Sphinx and type hints
@@ -7,7 +7,6 @@
 - tidy up the rendering of the documentation: there are some issues
 - check if mock_transport is going to be useful
 - add unhandled_request method to server
-- tests for client
 - documentation for client
 - more interesting client example
 - more control over client auto-reconnect, and access to the last exception

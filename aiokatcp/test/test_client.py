@@ -106,14 +106,14 @@ class TestClient(asynctest.TestCase):
         self.remote_writer.write(data)
         await self.remote_writer.drain()
 
-    async def test_connect(self) -> None:
+    async def test_connected(self) -> None:
         self.remote_writer.write(b'#version-connect katcp-protocol 5.0-IM\n')
         await self.client.wait_connected()
         # Make sure that wait_connected works when already connected
         await self.client.wait_connected()
 
     async def test_request_ok(self) -> None:
-        await self.test_connect()
+        await self.test_connected()
         future = self.loop.create_task(self.client.request('echo'))
         await self._check_received(re.compile(br'^\?echo\[1\]\n\Z'))
         await self._write(b'!echo[1] ok\n')
@@ -131,7 +131,7 @@ class TestClient(asynctest.TestCase):
         self.assertEqual(result, ([b'123', arg], []))
 
     async def test_request_fail(self) -> None:
-        await self.test_connect()
+        await self.test_connected()
         future = self.loop.create_task(self.client.request('failme'))
         await self._check_received(re.compile(br'^\?failme\[1\]\n\Z'))
         await self._write(b'!failme[1] fail Error\\_message\n')
@@ -139,7 +139,7 @@ class TestClient(asynctest.TestCase):
             await future
 
     async def test_request_fail_no_msg(self) -> None:
-        await self.test_connect()
+        await self.test_connected()
         future = self.loop.create_task(self.client.request('failme'))
         await self._check_received(re.compile(br'^\?failme\[1\]\n\Z'))
         await self._write(b'!failme[1] fail\n')
@@ -147,7 +147,7 @@ class TestClient(asynctest.TestCase):
             await future
 
     async def test_request_fail_msg_bad_encoding(self) -> None:
-        await self.test_connect()
+        await self.test_connected()
         future = self.loop.create_task(self.client.request('failme'))
         await self._check_received(re.compile(br'^\?failme\[1\]\n\Z'))
         await self._write(b'!failme[1] fail \xaf\n')
@@ -155,7 +155,7 @@ class TestClient(asynctest.TestCase):
             await future
 
     async def test_request_invalid(self) -> None:
-        await self.test_connect()
+        await self.test_connected()
         future = self.loop.create_task(self.client.request('invalid-request'))
         await self._check_received(re.compile(br'^\?invalid-request\[1\]\n\Z'))
         await self._write(b'!invalid-request[1] invalid Unknown\\_request\n')
@@ -163,7 +163,7 @@ class TestClient(asynctest.TestCase):
             await future
 
     async def test_request_no_code(self) -> None:
-        await self.test_connect()
+        await self.test_connected()
         future = self.loop.create_task(self.client.request('invalid-request'))
         await self._check_received(re.compile(br'^\?invalid-request\[1\]\n\Z'))
         await self._write(b'!invalid-request[1]\n')
@@ -171,7 +171,7 @@ class TestClient(asynctest.TestCase):
             await future
 
     async def test_request_with_informs(self) -> None:
-        await self.test_connect()
+        await self.test_connected()
         future = self.loop.create_task(self.client.request('help'))
         await self._check_received(re.compile(br'^\?help\[1\]\n\Z'))
         await self._write(b'#help[1] help Show\\_help\n')
@@ -185,7 +185,7 @@ class TestClient(asynctest.TestCase):
 
     async def test_inform(self) -> None:
         client = cast(DummyClient, self.client)
-        await self.test_connect()
+        await self.test_connected()
         with self.assertLogs(logging.getLogger('aiokatcp.client')) as cm:
             # Put in bad ones before the good one, so that as soon as we've
             # received the good one from the queue we can finish the test.
@@ -197,27 +197,27 @@ class TestClient(asynctest.TestCase):
 
     async def test_unhandled_inform(self) -> None:
         client = cast(DummyClient, self.client)
-        await self.test_connect()
+        await self.test_connected()
         await self._write(b'#unhandled arg\n')
         msg = await client.unhandled.get()
         self.assertEqual(msg, Message.inform('unhandled', b'arg'))
 
     async def test_unsolicited_reply(self) -> None:
-        await self.test_connect()
+        await self.test_connected()
         future = self.loop.create_task(self.client.request('echo'))
         with self.assertLogs(logging.getLogger('aiokatcp.client'), logging.DEBUG):
             await self._write(b'!surprise[3]\n!echo[1] ok\n')
             await future
 
     async def test_receive_request(self) -> None:
-        await self.test_connect()
+        await self.test_connected()
         future = self.loop.create_task(self.client.request('echo'))
         with self.assertLogs(logging.getLogger('aiokatcp.client')):
             await self._write(b'?surprise\n!echo[1] ok\n')
             await future
 
     async def test_reply_no_mid(self) -> None:
-        await self.test_connect()
+        await self.test_connected()
         future = self.loop.create_task(self.client.request('echo'))
         with self.assertLogs(logging.getLogger('aiokatcp.client')):
             await self._write(b'!surprise ok\n!echo[1] ok\n')
@@ -253,13 +253,13 @@ class TestClient(asynctest.TestCase):
             await client.request('help')
 
     async def test_connection_reset(self) -> None:
-        await self.test_connect()
+        await self.test_connected()
         self.remote_writer.close()
         with self.assertRaises(ConnectionResetError):
             await self.client.request('help')
 
     async def test_disconnected(self) -> None:
-        await self.test_connect()
+        await self.test_connected()
         await self._write(b'#disconnect Server\\_exiting\n')
         await self.client.wait_disconnected()
         with self.assertRaises(BrokenPipeError):
@@ -278,10 +278,23 @@ class TestClient(asynctest.TestCase):
         self.assertRegex(cm.output[0], 'Failed to connect to invalid.invalid:1: ')
         task.cancel()
 
-    async def test_context_manage(self) -> None:
+    async def test_context_manager(self) -> None:
         async with self.client:
             pass
         await self.client.wait_closed()
+
+    async def test_connect(self) -> None:
+        host, port = self.server.sockets[0].getsockname()    # type: ignore
+        client_task = self.loop.create_task(DummyClient.connect(host, port, loop=self.loop))
+        (reader, writer) = await self.client_queue.get()
+        await asynctest.exhaust_callbacks(self.loop)
+        self.assertFalse(client_task.done())
+        writer.write(b'#version-connect katcp-protocol 5.0-IM\n')
+        client = await client_task
+        assert client.is_connected
+        client.close()
+        writer.close()
+        await client.wait_closed()
 
 
 class TestUnclosedClient(unittest.TestCase):
