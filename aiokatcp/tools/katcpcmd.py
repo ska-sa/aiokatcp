@@ -45,7 +45,7 @@ def text(msg: aiokatcp.Message) -> str:
     return bytes(cast(SupportsBytes, msg)).decode('utf-8', errors='backslashreplace')
 
 
-class Client(aiokatcp.Client):
+class CmdClient(aiokatcp.Client):
     def unhandled_inform(self, msg: aiokatcp.Message) -> None:
         print(text(msg), end='')
 
@@ -53,7 +53,10 @@ class Client(aiokatcp.Client):
 async def async_main(args, host, port) -> int:
     try:
         with async_timeout.timeout(args.connect_timeout):
-            client = await Client.connect(host, port)
+            client = await CmdClient.connect(host, port, auto_reconnect=False)
+    except (OSError, aiokatcp.client.ProtocolError) as error:
+        logging.error('Connection error: %s', error)
+        return 1
     except asyncio.TimeoutError:
         logging.error('Timed out connecting to %s:%s', host, port)
         return 1
@@ -61,7 +64,7 @@ async def async_main(args, host, port) -> int:
         try:
             with async_timeout.timeout(args.request_timeout):
                 reply, informs = await client.request_raw(args.command, *args.args)
-        except ConnectionError as error:
+        except (OSError, aiokatcp.client.ProtocolError) as error:
             logging.error('Connection error: %s', error)
             return 1
         except asyncio.TimeoutError:

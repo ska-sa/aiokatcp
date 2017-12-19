@@ -34,7 +34,7 @@ import random
 import functools
 from typing import Any, List, Callable, Tuple
 # Only used in type comments, so flake8 complains
-from typing import Dict   # noqa: F401
+from typing import Dict, Optional   # noqa: F401
 
 from . import core, connection
 from .connection import FailReply, InvalidReply
@@ -74,6 +74,13 @@ def _make_done(future):
         future.set_result(None)
 
 
+class ProtocolError(ValueError):
+    """The server does not implement the required protocol version"""
+    def __init__(self, msg, version):
+        super().__init__(msg)
+        self.version = version
+
+
 class Client(metaclass=ClientMeta):
     """Client that connects to a katcp server.
 
@@ -93,8 +100,17 @@ class Client(metaclass=ClientMeta):
     loop
         Event loop on which the client will run, defaulting to
         ``asyncio.get_event_loop()``.
+
+    Attributes
+    ----------
+    is_connected : bool
+        Whether the connection is currently established.
+    last_exc : Exception
+        An exception object associated with the last connection attempt. It is
+        always ``None`` if :attr:`is_connected` is True.
     """
     def __init__(self, host: str, port: int, *,
+                 auto_reconnect: bool = True,
                  limit: int = connection.DEFAULT_LIMIT,
                  loop: asyncio.AbstractEventLoop = None) -> None:
         if loop is None:
@@ -111,8 +127,14 @@ class Client(metaclass=ClientMeta):
         self._run_task.add_done_callback(self._done_callback)
         self._closing = False
         self._closed_event = asyncio.Event(loop=loop)
-        self._connected_callbacks = []  # type: List[Callable[[], None]]
-        self._disconnected_callbacks = []   # type: List[Callable[[], None]]
+        self._connected_callbacks = []       # type: List[Callable[[], None]]
+        self._disconnected_callbacks = []    # type: List[Callable[[], None]]
+        self._failed_connect_callbacks = []  # type: List[Callable[[Exception], None]]
+        self.auto_reconnect = auto_reconnect
+        if self.auto_reconnect:
+            # If not auto-reconnecting, wait_connected will set the exception
+            self.add_failed_connect_callback(self._warn_failed_connect)
+        self.last_exc = None                 # type: Optional[Exception]
 
     def __del__(self) -> None:
         if not self._closed_event.is_set():
@@ -167,6 +189,9 @@ class Client(metaclass=ClientMeta):
             self._connection.close()
             self._connection = None
 
+    def _warn_failed_connect(self, exc: Exception) -> None:
+        logger.warning('Failed to connect to %s:%s: %s', self.host, self.port, exc)
+
     def inform_version_connect(self, api: str, version: str, build_state: str = None) -> None:
         if api == 'katcp-protocol':
             match = re.match(r'^(\d+)\.(\d+)(?:-(.+))?$', version)
@@ -188,8 +213,8 @@ class Client(metaclass=ClientMeta):
                 if self._connection is not None:
                     self._on_connected()
             else:
-                logger.warning(error)
                 self._close_connection()
+                self._on_failed_connect(ProtocolError(error, version))
         # TODO: add a inform_version handler
 
     def inform_disconnect(self, reason: str) -> None:
@@ -205,6 +230,10 @@ class Client(metaclass=ClientMeta):
         """
         self._connected_callbacks.append(callback)
 
+    def remove_connected_callback(self, callback: Callable[[], None]) -> None:
+        """Remove a callback registered with :meth:`add_connected_callback`."""
+        self._connected_callbacks.remove(callback)
+
     def add_disconnected_callback(self, callback: Callable[[], None]) -> None:
         """Register a handler that is called when a connection is lost.
 
@@ -214,21 +243,44 @@ class Client(metaclass=ClientMeta):
         """
         self._disconnected_callbacks.append(callback)
 
-    def _on_connected(self):
+    def remove_disconnected_callback(self, callback: Callable[[], None]) -> None:
+        """Remove a callback registered with :meth:`add_disconnected_callback`."""
+        self._disconnected_callbacks.remove(callback)
+
+    def add_failed_connect_callback(self, callback: Callable[[Exception], None]) -> None:
+        """Register a handler that is called when a connection attempt fails.
+
+        The handler is passed an exception object. Handlers are called in the
+        order of registration.
+        """
+        self._failed_connect_callbacks.append(callback)
+
+    def remove_failed_connect_callback(self, callback: Callable[[Exception], None]) -> None:
+        """Remove a callback registered with :meth:`add_failed_connect_callback`."""
+        self._failed_connect_callbacks.remove(callback)
+
+    def _on_connected(self) -> None:
         if not self.is_connected:
             self.is_connected = True
-            for callback in self._connected_callbacks:
+            self.last_exc = None
+            for callback in list(self._connected_callbacks):
                 callback()
 
-    def _on_disconnected(self):
+    def _on_disconnected(self) -> None:
         if self.is_connected:
             self.is_connected = False
+            self.last_exc = ConnectionResetError('Connection to server lost')
             for req in self._pending.values():
                 if not req.reply.done():
-                    req.reply.set_exception(ConnectionResetError('Connection to server lost'))
+                    req.reply.set_exception(self.last_exc)
             self._pending.clear()
-            for callback in reversed(self._disconnected_callbacks):
+            for callback in list(reversed(self._disconnected_callbacks)):
                 callback()
+
+    def _on_failed_connect(self, exc: Exception) -> None:
+        self.last_exc = exc
+        for callback in self._failed_connect_callbacks:
+            callback(exc)
 
     async def _run_once(self) -> bool:
         """Make a single attempt to connect and run the connection if successful."""
@@ -239,8 +291,7 @@ class Client(metaclass=ClientMeta):
             transport, _ = await self.loop.create_connection(
                 lambda: protocol, self.host, self.port)
         except OSError as error:
-            logger.warning('Failed to connect to %s:%s: %s',
-                           self.host, self.port, error)
+            self._on_failed_connect(error)
             return False
         writer = asyncio.StreamWriter(transport, protocol, reader, self.loop)
         self._connection = connection.Connection(self, reader, writer, False)
@@ -253,22 +304,27 @@ class Client(metaclass=ClientMeta):
         return ret
 
     async def _run(self) -> None:
-        backoff = 0.5
-        while True:
-            success = await self._run_once()
-            if success:
-                backoff = 1.0
-            else:
-                # Exponential backoff if connections are failing
-                backoff = min(backoff * 2.0, 60.0)
-            # Pick a random value in [0.5 * backoff, backoff]
-            wait = (random.random() * 1.0) * 0.5 * backoff
-            await asyncio.sleep(wait, loop=self.loop)
+        if self.auto_reconnect:
+            backoff = 0.5
+            while True:
+                success = await self._run_once()
+                if success:
+                    backoff = 1.0
+                else:
+                    # Exponential backoff if connections are failing
+                    backoff = min(backoff * 2.0, 60.0)
+                # Pick a random value in [0.5 * backoff, backoff]
+                wait = (random.random() * 1.0) * 0.5 * backoff
+                await asyncio.sleep(wait, loop=self.loop)
+        else:
+            await self._run_once()
 
     def _done_callback(self, future: asyncio.Future) -> None:
         self._close_connection()
         if self.is_connected:
             self._on_disconnected()
+        else:
+            self._on_failed_connect(ConnectionAbortedError('close() called'))
         self._closed_event.set()
 
     def close(self) -> None:
@@ -295,29 +351,64 @@ class Client(metaclass=ClientMeta):
         self.close()
         await self.wait_closed()
 
+    def _set_last_exc(self, future: asyncio.Future, exc: Exception) -> None:
+        if not future.done():
+            future.set_exception(exc)
+
     async def wait_connected(self) -> None:
-        """Wait until a connection is established."""
+        """Wait until a connection is established.
+
+        If construct with ``auto_reconnect=False``, then this will raise an
+        exception if the single connection attempt failed. Otherwise, it will
+        block indefinitely until a connection is successful.
+
+        .. note::
+
+            On return, it is possible that :attr:`is_connected` is false,
+            because the connection may fail immediately after waking up the
+            waiter.
+        """
         if not self.is_connected:
+            if not self.auto_reconnect and self.last_exc is not None:
+                # This includes the case of having had a successful connection
+                # that disconnected.
+                raise self.last_exc
             future = self.loop.create_future()
-            self.add_connected_callback(functools.partial(_make_done, future))
-            await future
+            callback = functools.partial(_make_done, future)
+            if not self.auto_reconnect:
+                failed_callback = functools.partial(self._set_last_exc, future)
+                self.add_failed_connect_callback(failed_callback)
+            else:
+                failed_callback = None
+            self.add_connected_callback(callback)
+            try:
+                await future
+            finally:
+                self.remove_connected_callback(callback)
+                if failed_callback:
+                    self.remove_failed_connect_callback(failed_callback)
 
     async def wait_disconnected(self) -> None:
         """Wait until there is no connection"""
         if self.is_connected:
             future = self.loop.create_future()
-            self.add_disconnected_callback(functools.partial(_make_done, future))
-            await future
+            callback = functools.partial(_make_done, future)
+            self.add_disconnected_callback(callback)
+            try:
+                await future
+            finally:
+                self.remove_disconnected_callback(callback)
 
     @classmethod
     async def connect(cls, host: str, port: int, *,
+                      auto_reconnect: bool = True,
                       limit: int = connection.DEFAULT_LIMIT,
                       loop: asyncio.AbstractEventLoop = None) -> 'Client':
         """Factory function that creates a client and waits until it is connected.
 
         Refer to the constructor documentation for details of the parameters.
         """
-        client = cls(host, port, limit=limit, loop=loop)
+        client = cls(host, port, auto_reconnect=auto_reconnect, limit=limit, loop=loop)
         try:
             await client.wait_connected()
             return client

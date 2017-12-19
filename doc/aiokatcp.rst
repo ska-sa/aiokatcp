@@ -1,6 +1,13 @@
 aiokatcp package
 ================
 
+Subpackages
+-----------
+
+.. toctree::
+
+    aiokatcp.tools
+
 Submodules
 ----------
 

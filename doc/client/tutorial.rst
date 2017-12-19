@@ -27,8 +27,10 @@ Let's look at this one piece at a time. Firstly, we call
 :meth:`.Client.connect`, which blocks until a connection is established. Note
 that it will keep trying indefinitely, rather than raising an exception if a
 connection could not immediately be established, so you may want to set a
-timeout (for example, using `async_timeout`_).
-Note that if you just want to create the :class:`.Client` object
+timeout (for example, using `async_timeout`_). For more details, see
+:ref:`autoreconnect`.
+
+If you just want to create the :class:`.Client` object
 without waiting for it to connect, you can just use the constructor, and later
 used :meth:`.Client.wait_connected` to wait for a successful connection.
 

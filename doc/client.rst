@@ -6,3 +6,4 @@ Writing a client
    :caption: Contents:
 
    client/tutorial
+   client/reconnect
