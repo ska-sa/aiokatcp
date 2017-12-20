@@ -32,7 +32,7 @@ import warnings
 import inspect
 import random
 import functools
-from typing import Any, List, Callable, Tuple, SupportsBytes, cast
+from typing import Any, List, Iterable, Callable, Tuple, SupportsBytes, cast
 # Only used in type comments, so flake8 complains
 from typing import Dict, Optional   # noqa: F401
 
@@ -261,12 +261,22 @@ class Client(metaclass=ClientMeta):
         """Remove a callback registered with :meth:`add_failed_connect_callback`."""
         self._failed_connect_callbacks.remove(callback)
 
+    # callbacks should be marked as Iterable[Callable[..., None]], but in
+    # Python 3.5.2 that gives an error in the typing module.
+    @classmethod
+    def _run_callbacks(cls, callbacks: Iterable, *args) -> None:
+        # Wrap in list() so that the callbacks can safely mutate the original
+        for callback in list(callbacks):
+            try:
+                callback(*args)
+            except Exception:
+                logger.exception('Exception raised from callback')
+
     def _on_connected(self) -> None:
         if not self.is_connected:
             self.is_connected = True
             self.last_exc = None
-            for callback in list(self._connected_callbacks):
-                callback()
+            self._run_callbacks(self._connected_callbacks)
 
     def _on_disconnected(self) -> None:
         if self.is_connected:
@@ -276,13 +286,11 @@ class Client(metaclass=ClientMeta):
                 if not req.reply.done():
                     req.reply.set_exception(self.last_exc)
             self._pending.clear()
-            for callback in list(reversed(self._disconnected_callbacks)):
-                callback()
+            self._run_callbacks(reversed(self._disconnected_callbacks))
 
     def _on_failed_connect(self, exc: Exception) -> None:
         self.last_exc = exc
-        for callback in self._failed_connect_callbacks:
-            callback(exc)
+        self._run_callbacks(self._failed_connect_callbacks, exc)
 
     async def _run_once(self) -> bool:
         """Make a single attempt to connect and run the connection if successful."""
