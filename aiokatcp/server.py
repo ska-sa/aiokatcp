@@ -558,9 +558,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
             ret = ()
         elif not isinstance(ret, tuple):
             ret = (ret,)
-        ret = (core.Message.OK,) + ret
         if not ctx.replied:
-            ctx.reply(*ret)
+            ctx.reply(core.Message.OK, *ret)
         await ctx.drain()
 
     async def handle_message(self, conn: ClientConnection, msg: core.Message) -> None:
