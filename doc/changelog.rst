@@ -1,7 +1,7 @@
 Changelog
 =========
 
-.. rubric:: Development version
+.. rubric:: Version 0.2
 
 - Add client support
 - Correctly handle carriage returns (\r)
