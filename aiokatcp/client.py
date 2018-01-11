@@ -181,10 +181,10 @@ class Client(metaclass=ClientMeta):
     def unhandled_inform(self, msg: core.Message) -> None:
         """Called if an inform is received for which no handler is registered.
 
-        The default simply logs a warning. Subclasses may override this to
-        provide other behaviour for unknown informs.
+        The default simply logs a debug message. Subclasses may override this
+        to provide other behaviour for unknown informs.
         """
-        logger.warning('unknown inform %s', msg.name)
+        logger.debug('unknown inform %s', msg.name)
 
     def _close_connection(self) -> None:
         if self._connection is not None:
