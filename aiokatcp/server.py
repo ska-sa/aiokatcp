@@ -42,12 +42,12 @@ from typing import Dict, Set    # noqa: F401
 
 import aiokatcp
 from . import core, connection, sensor
-from .connection import FailReply
+from .connection import FailReply, InvalidReply
 
 
 logger = logging.getLogger(__name__)
 _RequestReply = Awaitable[Optional[Sequence]]
-_RequestHandler = Callable[['DeviceServer', 'RequestContext'], _RequestReply]
+_RequestHandler = Callable[['DeviceServer', 'RequestContext', core.Message], _RequestReply]
 
 
 class ClientConnection(connection.Connection):
@@ -58,11 +58,11 @@ class ClientConnection(connection.Connection):
         #: Maps sensors to their samplers, for sensors that are being sampled
         self._samplers = {}     # type: Dict[sensor.Sensor, sensor.SensorSampler]
 
-    async def stop(self) -> None:
+    def close(self) -> None:
         for sampler in self._samplers.values():
             sampler.close()
         self._samplers = {}
-        await super().stop()
+        super().close()
 
     def set_sampler(self, s: sensor.Sensor, sampler: Optional[sensor.SensorSampler]) -> None:
         """Set or clear the sampler for a sensor."""
@@ -171,46 +171,8 @@ class RequestContext(object):
 
 class DeviceServerMeta(type):
     @classmethod
-    def _wrap(mcs, name: str, value: Callable[..., _RequestReply]) -> _RequestHandler:
-        sig = inspect.signature(value)
-        pos = []
-        var_pos = None
-        for parameter in sig.parameters.values():
-            if parameter.kind == inspect.Parameter.VAR_POSITIONAL:
-                var_pos = parameter
-            elif parameter.kind in (inspect.Parameter.POSITIONAL_ONLY,
-                                    inspect.Parameter.POSITIONAL_OR_KEYWORD):
-                pos.append(parameter)
-        if len(pos) < 2 and var_pos is None:
-            raise TypeError('Handler must accept at least two positional arguments')
-
-        # Exclude transferring __annotations__ from the wrapped function,
-        # because the decorator does not preserve signature.
-        @functools.wraps(value, assigned=['__module__', '__name__', '__qualname__', '__doc__'])
-        async def wrapper(self, ctx: RequestContext) -> Optional[Sequence]:
-            args = [self, ctx]
-            for argument in ctx.req.arguments:
-                if len(args) >= len(pos):
-                    if var_pos is None:
-                        raise FailReply('too many arguments for {}'.format(name))
-                    else:
-                        hint = var_pos.annotation
-                else:
-                    hint = pos[len(args)].annotation
-                if hint is inspect.Signature.empty:
-                    hint = bytes
-                try:
-                    args.append(core.decode(hint, argument))
-                except ValueError as error:
-                    raise FailReply(str(error)) from error
-            try:
-                awaitable = value(*args)
-            except TypeError as error:
-                raise FailReply(str(error)) from error  # e.g. too few arguments
-            ret = await awaitable
-            return ret
-
-        return wrapper
+    def _wrap_request(mcs, name: str, value: Callable[..., _RequestReply]) -> _RequestHandler:
+        return connection.wrap_handler(name, value, 2)
 
     def __new__(mcs, name, bases, namespace, **kwds):
         namespace.setdefault('_request_handlers', {})
@@ -223,7 +185,7 @@ class DeviceServerMeta(type):
                 request_name = key[8:].replace('_', '-')
                 if value.__doc__ is None:
                     raise TypeError('{} must have a docstring'.format(key))
-                request_handlers[request_name] = mcs._wrap(request_name, value)
+                request_handlers[request_name] = mcs._wrap_request(request_name, value)
         return result
 
 
@@ -468,7 +430,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
                 msg = core.Message.inform('disconnect', 'server shutting down')
                 for client in list(self._connections):
                     client.write_message(msg)
-                    await client.stop()
+                    client.close()
+                    await client.wait_closed()
             self._stopped.set()
 
     def halt(self, cancel: bool = True) -> asyncio.Task:
@@ -516,17 +479,19 @@ class DeviceServer(metaclass=DeviceServerMeta):
 
     async def _client_connected_cb(
             self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        async def cleanup():
+            await conn.wait_closed()
+            self._connections.remove(conn)
         conn = ClientConnection(self, reader, writer)
         # Copy the connection list, to avoid mutation while iterating and to
         # exclude the new connection from it.
         connections = list(self._connections)
         self._connections.add(conn)
+        self.loop.create_task(cleanup())
         # Make a fake request context for send_version_info
         request = core.Message.request('version-connect')
         ctx = RequestContext(conn, request)
         self.send_version_info(ctx, send_reply=False)
-        task = conn.start()
-        task.add_done_callback(lambda future: self._connections.remove(conn))
         msg = core.Message.inform('client-connected', conn.address)
         for old_conn in connections:
             old_conn.write_message(msg)
@@ -538,6 +503,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         exactly one reply is returned.
         """
         error_msg = None
+        error_type = core.Message.FAIL
         if task in self._pending:
             self._pending.discard(task)
             self._pending_space.release()
@@ -551,6 +517,9 @@ class DeviceServer(metaclass=DeviceServerMeta):
                 task.result()
             except FailReply as error:
                 error_msg = str(error)
+            except InvalidReply as error:
+                error_msg = str(error)
+                error_type = core.Message.INVALID
             except Exception:
                 ctx.logger.exception('uncaught exception while handling %r',
                                      ctx.req.name, exc_info=True)
@@ -560,12 +529,19 @@ class DeviceServer(metaclass=DeviceServerMeta):
         if not ctx.replied:
             if error_msg is None:
                 error_msg = 'request handler returned without replying'
-            ctx.reply(core.Message.FAIL, error_msg)
+            ctx.reply(error_type, error_msg)
         elif error_msg is not None:
             # We somehow replied before failing, so can't put the error
             # message in a reply - use an out-of-band inform instead.
             ctx.conn.write_message(core.Message.inform(
                 'log', 'error', time.time(), __name__, error_msg))
+
+    async def unhandled_request(self, ctx: RequestContext, req: core.Message) -> None:
+        """Called when a request is received for which no handler is registered.
+
+        Subclasses may override this to do dynamic handling.
+        """
+        raise InvalidReply('unknown request {}'.format(req.name))
 
     async def _handle_request(self, ctx: RequestContext) -> None:
         """Task for handling an incoming request.
@@ -573,24 +549,22 @@ class DeviceServer(metaclass=DeviceServerMeta):
         If the server is halted while the request is being handled, this task
         gets cancelled.
         """
-        try:
-            handler = self._request_handlers[ctx.req.name]
-        except KeyError:
-            ret = (core.Message.INVALID, 'unknown request {}'.format(ctx.req.name))  # type: Any
-        else:
-            ret = await handler(self, ctx)
-            if ctx.replied and ret is not None:
-                raise RuntimeError('handler both replied and returned a value')
-            if ret is None:
-                ret = ()
-            elif not isinstance(ret, tuple):
-                ret = (ret,)
-            ret = (core.Message.OK,) + ret
+        default = self.__class__.unhandled_request  # type: ignore
+        handler = self._request_handlers.get(ctx.req.name, default)
+        ret = await handler(self, ctx, ctx.req)
+        if ctx.replied and ret is not None:
+            raise RuntimeError('handler both replied and returned a value')
+        if ret is None:
+            ret = ()
+        elif not isinstance(ret, tuple):
+            ret = (ret,)
+        ret = (core.Message.OK,) + ret
         if not ctx.replied:
             ctx.reply(*ret)
         await ctx.drain()
 
     async def handle_message(self, conn: ClientConnection, msg: core.Message) -> None:
+        """Called by :class:`ClientConnection` for each incoming message."""
         if self._stopping:
             return
         if msg.mtype == core.Message.Type.REQUEST:

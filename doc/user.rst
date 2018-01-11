@@ -5,7 +5,7 @@ User manual
    :maxdepth: 2
    :caption: Contents:
 
-   tutorial
+   server
+   client
    migration
    unicode
-   logging

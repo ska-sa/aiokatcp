@@ -2,6 +2,7 @@ katversion
 asynctest
 async-timeout
 coverage
-python-coveralls
+coveralls
+decorator
 flake8
 mypy

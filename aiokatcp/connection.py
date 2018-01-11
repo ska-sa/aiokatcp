@@ -31,7 +31,12 @@ import re
 import ipaddress
 import socket
 import time
-from typing import Any, Optional, SupportsBytes, Iterable, cast
+import inspect
+import functools
+import types
+from typing import Any, Optional, SupportsBytes, Iterable, Callable, cast
+
+import decorator
 
 from . import core
 
@@ -48,7 +53,7 @@ class ConvertCRProtocol(asyncio.StreamReaderProtocol):
     whose :meth:`~asyncio.StreamReader.readuntil` method is limited to a single
     separator.
     """
-    def data_received(self, data):
+    def data_received(self, data: bytes) -> None:
         super().data_received(data.replace(b'\r', b'\n'))
 
 
@@ -106,6 +111,10 @@ class FailReply(Exception):
     """Indicate to the remote end that a request failed, without backtrace"""
 
 
+class InvalidReply(Exception):
+    """Indicate to the remote end that a request was unrecognised"""
+
+
 class Connection(object):
     def __init__(self, owner: Any,
                  reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
@@ -120,14 +129,11 @@ class Connection(object):
         self.address = core.Address(ipaddress.ip_address(host), port)
         self._drain_lock = asyncio.Lock(loop=owner.loop)
         self.is_server = is_server
-        self._task = None     # type: Optional[asyncio.Task]
         self.logger = logging.LoggerAdapter(logger, dict(address=self.address))
-
-    def start(self) -> asyncio.Task:
         self._task = self.owner.loop.create_task(self._run())
-        assert self._task is not None       # to keep mypy happy
         self._task.add_done_callback(self._done_callback)
-        return self._task
+        self._closing = False
+        self._closed_event = asyncio.Event(loop=owner.loop)
 
     def _close_writer(self):
         if self.writer is not None:
@@ -187,16 +193,110 @@ class Connection(object):
                 await self.owner.handle_message(self, msg)
 
     def _done_callback(self, task: asyncio.Future) -> None:
+        self._closed_event.set()
         if not task.cancelled():
             try:
                 task.result()
             except Exception:
                 self.logger.exception('Exception in connection handler')
 
-    async def stop(self) -> None:
-        task = self._task
-        if task is not None and not task.done():
-            task.cancel()
-            await asyncio.wait([task], loop=self.owner.loop)
-        self._task = None
-        self._close_writer()
+    def close(self) -> None:
+        """Start closing the connection.
+
+        Any currently running message handler will be cancelled. The closing
+        process completes asynchronously. Use :meth:`wait_closed` to wait for
+        things to be completely closed off.
+        """
+        if not self._closing:
+            self._task.cancel()
+            self._close_writer()
+            self._closing = True
+
+    async def wait_closed(self) -> None:
+        """Wait until the connection is closed.
+
+        This can be used either after :meth:`close`, or without :meth:`close`
+        to wait for the remote end to close the connection.
+        """
+        await self._closed_event.wait()
+
+
+@decorator.decorator
+def _identity_decorator(func, *args, **kwargs):
+    """Identity decorator.
+
+    This isn't as useless as it sounds: given a function with a
+    ``__signature__`` attribute, it generates a wrapper that really
+    does have that signature.
+    """
+    return func(*args, **kwargs)
+
+
+def wrap_handler(name: str, handler: Callable, fixed: int) -> Callable:
+    """Convert a handler that takes a sequence of typed arguments into one
+    that takes a message.
+
+    The message is unpacked to the types given by the signature. If it could
+    not be unpacked, the wrapper raises :exc:`FailReply`.
+
+    Parameters
+    ----------
+    name
+        Name of the message (only used to form error messages).
+    handler
+        The callable to wrap (may be a coroutine).
+    fixed
+        Number of leading parameters in `handler` that do not correspond to
+        message arguments.
+    """
+    sig = inspect.signature(handler)
+    pos = []
+    var_pos = None
+    for parameter in sig.parameters.values():
+        if parameter.kind == inspect.Parameter.VAR_POSITIONAL:
+            var_pos = parameter
+        elif parameter.kind in (inspect.Parameter.POSITIONAL_ONLY,
+                                inspect.Parameter.POSITIONAL_OR_KEYWORD):
+            pos.append(parameter)
+        if parameter.name == '_msg':
+            raise ValueError('Parameter cannot be named _msg')
+    if len(pos) < fixed:
+        raise TypeError('Handler must accept at least {} positional argument(s)'.format(fixed))
+
+    # Exclude transferring __annotations__ from the wrapped function,
+    # because the decorator does not preserve signature.
+    @functools.wraps(handler, assigned=['__module__', '__name__', '__qualname__', '__doc__'])
+    def wrapper(*args):
+        assert len(args) == fixed + 1
+        msg = args[-1]
+        args = list(args[:-1])
+        for argument in msg.arguments:
+            if len(args) >= len(pos):
+                if var_pos is None:
+                    raise FailReply('too many arguments for {}'.format(name))
+                else:
+                    hint = var_pos.annotation
+            else:
+                hint = pos[len(args)].annotation
+            if hint is inspect.Signature.empty:
+                hint = bytes
+            try:
+                args.append(core.decode(hint, argument))
+            except ValueError as error:
+                raise FailReply(str(error)) from error
+        try:
+            return handler(*args)
+        except TypeError as error:
+            raise FailReply(str(error)) from error  # e.g. too few arguments
+
+    if inspect.iscoroutinefunction(handler):
+        wrapper = cast(Callable, types.coroutine(wrapper))
+
+    wrapper_parameters = pos[:fixed]
+    wrapper_parameters.append(
+        inspect.Parameter('_msg', inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                          annotation=core.Message))
+    wrapper.__signature__ = sig.replace(parameters=wrapper_parameters)  # type: ignore
+    wrapper = _identity_decorator(wrapper)
+
+    return wrapper

@@ -177,6 +177,7 @@ class LogLevel(enum.IntEnum):
 
 
 class TypeInfo(Generic[_T_contra]):
+    """Type database entry. Refer to :func:`register_type` for details."""
     def __init__(self, name: str,
                  encode: Callable[[_T_contra], bytes],
                  decode: Callable[[Type[_T_contra], bytes], _T_contra],
@@ -193,7 +194,7 @@ _types = {}     # type: Dict[type, TypeInfo]
 def register_type(type_: Type[_T], name: str,
                   encode: Callable[[_T], bytes],
                   decode: Callable[[Type[_T], bytes], _T],
-                  default: Callable[[Type[_T]], _T] = None):
+                  default: Callable[[Type[_T]], _T] = None) -> None:
     """Register a type for encoding and decoding in messages.
 
     The registration is also used for subclasses of `type_` if no more

@@ -25,25 +25,34 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# BEGIN VERSION CHECK
-# Get package version when locally imported from repo or via -e develop install
-try:
-    import katversion as _katversion
-except ImportError:
-    import time as _time
-    __version__ = "0.0+unknown.{}".format(_time.strftime('%Y%m%d%H%M'))
-else:
-    __version__ = _katversion.get_version(__path__[0])   # type: ignore  # mypy issue 1422
-# END VERSION CHECK
+import functools
+import inspect
 
-from .core import (                                   # noqa: F401
-    Message, KatcpSyntaxError, Address, Timestamp, TimestampOrNow, Now,
-    encode, decode, register_type, get_type, TypeInfo)
-from .connection import Connection, FailReply, InvalidReply      # noqa: F401
-from .server import DeviceServer, RequestContext, SensorSet      # noqa: F401
-from .client import Client, ProtocolError             # noqa: F401
-from .sensor import Reading, Sensor, SensorSampler    # noqa: F401
+import async_timeout
 
 
-def minor_version():
-    return '.'.join(__version__.split('.')[:2])
+def timelimit(limit=5.0):
+    """Decorator to run tests with a time limit. It is designed to be used
+    with :class:`asynctest.TestCase`. It can be used as either a method or
+    a class decorator. It can be used as either ``@timelimit(limit)`` or
+    just ``@timelimit`` to use the default of 5 seconds.
+    """
+    if inspect.isfunction(limit) or inspect.isclass(limit):
+        # Used without parameters
+        return timelimit()(limit)
+
+    def decorator(arg):
+        if inspect.isclass(arg):
+            for key, value in arg.__dict__.items():
+                if (inspect.iscoroutinefunction(value) and key.startswith('test_')
+                        and not hasattr(arg, '_timelimit')):
+                    setattr(arg, key, decorator(value))
+            return arg
+        else:
+            @functools.wraps(arg)
+            async def wrapper(self, *args, **kwargs):
+                async with async_timeout.timeout(limit, loop=self.loop):
+                    await arg(self, *args, **kwargs)
+            wrapper._timelimit = limit
+            return wrapper
+    return decorator

@@ -1,5 +1,5 @@
-Getting started with aiokatcp
-=============================
+Server tutorial
+===============
 
 Your first server
 -----------------
@@ -163,7 +163,6 @@ the server. An asynchronous inform can be sent to all clients using
 
 Sensors
 -------
-
 To provide a sensor from your server, create a
 :class:`~aiokatcp.sensor.Sensor` and attach it to your server by calling
 ``self.sensors.add``. It is a good idea to do this
@@ -214,7 +213,6 @@ then you do not need to worry.
 
 Graceful shutdown
 -----------------
-
 Apart from the ``?halt`` request, the server can be stopped from code with
 :meth:`.DeviceServer.stop` or :meth:`.DeviceServer.halt`. The former is a
 coroutine that completes when the server has shut down; the latter is a thin

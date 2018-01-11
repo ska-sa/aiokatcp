@@ -1,8 +1,23 @@
 aiokatcp package
 ================
 
+Subpackages
+-----------
+
+.. toctree::
+
+    aiokatcp.tools
+
 Submodules
 ----------
+
+aiokatcp\.client module
+-----------------------
+
+.. automodule:: aiokatcp.client
+    :members:
+    :undoc-members:
+    :show-inheritance:
 
 aiokatcp\.connection module
 ---------------------------
