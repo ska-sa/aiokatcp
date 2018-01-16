@@ -27,6 +27,8 @@
 
 import functools
 import inspect
+import sys
+import asyncio
 
 import async_timeout
 
@@ -51,8 +53,17 @@ def timelimit(limit=5.0):
         else:
             @functools.wraps(arg)
             async def wrapper(self, *args, **kwargs):
-                async with async_timeout.timeout(limit, loop=self.loop):
-                    await arg(self, *args, **kwargs)
+                try:
+                    async with async_timeout.timeout(limit, loop=self.loop) as cm:
+                        await arg(self, *args, **kwargs)
+                except asyncio.TimeoutError:
+                    if not cm.expired:
+                        raise
+                    for task in asyncio.Task.all_tasks(loop=self.loop):
+                        if task.get_stack(limit=1):
+                            print()
+                            task.print_stack(file=sys.stdout)
+                    raise asyncio.TimeoutError('Test did not complete within {}s'.format(limit))
             wrapper._timelimit = limit
             return wrapper
     return decorator
