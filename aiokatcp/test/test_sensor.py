@@ -30,10 +30,26 @@ in :mod:`aiokatcp.test.test_server`.
 """
 
 import gc
+import unittest
 
 import asynctest
 
 from aiokatcp.sensor import Sensor, SensorSampler
+
+
+class TestSensor(unittest.TestCase):
+    def test_status_func(self):
+        def status_func(value):
+            return Sensor.Status.WARN if value & 1 else Sensor.Status.ERROR
+
+        sensor = Sensor(int, 'sensor', status_func=status_func)
+        self.assertEqual(sensor.status, Sensor.Status.UNKNOWN)
+        sensor.value = 1
+        self.assertEqual(sensor.status, Sensor.Status.WARN)
+        sensor.value = 2
+        self.assertEqual(sensor.status, Sensor.Status.ERROR)
+        sensor.set_value(1, Sensor.Status.NOMINAL)
+        self.assertEqual(sensor.status, Sensor.Status.NOMINAL)
 
 
 class TestSensorSampling(asynctest.TestCase):

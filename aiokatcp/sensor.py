@@ -60,7 +60,38 @@ class Reading(Generic[_T]):
         self.value = value
 
 
+def _default_status_func(value) -> 'Sensor.Status':
+    return Sensor.Status.NOMINAL
+
+
 class Sensor(Generic[_T]):
+    """A sensor in a :class:`DeviceServer`.
+
+    A sensor has some static configuration (name, description, units etc) and
+    dynamic state consisting of a :class:`Reading` (value, status and
+    timestamp). Other code can attach observers to the sensor to be informed of
+    updates.
+
+    Parameters
+    ----------
+    sensor_type
+        The type of the sensor.
+    name
+        Sensor name
+    description
+        More detailed explanation of the sensor
+    units
+        Physical units of the sensor
+    default
+        Initial value of the sensor. When setting this, it may be desirable to
+        specify `initial_status` too.
+    initial_status
+        Initial status of the sensor
+    status_func
+        Function that maps a value to a status in :meth:`set_value` if none is given.
+        The default is a function that always returns NOMINAL.
+    """
+
     class Status(enum.Enum):
         UNKNOWN = 0
         NOMINAL = 1
@@ -75,7 +106,9 @@ class Sensor(Generic[_T]):
                  description: str = None,
                  units: str = '',
                  default: _T = None,
-                 initial_status: Status = Status.UNKNOWN) -> None:
+                 initial_status: Status = Status.UNKNOWN,
+                 *,
+                 status_func: Callable[[_T], Status] = _default_status_func) -> None:
         self.stype = sensor_type
         type_info = core.get_type(sensor_type)
         self.type_name = type_info.name
@@ -83,6 +116,7 @@ class Sensor(Generic[_T]):
         self.name = name
         self.description = description
         self.units = units
+        self.status_func = status_func
         if default is None:
             value = type_info.default(sensor_type)   # type: _T
         else:
@@ -90,32 +124,45 @@ class Sensor(Generic[_T]):
         self._reading = Reading(time.time(), initial_status, value)
 
     def notify(self, reading: Reading[_T]) -> None:
-        """Notify all observers of changes to this sensor."""
+        """Notify all observers of changes to this sensor.
+
+        Users should not usually call this directly. It is called automatically
+        by :meth:`set_value`.
+        """
         for observer in self._observers:
             observer(self, reading)
 
-    def set_value(self, value: _T, status: Status = Status.NOMINAL,
+    def set_value(self, value: _T, status: Status = None,
                   timestamp: float = None) -> None:
         """Set the current value of the sensor.
 
         Parameters
         ----------
-        timestamp
-           The time at which the sensor value was determined (seconds).
-        status
-            Whether the value represents an error condition or not.
         value
             The value of the sensor (the type should be appropriate to the
             sensor's type).
+        status
+            Whether the value represents an error condition or not. If not
+            given, the `status_func` given to the constructor is used to
+            determine the status from the value.
+        timestamp
+            The time at which the sensor value was determined (seconds).
+            If not given, it defaults to :func:`time.time`.
         """
         if timestamp is None:
             timestamp = time.time()
+        if status is None:
+            status = self.status_func(value)
         reading = Reading(timestamp, status, value)
         self._reading = reading
         self.notify(reading)
 
     @property
     def value(self) -> _T:
+        """The current value of the sensor.
+
+        Modifying it invokes :meth:`set_value`.
+        """
         return self.reading.value
 
     @value.setter

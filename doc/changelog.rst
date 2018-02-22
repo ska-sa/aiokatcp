@@ -1,6 +1,10 @@
 Changelog
 =========
 
+.. rubric:: Development version
+
+- Add `status_func` parameter to :class:`~.Sensor` constructor.
+
 .. rubric:: Version 0.2
 
 - Add client support
