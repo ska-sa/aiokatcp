@@ -185,7 +185,8 @@ described under :ref:`type-conversions`. If it is an enum type, the default
 value is the first enum value, otherwise the default is whatever is
 appropriate to the type.
 
-To update the sensor value, use :meth:`.Sensor.set_value`.
+To update the sensor value, use :meth:`.Sensor.set_value`, or simply assign to
+the :attr:`~.Sensor.value` attribute.
 
 .. note::
 
@@ -197,6 +198,15 @@ To update the sensor value, use :meth:`.Sensor.set_value`.
 The :attr:`.DeviceServer.sensors` attribute implements both a dictionary-like
 and a set-like interface to allow sensors to be added and removed. Sensor
 metadata (such as the name or type) should not be mutated after creation.
+
+Automatic status
+^^^^^^^^^^^^^^^^
+In many cases the status of a sensor (nominal, warn or error) is determined
+entirely by the value e.g. an error counter may be nominal when zero and in
+warning state when non-zero. Rather than needing to explicitly pass the status
+each time, one can provide a `status_func` callback to the constructor that
+takes the sensor value and returns the status. The callback can be overridden
+by passing an explicit status to :meth:`.Sensor.set_value`.
 
 Cancellation
 ------------
