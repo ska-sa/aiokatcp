@@ -34,7 +34,7 @@ import random
 import functools
 from typing import Any, List, Iterable, Callable, Tuple, SupportsBytes, cast
 # Only used in type comments, so flake8 complains
-from typing import Dict, Optional   # noqa: F401
+from typing import Dict, Optional, Union   # noqa: F401
 
 from . import core, connection
 from .connection import FailReply, InvalidReply
@@ -120,6 +120,7 @@ class Client(metaclass=ClientMeta):
         self.host = host
         self.port = port
         self.loop = loop
+        self.logger = logger     # type: Union[logging.Logger, connection.ConnectionLoggerAdapter]
         self._limit = limit
         self._pending = {}              # type: Dict[int, _PendingRequest]
         self._next_mid = 1
@@ -142,41 +143,50 @@ class Client(metaclass=ClientMeta):
             if not self.loop.is_closed():
                 self.loop.call_soon_threadsafe(self.close)
 
+    def _set_connection(self, conn: connection.Connection):
+        self._connection = conn
+        if conn is None:
+            self.logger = logger
+        else:
+            self.logger = connection.ConnectionLoggerAdapter(
+                logger, dict(address=self._connection.address))
+
     async def handle_message(self, conn: connection.Connection, msg: core.Message) -> None:
         """Called by :class:`~.Connection` for each incoming message."""
         if msg.mtype == core.Message.Type.REQUEST:
-            logger.info('Received unexpected request %s from server', msg.name)
+            self.logger.info('Received unexpected request %s from server', msg.name)
             return
         if msg.mid is not None:
             try:
                 req = self._pending[msg.mid]
             except KeyError:
-                logger.debug('Received %r with unknown message ID %s (possibly cancelled request)',
-                             bytes(msg), msg.mid)    # type: ignore
+                self.logger.debug(
+                    'Received %r with unknown message ID %s (possibly cancelled request)',
+                    bytes(msg), msg.mid)    # type: ignore
             else:
                 if msg.mtype == core.Message.Type.REPLY:
                     req.reply.set_result(msg)
                 elif msg.mtype == core.Message.Type.INFORM:
                     req.informs.append(msg)
                 else:
-                    logger.warning('Unknown message type %s', msg.mtype)  # pragma: no cover
+                    self.logger.warning('Unknown message type %s', msg.mtype)  # pragma: no cover
         elif msg.mtype == core.Message.Type.INFORM:
             self.handle_inform(msg)
         else:
-            logger.info('Received unexpected %s (%s) from server without message ID',
-                        msg.mtype.name, msg.name)
+            self.logger.info('Received unexpected %s (%s) from server without message ID',
+                             msg.mtype.name, msg.name)
 
     def handle_inform(self, msg: core.Message) -> None:
-        logger.debug('Received %s', bytes(cast(SupportsBytes, msg)))
+        self.logger.debug('Received %s', bytes(cast(SupportsBytes, msg)))
         # TODO: provide dispatch mechanism for informs
         handler = self._inform_handlers.get(               # type: ignore
             msg.name, self.__class__.unhandled_inform)     # type: ignore
         try:
             handler(self, msg)
         except FailReply as error:
-            logger.warning('error in inform %s: %s', msg.name, error)
+            self.logger.warning('error in inform %s: %s', msg.name, error)
         except Exception:
-            logger.exception('unhandled exception in inform %s', msg.name, exc_info=True)
+            self.logger.exception('unhandled exception in inform %s', msg.name, exc_info=True)
 
     def unhandled_inform(self, msg: core.Message) -> None:
         """Called if an inform is received for which no handler is registered.
@@ -184,15 +194,15 @@ class Client(metaclass=ClientMeta):
         The default simply logs a debug message. Subclasses may override this
         to provide other behaviour for unknown informs.
         """
-        logger.debug('unknown inform %s', msg.name)
+        self.logger.debug('unknown inform %s', msg.name)
 
     def _close_connection(self) -> None:
         if self._connection is not None:
             self._connection.close()
-            self._connection = None
+            self._set_connection(None)
 
     def _warn_failed_connect(self, exc: Exception) -> None:
-        logger.warning('Failed to connect to %s:%s: %s', self.host, self.port, exc)
+        self.logger.warning('Failed to connect to %s:%s: %s', self.host, self.port, exc)
 
     def inform_version_connect(self, api: str, version: str, build_state: str = None) -> None:
         if api == 'katcp-protocol':
@@ -203,7 +213,7 @@ class Client(metaclass=ClientMeta):
             else:
                 major = int(match.group(1))
                 minor = int(match.group(2))
-                logger.debug('Protocol version %d.%d', major, minor)
+                self.logger.debug('Protocol version %d.%d', major, minor)
                 flags = match.group(3)
                 if major != 5:
                     error = 'Unknown protocol version {}.{}'.format(major, minor)
@@ -220,7 +230,7 @@ class Client(metaclass=ClientMeta):
         # TODO: add a inform_version handler
 
     def inform_disconnect(self, reason: str) -> None:
-        logger.info('Server disconnected: %s', reason)
+        self.logger.info('Server disconnected: %s', reason)
         self._close_connection()
 
     def add_connected_callback(self, callback: Callable[[], None]) -> None:
@@ -263,14 +273,13 @@ class Client(metaclass=ClientMeta):
 
     # callbacks should be marked as Iterable[Callable[..., None]], but in
     # Python 3.5.2 that gives an error in the typing module.
-    @classmethod
-    def _run_callbacks(cls, callbacks: Iterable, *args) -> None:
+    def _run_callbacks(self, callbacks: Iterable, *args) -> None:
         # Wrap in list() so that the callbacks can safely mutate the original
         for callback in list(callbacks):
             try:
                 callback(*args)
             except Exception:
-                logger.exception('Exception raised from callback')
+                self.logger.exception('Exception raised from callback')
 
     def _on_connected(self) -> None:
         if not self.is_connected:
@@ -304,7 +313,7 @@ class Client(metaclass=ClientMeta):
             self._on_failed_connect(error)
             return False
         writer = asyncio.StreamWriter(transport, protocol, reader, self.loop)
-        self._connection = connection.Connection(self, reader, writer, False)
+        self._set_connection(connection.Connection(self, reader, writer, False))
         # Process replies until connection closes. _on_connected is
         # called by the version-info inform handler.
         await self._connection.wait_closed()

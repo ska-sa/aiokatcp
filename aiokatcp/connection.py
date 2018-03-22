@@ -115,6 +115,11 @@ class InvalidReply(Exception):
     """Indicate to the remote end that a request was unrecognised"""
 
 
+class ConnectionLoggerAdapter(logging.LoggerAdapter):
+    def process(self, msg, kwargs):
+        return '%s [%s]' % (msg, self.extra['address']), kwargs
+
+
 class Connection(object):
     def __init__(self, owner: Any,
                  reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
@@ -129,7 +134,7 @@ class Connection(object):
         self.address = core.Address(ipaddress.ip_address(host), port)
         self._drain_lock = asyncio.Lock(loop=owner.loop)
         self.is_server = is_server
-        self.logger = logging.LoggerAdapter(logger, dict(address=self.address))
+        self.logger = ConnectionLoggerAdapter(logger, dict(address=self.address))
         self._task = self.owner.loop.create_task(self._run())
         self._task.add_done_callback(self._done_callback)
         self._closing = False
@@ -190,6 +195,7 @@ class Connection(object):
             else:
                 if msg is None:   # EOF received
                     break
+                self.logger.debug('Received message %r', bytes(msg))
                 await self.owner.handle_message(self, msg)
 
     def _done_callback(self, task: asyncio.Future) -> None:

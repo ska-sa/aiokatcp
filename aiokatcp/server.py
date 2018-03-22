@@ -98,7 +98,8 @@ class RequestContext(object):
         self.req = req
         self._replied = False
         # Can't just wrap conn.logger, because LoggerAdapters can't be stacked
-        self.logger = logging.LoggerAdapter(logger, dict(address=conn.address, req=req))
+        self.logger = connection.ConnectionLoggerAdapter(
+            logger, dict(address=conn.address, req=req))
 
     @property
     def replied(self) -> bool:

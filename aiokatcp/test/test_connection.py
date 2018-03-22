@@ -171,7 +171,7 @@ class TestConnection(asynctest.TestCase):
         self.assertEqual(1, len(cm.output))
         self.assertRegex(
             cm.output[0],
-            r'^WARNING:aiokatcp\.connection:Connection closed .*: Connection lost$')
+            r'^WARNING:aiokatcp\.connection:Connection closed .*: Connection lost \[.*\]$')
         # Allow the final watchdog to go through. This just provides test coverage
         # that Connection.write_message handles the writer having already gone away.
         self.ok_wait.release()
