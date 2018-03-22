@@ -32,7 +32,7 @@ import ipaddress
 import unittest
 import unittest.mock
 import logging
-from typing import Tuple, Iterable, Union, Pattern, SupportsBytes, Type, cast
+from typing import Tuple, Iterable, Union, Pattern, Type
 from typing import List   # noqa: F401
 
 import asynctest
@@ -374,7 +374,7 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
         host, port = self.remote_writer.get_extra_info('sockname')
         client_addr = Address(ipaddress.ip_address(host), port)
         await self._check_reply([
-            b'#client-list[3] ' + bytes(cast(SupportsBytes, client_addr)) + b'\n',
+            b'#client-list[3] ' + bytes(client_addr) + b'\n',
             b'!client-list[3] ok 1\n'])
 
     async def test_sensor_list_no_filter(self) -> None:
@@ -517,7 +517,7 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
         self.addCleanup(writer2.close)
         client_host, client_port = writer2.get_extra_info('sockname')
         client_addr = Address(ipaddress.ip_address(client_host), client_port)
-        client_addr_bytes = bytes(cast(SupportsBytes, client_addr))
+        client_addr_bytes = bytes(client_addr)
         await self._check_reply([b'#client-connected ' + client_addr_bytes + b'\n'])
 
     async def test_message_while_stopping(self) -> None:

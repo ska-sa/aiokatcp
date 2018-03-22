@@ -32,7 +32,7 @@ import warnings
 import inspect
 import random
 import functools
-from typing import Any, List, Iterable, Callable, Tuple, SupportsBytes, cast
+from typing import Any, List, Iterable, Callable, Tuple
 # Only used in type comments, so flake8 complains
 from typing import Dict, Optional, Union   # noqa: F401
 
@@ -177,7 +177,7 @@ class Client(metaclass=ClientMeta):
                              msg.mtype.name, msg.name)
 
     def handle_inform(self, msg: core.Message) -> None:
-        self.logger.debug('Received %s', bytes(cast(SupportsBytes, msg)))
+        self.logger.debug('Received %s', bytes(msg))
         # TODO: provide dispatch mechanism for informs
         handler = self._inform_handlers.get(               # type: ignore
             msg.name, self.__class__.unhandled_inform)     # type: ignore

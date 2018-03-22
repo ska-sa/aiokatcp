@@ -30,7 +30,7 @@ import json
 import ipaddress
 import unittest
 import unittest.mock
-from typing import SupportsBytes, Union, cast
+from typing import Union
 
 from aiokatcp.core import (
     Message, KatcpSyntaxError, Address, Timestamp, TimestampOrNow, Now,
@@ -263,13 +263,13 @@ class TestMessage(unittest.TestCase):
     def test_bytes(self) -> None:
         msg = Message.request(
             'hello', 'café', b'_bin ary\xff\x00\n\r\t\\\x1b', 123, 234.5, True, False, '')
-        raw = bytes(cast(SupportsBytes, msg))
+        raw = bytes(msg)
         expected = b'?hello caf\xc3\xa9 _bin\\_ary\xff\\0\\n\\r\\t\\\\\\e 123 234.5 1 0 \\@\n'
         self.assertEqual(raw, expected)
 
     def test_bytes_mid(self) -> None:
         msg = Message.reply('fail', 'on fire', mid=234)
-        self.assertEqual(bytes(cast(SupportsBytes, msg)), b'!fail[234] on\\_fire\n')
+        self.assertEqual(bytes(msg), b'!fail[234] on\\_fire\n')
 
     def test_repr(self) -> None:
         msg = Message.reply('fail', 'on fire', mid=234)

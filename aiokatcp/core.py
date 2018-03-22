@@ -31,7 +31,7 @@ import io
 import logging
 import ipaddress
 from typing import (
-    Match, Any, Callable, Union, Type, Iterable, SupportsBytes, Tuple,
+    Match, Any, Callable, Union, Type, Iterable, Tuple,
     Generic, TypeVar, Optional, cast)
 # Only used in type comments, so flake8 complains
 from typing import Dict, List   # noqa: F401
@@ -293,7 +293,7 @@ register_type(str, 'string',
               lambda value: value.encode('utf-8'),
               lambda cls, raw: cls(raw, encoding='utf-8'))
 register_type(Address, 'address',
-              lambda value: bytes(cast(SupportsBytes, value)),
+              lambda value: bytes(value),
               lambda cls, raw: cls.parse(raw),
               lambda cls: cls(ipaddress.IPv4Address('0.0.0.0')))
 register_type(Timestamp, 'timestamp',

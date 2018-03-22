@@ -34,7 +34,6 @@ import logging
 import signal
 import argparse
 import contextlib
-from typing import SupportsBytes, cast
 
 import async_timeout
 
@@ -42,7 +41,7 @@ import aiokatcp
 
 
 def text(msg: aiokatcp.Message) -> str:
-    return bytes(cast(SupportsBytes, msg)).decode('utf-8', errors='backslashreplace')
+    return bytes(msg).decode('utf-8', errors='backslashreplace')
 
 
 class CmdClient(aiokatcp.Client):

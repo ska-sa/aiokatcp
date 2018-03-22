@@ -34,7 +34,7 @@ import time
 import inspect
 import functools
 import types
-from typing import Any, Optional, SupportsBytes, Iterable, Callable, cast
+from typing import Any, Optional, Iterable, Callable, cast
 
 import decorator
 
@@ -66,9 +66,7 @@ async def _discard_to_eol(stream: asyncio.StreamReader) -> None:
             break     # EOF reached
         except asyncio.LimitOverrunError as error:
             # Extract the data that's already in the buffer
-            # The cast is to work around
-            # https://github.com/python/typeshed/issues/1622
-            consumed = cast(Any, error).consumed  # type: int
+            consumed = error.consumed
             await stream.readexactly(consumed)
         else:
             break
@@ -95,9 +93,7 @@ async def read_message(stream: asyncio.StreamReader) -> Optional[core.Message]:
         try:
             raw = await stream.readuntil()
         except asyncio.IncompleteReadError as error:
-            # Casts are to work around
-            # https://github.com/python/typeshed/issues/1622
-            raw = cast(Any, error).partial
+            raw = error.partial
             if not raw:
                 return None    # End of stream reached
         except asyncio.LimitOverrunError:
@@ -153,8 +149,7 @@ class Connection(object):
         if self.writer is None:
             return     # We previously detected that it was closed
         try:
-            # cast to work around https://github.com/python/mypy/issues/3989
-            raw = b''.join(bytes(cast(SupportsBytes, msg)) for msg in msgs)
+            raw = b''.join(bytes(msg) for msg in msgs)
             self.writer.write(raw)
             self.logger.debug('Sent message %r', raw)
         except ConnectionError as error:
