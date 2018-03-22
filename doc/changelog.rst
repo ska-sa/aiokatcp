@@ -1,6 +1,10 @@
 Changelog
 =========
 
+.. rubric:: Version 0.3.1
+
+- Add peer addresses to various log messages
+
 .. rubric:: Version 0.3
 
 - Add `status_func` parameter to :class:`~.Sensor` constructor.
