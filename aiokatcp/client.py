@@ -138,7 +138,7 @@ class Client(metaclass=ClientMeta):
         self.last_exc = None                 # type: Optional[Exception]
 
     def __del__(self) -> None:
-        if not self._closed_event.is_set():
+        if hasattr(self, '_closed_event') and not self._closed_event.is_set():
             warnings.warn('unclosed Client {!r}'.format(self), ResourceWarning)
             if not self.loop.is_closed():
                 self.loop.call_soon_threadsafe(self.close)
