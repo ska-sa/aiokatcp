@@ -100,7 +100,8 @@ class BaseTestClientAsync(BaseTestClient, asynctest.TestCase):
         line = await self.remote_reader.readline()
         # mypy thinks assertRegex requires a Pattern[str]
         self.assertRegex(line, pattern)    # type: ignore
-        return pattern.match(line)
+        # cast keeps mypy happy (it can't tell that it will always match after the assert)
+        return cast(Match, pattern.match(line))
 
     async def _write(self, data: bytes) -> None:
         self.remote_writer.write(data)

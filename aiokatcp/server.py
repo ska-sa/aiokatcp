@@ -36,7 +36,7 @@ import re
 import time
 from typing import (
     Callable, Awaitable, Sequence, Iterable, Optional, List, Tuple, Any,
-    Union, KeysView, ValuesView, ItemsView)
+    Union, KeysView, ValuesView, ItemsView, cast)
 # Only used in type comments, so flake8 complains
 from typing import Dict, Set    # noqa: F401
 
@@ -633,14 +633,15 @@ class DeviceServer(metaclass=DeviceServerMeta):
 
         """
         if name is None:
-            informs = [(key, handler.__doc__.splitlines()[0])
+            # The cast is to keep mypy happy that __doc__ isn't None.
+            informs = [(key, cast(str, handler.__doc__).splitlines()[0])
                        for key, handler in sorted(self._request_handlers.items())]
         else:
             try:
                 handler = self._request_handlers[name]
             except KeyError as error:
                 raise FailReply('request {} is not known'.format(name)) from error
-            informs = [(name, handler.__doc__)]
+            informs = [(name, cast(str, handler.__doc__))]
         ctx.informs(informs)
 
     async def request_halt(self, ctx: RequestContext) -> None:

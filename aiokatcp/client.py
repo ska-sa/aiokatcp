@@ -115,7 +115,7 @@ class Client(metaclass=ClientMeta):
                  loop: asyncio.AbstractEventLoop = None) -> None:
         if loop is None:
             loop = asyncio.get_event_loop()
-        self._connection = None         # type: connection.Connection
+        self._connection = None         # type: Optional[connection.Connection]
         self.is_connected = False
         self.host = host
         self.port = port
@@ -143,13 +143,13 @@ class Client(metaclass=ClientMeta):
             if not self.loop.is_closed():
                 self.loop.call_soon_threadsafe(self.close)
 
-    def _set_connection(self, conn: connection.Connection):
+    def _set_connection(self, conn: Optional[connection.Connection]):
         self._connection = conn
         if conn is None:
             self.logger = logger
         else:
             self.logger = connection.ConnectionLoggerAdapter(
-                logger, dict(address=self._connection.address))
+                logger, dict(address=conn.address))
 
     async def handle_message(self, conn: connection.Connection, msg: core.Message) -> None:
         """Called by :class:`~.Connection` for each incoming message."""
@@ -313,10 +313,11 @@ class Client(metaclass=ClientMeta):
             self._on_failed_connect(error)
             return False
         writer = asyncio.StreamWriter(transport, protocol, reader, self.loop)
-        self._set_connection(connection.Connection(self, reader, writer, False))
+        conn = connection.Connection(self, reader, writer, False)
+        self._set_connection(conn)
         # Process replies until connection closes. _on_connected is
         # called by the version-info inform handler.
-        await self._connection.wait_closed()
+        await conn.wait_closed()
         ret = self.is_connected
         if self.is_connected:
             self._on_disconnected()
@@ -394,11 +395,11 @@ class Client(metaclass=ClientMeta):
                 raise self.last_exc
             future = self.loop.create_future()
             callback = functools.partial(_make_done, future)
-            if not self.auto_reconnect:
+            if self.auto_reconnect:
+                failed_callback = None   # type: Optional[Callable[[Exception], None]]
+            else:
                 failed_callback = functools.partial(self._set_last_exc, future)
                 self.add_failed_connect_callback(failed_callback)
-            else:
-                failed_callback = None
             self.add_connected_callback(callback)
             try:
                 await future
@@ -461,6 +462,7 @@ class Client(metaclass=ClientMeta):
         """
         if not self.is_connected:
             raise BrokenPipeError('Not connected')
+        assert self._connection is not None
         mid = self._next_mid
         self._next_mid += 1
         req = _PendingRequest(mid, self.loop)

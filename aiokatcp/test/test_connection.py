@@ -112,6 +112,8 @@ class TestConnection(asynctest.TestCase):
             self.writer.close()
 
     def make_connection(self, is_server: bool) -> Connection:
+        assert self.reader    # keeps mypy happy
+        assert self.writer
         conn = Connection(self.owner, self.reader, self.writer, is_server)
         self.addCleanup(conn.wait_closed)
         self.addCleanup(conn.close)

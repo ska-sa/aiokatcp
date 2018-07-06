@@ -36,6 +36,7 @@ setup(
     name='aiokatcp',
     use_katversion=True,
     packages=find_packages(),
+    package_data={'aiokatcp': ['py.typed']},
     author='Bruce Merry',
     author_email='bmerry@ska.ac.za',
     description='Asynchronous I/O implementation of the katcp protocol',
@@ -65,5 +66,6 @@ setup(
             'katcpcmd = aiokatcp.tools.katcpcmd:main'
         ]
     },
-    python_requires='>=3.5'
+    python_requires='>=3.5',
+    zip_safe=False   # For py.typed
 )

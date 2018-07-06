@@ -572,7 +572,11 @@ class Message(object):
     def __ne__(self, other):
         return not self == other
 
-    __hash__ = None      # Mutable, so not safely hashable
+    # Mutable, so not safely hashable.
+    # The type: ignore should be removed after
+    # https://github.com/python/mypy/issues/4266
+    # is fixed.
+    __hash__ = None      # type: ignore
 
     def reply_ok(self) -> bool:
         """Return True if this is a reply and its first argument is 'ok'."""
