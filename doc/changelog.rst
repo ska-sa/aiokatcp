@@ -1,6 +1,10 @@
 Changelog
 =========
 
+.. rubric:: Version 0.3.2
+
+- Fixes some annotations to work with the latest mypy; no functional changes
+
 .. rubric:: Version 0.3.1
 
 - Add peer addresses to various log messages
