@@ -30,6 +30,7 @@ import re
 import io
 import logging
 import ipaddress
+import numbers
 from typing import (
     Match, Any, Callable, Union, Type, Iterable, Tuple,
     Generic, TypeVar, Optional, cast)
@@ -178,17 +179,18 @@ class LogLevel(enum.IntEnum):
 
 class TypeInfo(Generic[_T_contra]):
     """Type database entry. Refer to :func:`register_type` for details."""
-    def __init__(self, name: str,
+    def __init__(self, type_: Type[_T_contra], name: str,
                  encode: Callable[[_T_contra], bytes],
                  decode: Callable[[Type[_T_contra], bytes], _T_contra],
                  default: Callable[[Type[_T_contra]], _T_contra]) -> None:
+        self.type_ = type_
         self.name = name
         self.encode = encode
         self.decode = decode
         self.default = default
 
 
-_types = {}     # type: Dict[type, TypeInfo]
+_types = []     # type: List[TypeInfo]
 
 
 def register_type(type_: Type[_T], name: str,
@@ -214,27 +216,28 @@ def register_type(type_: Type[_T], name: str,
         Function to generate a default value of this type (used by the sensor
         framework). It is given the actual derived class as the first argument.
     """
-    if type_ in _types:
-        raise ValueError('type {!r} is already registered')
     if default is None:
         default = _default_generic
-    _types[type_] = TypeInfo(name, encode, decode, default)
+    for info in _types:
+        if info.type_ == type_:
+            raise ValueError('{} is already registered'.format(type_))
+    _types.append(TypeInfo(type_, name, encode, decode, default))
 
 
 def get_type(type_: Type[_T]) -> TypeInfo[_T]:
     """Retrieve the type information previously registered with :func:`register_type`.
 
-    It returns the type info corresponding to `type_` or the most specific subclass
-    (according to method resolution order) for which there is a registration.
+    It returns the last type info registered that is a superclass of `type_` (according
+    to ``issubclass``.
 
     Raises
     ------
     TypeError
-        if neither `type_` nor any of its bases is registered
+        if none of the registrations match `type_`
     """
-    for t in type_.__mro__:
-        if t in _types:
-            return _types[t]
+    for info in reversed(_types):
+        if issubclass(type_, info.type_):
+            return info
     raise TypeError('{} is not registered'.format(type_))
 
 
@@ -278,12 +281,14 @@ def _default_enum(cls: Type[_E]) -> _E:
     return next(iter(cast(Iterable, cls)))
 
 
-register_type(int, 'integer',
-              lambda value: str(value).encode('ascii'),
-              lambda cls, raw: cls(raw.decode('ascii')))
-register_type(float, 'float',
-              lambda value: repr(value).encode('ascii'),
-              lambda cls, raw: cls(raw.decode('ascii')))
+# mypy doesn't allow an abstract class to be passed to Type[], hence the
+# suppressions.
+register_type(numbers.Real, 'float',                             # type: ignore
+              lambda value: repr(float(value)).encode('ascii'),
+              lambda cls, raw: cls(float(raw.decode('ascii'))))  # type: ignore
+register_type(numbers.Integral, 'integer',                       # type: ignore
+              lambda value: str(int(value)).encode('ascii'),
+              lambda cls, raw: cls(int(raw.decode('ascii'))))    # type: ignore
 register_type(bool, 'boolean',
               lambda value: b'1' if value else b'0', _decode_bool)
 register_type(bytes, 'string',
@@ -300,7 +305,6 @@ register_type(Timestamp, 'timestamp',
               lambda value: repr(value).encode('ascii'),
               lambda cls, raw: cls(raw.decode('ascii')))
 register_type(enum.Enum, 'discrete', _encode_enum, _decode_enum, _default_enum)
-register_type(enum.IntEnum, 'discrete', _encode_enum, _decode_enum, _default_enum)
 
 
 def encode(value: Any) -> bytes:

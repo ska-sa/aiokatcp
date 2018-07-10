@@ -28,6 +28,7 @@
 import enum
 import json
 import ipaddress
+from fractions import Fraction
 import unittest
 import unittest.mock
 from typing import Union
@@ -41,6 +42,11 @@ class MyEnum(enum.Enum):
     BATMAN = 1
     JOKER = 2
     TWO_FACE = 3
+
+
+class MyIntEnum(enum.IntEnum):
+    A = 1
+    B = 2
 
 
 class OverrideEnum(enum.Enum):
@@ -119,11 +125,13 @@ class TestEncodeDecode(unittest.TestCase):
         (bool, False, b'0'),
         (float, -123.5, b'-123.5'),
         (float, 1e+20, b'1e+20'),
+        (Fraction, Fraction(5, 4), b'1.25'),
         (Timestamp, Timestamp(123.5), b'123.5'),
         (TimestampOrNow, Timestamp(123.5), b'123.5'),
         (TimestampOrNow, Now.NOW, b'now'),
         (Address, Address(ipaddress.ip_address('127.0.0.1')), b'127.0.0.1'),
         (MyEnum, MyEnum.TWO_FACE, b'two-face'),
+        (MyIntEnum, MyIntEnum.A, b'a'),
         (OverrideEnum, OverrideEnum.JOKER, b'carrot')
     ]
 
@@ -132,10 +140,12 @@ class TestEncodeDecode(unittest.TestCase):
         (bool, b'2'),
         (int, b'123.0'),
         (float, b''),
+        (Fraction, b'5/4'),
         (Address, b'[127.0.0.1]'),
         (MyEnum, b'two_face'),
         (MyEnum, b'TWO-FACE'),
         (MyEnum, b'bad-value'),
+        (MyIntEnum, b'z'),
         (OverrideEnum, b'joker'),
         (TimestampOrNow, b'later'),
         (Union[int, float], b'123')
@@ -158,7 +168,7 @@ class TestEncodeDecode(unittest.TestCase):
                                    msg='{} should not be valid for {}'.format(value, type_)):
                 decode(type_, value)
 
-    @unittest.mock.patch.dict('aiokatcp.core._types')   # type: ignore
+    @unittest.mock.patch('aiokatcp.core._types', [])   # type: ignore
     def test_register_type(self) -> None:
         register_type(
             dict, 'string',
