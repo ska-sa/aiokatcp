@@ -187,6 +187,9 @@ class Connection(object):
                     # TODO: #log informs are supposed to go to all clients
                     self.write_message(
                         core.Message.inform('log', 'error', time.time(), __name__, str(error)))
+            except ConnectionResetError:
+                # Client closed connection without consuming everything we sent it.
+                break
             else:
                 if msg is None:   # EOF received
                     break
