@@ -1,6 +1,11 @@
 Changelog
 =========
 
+.. rubric:: Version 0.4.0
+
+- Change type system to support abstract types
+- Suppress logged exception when client connection is reset
+
 .. rubric:: Version 0.3.2
 
 - Fixes some annotations to work with the latest mypy; no functional changes
