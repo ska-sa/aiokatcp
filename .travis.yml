@@ -6,5 +6,5 @@ python:
 script:
     - python -Werror -Wignore::DeprecationWarning:site -Wignore::PendingDeprecationWarning:nose.importer -Wignore::DeprecationWarning:nose.importer `which nosetests` --with-coverage --cover-erase --cover-package aiokatcp
     - flake8 aiokatcp examples
-    - mypy --ignore-missing-imports aiokatcp examples
+    - mypy aiokatcp examples
 after_success: coveralls

@@ -148,7 +148,7 @@ class Now(enum.Enum):
     NOW = 0
 
 
-TimestampOrNow = Union[Timestamp, Now]
+TimestampOrNow = Union[Timestamp, Now]     # type: Type[Any]
 
 
 class LogLevel(enum.IntEnum):
