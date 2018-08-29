@@ -296,6 +296,8 @@ class SensorSet(Mapping[str, sensor.Sensor]):
     def copy(self) -> Dict[str, sensor.Sensor]:
         return self._sensors.copy()
 
+    __hash__ = None     # type: ignore     # mypy can't handle this
+
     add.__doc__ = set.add.__doc__
     remove.__doc__ = set.remove.__doc__
     discard.__doc__ = set.discard.__doc__
