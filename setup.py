@@ -29,7 +29,7 @@
 
 from setuptools import setup, find_packages
 
-tests_require = ['asynctest', 'async-timeout', 'nose']
+tests_require = ['asynctest', 'nose']
 docs_require = ['sphinx', 'sphinx-autodoc-typehints', 'sphinxcontrib-asyncio', 'sphinx-rtd-theme']
 
 setup(
@@ -55,7 +55,7 @@ setup(
         'Topic :: Scientific/Engineering :: Astronomy'
     ],
     tests_require=tests_require,
-    install_requires=['decorator>=4.1'],
+    install_requires=['decorator>=4.1', 'async-timeout'],
     setup_requires=['katversion'],
     extras_require={
         'test': tests_require,

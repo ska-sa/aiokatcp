@@ -35,8 +35,9 @@ import io
 import re
 import time
 from typing import (
-    Callable, Awaitable, Sequence, Iterable, Optional, List, Tuple, Any,
-    Union, KeysView, ValuesView, ItemsView, cast)
+    Callable, Awaitable, Sequence, Iterable, Mapping,
+    Iterator, Optional, List, Tuple, Any, TypeVar,
+    Union, KeysView, ValuesView, ItemsView, cast, overload)
 # Only used in type comments, so flake8 complains
 from typing import Dict, Set    # noqa: F401
 
@@ -48,6 +49,7 @@ from .connection import FailReply, InvalidReply
 logger = logging.getLogger(__name__)
 _RequestReply = Awaitable[Optional[Sequence]]
 _RequestHandler = Callable[['DeviceServer', 'RequestContext', core.Message], _RequestReply]
+_T = TypeVar('_T')
 
 
 class ClientConnection(connection.Connection):
@@ -190,7 +192,7 @@ class DeviceServerMeta(type):
         return result
 
 
-class SensorSet:
+class SensorSet(Mapping[str, sensor.Sensor]):
     """A dict-like and set-like collection of sensors.
 
     It stores a corresponding list of connections, and removing a sensor from
@@ -258,10 +260,16 @@ class SensorSet:
     def __getitem__(self, name: str) -> sensor.Sensor:
         return self._sensors[name]
 
-    def get(self, name: str, default: sensor.Sensor = None) -> Optional[sensor.Sensor]:
+    @overload
+    def get(self, name: str) -> Optional[sensor.Sensor]: ...
+
+    @overload     # noqa: F811
+    def get(self, name: str, default: Union[sensor.Sensor, _T]) -> Union[sensor.Sensor, _T]: ...
+
+    def get(self, name: str, default: object = None) -> object:    # noqa: F811
         return self._sensors.get(name, default)
 
-    def __contains__(self, s: Union[str, sensor.Sensor]) -> bool:
+    def __contains__(self, s: object) -> bool:
         if isinstance(s, sensor.Sensor):
             return s.name in self._sensors and self._sensors[s.name] is s
         else:
@@ -273,7 +281,7 @@ class SensorSet:
     def __bool__(self) -> bool:
         return bool(self._sensors)
 
-    def __iter__(self) -> Iterable:
+    def __iter__(self) -> Iterator[str]:
         return iter(self._sensors)
 
     def keys(self) -> KeysView[str]:
@@ -287,6 +295,8 @@ class SensorSet:
 
     def copy(self) -> Dict[str, sensor.Sensor]:
         return self._sensors.copy()
+
+    __hash__ = None     # type: ignore     # mypy can't handle this
 
     add.__doc__ = set.add.__doc__
     remove.__doc__ = set.remove.__doc__
