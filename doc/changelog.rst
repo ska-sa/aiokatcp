@@ -1,6 +1,11 @@
 Changelog
 =========
 
+.. rubric:: Version 0.4.1
+
+- Make async-timeout a requirement so that katcpcmd works
+- Make :class:`~.SensorSet` a subclass of :class:`Mapping` for better type checking
+
 .. rubric:: Version 0.4.0
 
 - Change type system to support abstract types
@@ -21,7 +26,7 @@ Changelog
 .. rubric:: Version 0.2
 
 - Add client support
-- Correctly handle carriage returns (\r)
+- Correctly handle carriage returns (\\r)
 - Bound the number of in-flight requests
 - Change the exact error message when a sensor does not exist, for better
   compatibility with :mod:`katcp.inspecting_client`.
