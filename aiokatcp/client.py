@@ -1,4 +1,4 @@
-# Copyright 2017 National Research Foundation (Square Kilometre Array)
+# Copyright 2017, 2019 National Research Foundation (Square Kilometre Array)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -45,7 +45,8 @@ _InformHandler = Callable[['Client', core.Message], None]
 
 
 class _PendingRequest:
-    def __init__(self, mid: int, loop: asyncio.AbstractEventLoop) -> None:
+    def __init__(self, name: str, mid: Optional[int], loop: asyncio.AbstractEventLoop) -> None:
+        self.name = name
         self.mid = mid
         self.informs = []      # type: List[core.Message]
         self.reply = loop.create_future()
@@ -122,7 +123,7 @@ class Client(metaclass=ClientMeta):
         self.loop = loop
         self.logger = logger     # type: Union[logging.Logger, connection.ConnectionLoggerAdapter]
         self._limit = limit
-        self._pending = {}              # type: Dict[int, _PendingRequest]
+        self._pending = {}              # type: Dict[Optional[int], _PendingRequest]
         self._next_mid = 1
         self._run_task = loop.create_task(self._run())
         self._run_task.add_done_callback(self._done_callback)
@@ -131,6 +132,9 @@ class Client(metaclass=ClientMeta):
         self._connected_callbacks = []       # type: List[Callable[[], None]]
         self._disconnected_callbacks = []    # type: List[Callable[[], None]]
         self._failed_connect_callbacks = []  # type: List[Callable[[Exception], None]]
+        self._mid_support = False
+        # Used to serialize requests if the server does not support message IDs
+        self._request_lock = asyncio.Lock(loop=loop)
         self.auto_reconnect = auto_reconnect
         if self.auto_reconnect:
             # If not auto-reconnecting, wait_connected will set the exception
@@ -156,7 +160,9 @@ class Client(metaclass=ClientMeta):
         if msg.mtype == core.Message.Type.REQUEST:
             self.logger.info('Received unexpected request %s from server', msg.name)
             return
-        if msg.mid is not None:
+        if msg.mid is not None or (not self._mid_support
+                                   and None in self._pending
+                                   and self._pending[None].name == msg.name):
             try:
                 req = self._pending[msg.mid]
             except KeyError:
@@ -217,9 +223,8 @@ class Client(metaclass=ClientMeta):
                 flags = match.group(3)
                 if major != 5:
                     error = 'Unknown protocol version {}.{}'.format(major, minor)
-                elif flags is None or 'I' not in flags:
-                    error = 'Message IDs not supported by server, but required by aiokatcp'
             if error is None:
+                self._mid_support = (flags is not None and 'I' in flags)
                 # Safety in case a race condition causes the connection to
                 # die before this function was called.
                 if self._connection is not None:
@@ -462,13 +467,21 @@ class Client(metaclass=ClientMeta):
         """
         if not self.is_connected:
             raise BrokenPipeError('Not connected')
-        assert self._connection is not None
-        mid = self._next_mid
-        self._next_mid += 1
-        req = _PendingRequest(mid, self.loop)
+        if self._mid_support:
+            mid = self._next_mid
+            self._next_mid += 1
+            return await self._request_raw_impl(mid, name, *args)
+        else:
+            async with self._request_lock:
+                return await self._request_raw_impl(None, name, *args)
+
+    async def _request_raw_impl(self, mid: Optional[int], name: str, *args: Any) -> \
+            Tuple[core.Message, List[core.Message]]:
+        req = _PendingRequest(name, mid, self.loop)
         self._pending[mid] = req
         try:
             msg = core.Message(core.Message.Type.REQUEST, name, *args, mid=mid)
+            assert self._connection is not None
             self._connection.write_message(msg)
             reply_msg = await req.reply
             return reply_msg, req.informs
