@@ -360,7 +360,7 @@ class TestClientNoMidSupport(BaseTestClientAsync):
             await self.make_client(self.server, self.client_queue)
         self.addCleanup(self.remote_writer.close)
 
-    async def test_without_mid(self):
+    async def test_single(self):
         self.remote_writer.write(b'#version-connect katcp-protocol 5.0-M\n')
         await self.client.wait_connected()
         future = self.loop.create_task(self.client.request('echo'))
@@ -369,6 +369,20 @@ class TestClientNoMidSupport(BaseTestClientAsync):
         await self.write(b'!echo ok\n')
         result = await future
         self.assertEqual(result, ([], [Message.inform('echo', b'an inform')]))
+
+    async def test_concurrent(self):
+        self.remote_writer.write(b'#version-connect katcp-protocol 5.0-M\n')
+        await self.client.wait_connected()
+        future1 = self.loop.create_task(self.client.request('echo', 1))
+        future2 = self.loop.create_task(self.client.request('echo', 2))
+        for i in range(2):
+            match = await self.check_received(re.compile(br'^\?echo (1|2)\n\Z'))
+            await self.write(b'#echo value ' + match.group(1) + b'\n')
+            await self.write(b'!echo ok ' + match.group(1) + b'\n')
+        result1 = await future1
+        self.assertEqual(result1, ([b'1'], [Message.inform('echo', b'value', b'1')]))
+        result2 = await future2
+        self.assertEqual(result2, ([b'2'], [Message.inform('echo', b'value', b'2')]))
 
 
 @istest
