@@ -32,8 +32,8 @@ import logging
 import ipaddress
 import numbers
 from typing import (
-    Match, Any, Callable, Union, Type, Iterable, Tuple,
-    Generic, TypeVar, Optional, cast)
+    Match, Any, Callable, Union, Type, Tuple,
+    Generic, TypeVar, Optional)
 # Only used in type comments, so flake8 complains
 from typing import Dict, List   # noqa: F401
 
@@ -258,7 +258,7 @@ def _encode_enum(value: enum.Enum) -> bytes:
 
 
 def _decode_enum(cls: Type[_E], raw: bytes) -> _E:
-    if hasattr(next(iter(cast(Iterable, cls))), 'katcp_value'):
+    if hasattr(next(iter(cls)), 'katcp_value'):
         for member in cls:
             if getattr(member, 'katcp_value') == raw:
                 return member
@@ -278,7 +278,7 @@ def _default_generic(cls: Type[_T]) -> _T:
 
 
 def _default_enum(cls: Type[_E]) -> _E:
-    return next(iter(cast(Iterable, cls)))
+    return next(iter(cls))
 
 
 # mypy doesn't allow an abstract class to be passed to Type[], hence the

@@ -1,4 +1,4 @@
-# Copyright 2017 National Research Foundation (Square Kilometre Array)
+# Copyright 2017, 2019 National Research Foundation (Square Kilometre Array)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -59,7 +59,8 @@ class DummyClient(Client):
 
 @nottest
 class BaseTestClient(unittest.TestCase):
-    async def make_server(self, loop) -> Tuple[asyncio.AbstractServer, asyncio.Queue]:
+    async def make_server(self, loop: asyncio.AbstractEventLoop) \
+            -> Tuple[asyncio.AbstractServer, asyncio.Queue]:
         """Start a server listening on localhost.
 
         Returns
@@ -96,14 +97,14 @@ class BaseTestClientAsync(BaseTestClient, asynctest.TestCase):
         (reader, writer) = await client_queue.get()
         return client, reader, writer
 
-    async def _check_received(self, pattern: Pattern[bytes]) -> Match:
+    async def check_received(self, pattern: Pattern[bytes]) -> Match:
         line = await self.remote_reader.readline()
         # mypy thinks assertRegex requires a Pattern[str]
         self.assertRegex(line, pattern)    # type: ignore
         # cast keeps mypy happy (it can't tell that it will always match after the assert)
         return cast(Match, pattern.match(line))
 
-    async def _write(self, data: bytes) -> None:
+    async def write(self, data: bytes) -> None:
         self.remote_writer.write(data)
         await self.remote_writer.drain()
 
@@ -113,11 +114,22 @@ class BaseTestClientAsync(BaseTestClient, asynctest.TestCase):
         # Make sure that wait_connected works when already connected
         await self.client.wait_connected()
 
+
+@timelimit
+@istest
+class TestClient(BaseTestClientAsync):
+    @timelimit(1)
+    async def setUp(self) -> None:
+        self.server, self.client_queue = await self.make_server(self.loop)
+        self.client, self.remote_reader, self.remote_writer = \
+            await self.make_client(self.server, self.client_queue)
+        self.addCleanup(self.remote_writer.close)
+
     async def test_request_ok(self) -> None:
         await self.wait_connected()
         future = self.loop.create_task(self.client.request('echo'))
-        await self._check_received(re.compile(br'^\?echo\[1\]\n\Z'))
-        await self._write(b'!echo[1] ok\n')
+        await self.check_received(re.compile(br'^\?echo\[1\]\n\Z'))
+        await self.write(b'!echo[1] ok\n')
         result = await future
         self.assertEqual(result, ([], []))
         # Again, with arguments. This also tests MID incrementing, non-ASCII
@@ -126,58 +138,58 @@ class BaseTestClientAsync(BaseTestClient, asynctest.TestCase):
         arg_esc = b'h\xaf\xce\\0'  # katcp escaping
         arg_esc_re = re.escape(arg_esc)
         future = self.loop.create_task(self.client.request('echo', b'123', arg))
-        await self._check_received(re.compile(br'^\?echo\[2\] 123 ' + arg_esc_re + br'\n\Z'))
-        await self._write(b'!echo[2] ok 123 ' + arg_esc + b'\n')
+        await self.check_received(re.compile(br'^\?echo\[2\] 123 ' + arg_esc_re + br'\n\Z'))
+        await self.write(b'!echo[2] ok 123 ' + arg_esc + b'\n')
         result = await future
         self.assertEqual(result, ([b'123', arg], []))
 
     async def test_request_fail(self) -> None:
         await self.wait_connected()
         future = self.loop.create_task(self.client.request('failme'))
-        await self._check_received(re.compile(br'^\?failme\[1\]\n\Z'))
-        await self._write(b'!failme[1] fail Error\\_message\n')
+        await self.check_received(re.compile(br'^\?failme\[1\]\n\Z'))
+        await self.write(b'!failme[1] fail Error\\_message\n')
         with self.assertRaisesRegex(FailReply, '^Error message$'):
             await future
 
     async def test_request_fail_no_msg(self) -> None:
         await self.wait_connected()
         future = self.loop.create_task(self.client.request('failme'))
-        await self._check_received(re.compile(br'^\?failme\[1\]\n\Z'))
-        await self._write(b'!failme[1] fail\n')
+        await self.check_received(re.compile(br'^\?failme\[1\]\n\Z'))
+        await self.write(b'!failme[1] fail\n')
         with self.assertRaisesRegex(FailReply, '^$'):
             await future
 
     async def test_request_fail_msg_bad_encoding(self) -> None:
         await self.wait_connected()
         future = self.loop.create_task(self.client.request('failme'))
-        await self._check_received(re.compile(br'^\?failme\[1\]\n\Z'))
-        await self._write(b'!failme[1] fail \xaf\n')
+        await self.check_received(re.compile(br'^\?failme\[1\]\n\Z'))
+        await self.write(b'!failme[1] fail \xaf\n')
         with self.assertRaisesRegex(FailReply, '^\uFFFD$'):
             await future
 
     async def test_request_invalid(self) -> None:
         await self.wait_connected()
         future = self.loop.create_task(self.client.request('invalid-request'))
-        await self._check_received(re.compile(br'^\?invalid-request\[1\]\n\Z'))
-        await self._write(b'!invalid-request[1] invalid Unknown\\_request\n')
+        await self.check_received(re.compile(br'^\?invalid-request\[1\]\n\Z'))
+        await self.write(b'!invalid-request[1] invalid Unknown\\_request\n')
         with self.assertRaisesRegex(InvalidReply, '^Unknown request$'):
             await future
 
     async def test_request_no_code(self) -> None:
         await self.wait_connected()
         future = self.loop.create_task(self.client.request('invalid-request'))
-        await self._check_received(re.compile(br'^\?invalid-request\[1\]\n\Z'))
-        await self._write(b'!invalid-request[1]\n')
+        await self.check_received(re.compile(br'^\?invalid-request\[1\]\n\Z'))
+        await self.write(b'!invalid-request[1]\n')
         with self.assertRaisesRegex(InvalidReply, '^$'):
             await future
 
     async def test_request_with_informs(self) -> None:
         await self.wait_connected()
         future = self.loop.create_task(self.client.request('help'))
-        await self._check_received(re.compile(br'^\?help\[1\]\n\Z'))
-        await self._write(b'#help[1] help Show\\_help\n')
-        await self._write(b'#help[1] halt Halt\n')
-        await self._write(b'!help[1] ok 2\n')
+        await self.check_received(re.compile(br'^\?help\[1\]\n\Z'))
+        await self.write(b'#help[1] help Show\\_help\n')
+        await self.write(b'#help[1] halt Halt\n')
+        await self.write(b'!help[1] ok 2\n')
         result = await future
         self.assertEqual(result, ([b'2'], [
             Message.inform('help', b'help', b'Show help', mid=1),
@@ -190,7 +202,7 @@ class BaseTestClientAsync(BaseTestClient, asynctest.TestCase):
         with self.assertLogs(logging.getLogger('aiokatcp.client')) as cm:
             # Put in bad ones before the good one, so that as soon as we've
             # received the good one from the queue we can finish the test.
-            await self._write(b'#exception\n#foo bad notinteger\n#foo \xc3\xa9 123\n')
+            await self.write(b'#exception\n#foo bad notinteger\n#foo \xc3\xa9 123\n')
             inform = await client.foos.get()
         self.assertRegex(cm.output[0], 'I crashed')
         self.assertRegex(cm.output[1], 'error in inform')
@@ -199,7 +211,7 @@ class BaseTestClientAsync(BaseTestClient, asynctest.TestCase):
     async def test_unhandled_inform(self) -> None:
         client = cast(DummyClient, self.client)
         await self.wait_connected()
-        await self._write(b'#unhandled arg\n')
+        await self.write(b'#unhandled arg\n')
         msg = await client.unhandled.get()
         self.assertEqual(msg, Message.inform('unhandled', b'arg'))
 
@@ -207,21 +219,21 @@ class BaseTestClientAsync(BaseTestClient, asynctest.TestCase):
         await self.wait_connected()
         future = self.loop.create_task(self.client.request('echo'))
         with self.assertLogs(logging.getLogger('aiokatcp.client'), logging.DEBUG):
-            await self._write(b'!surprise[3]\n!echo[1] ok\n')
+            await self.write(b'!surprise[3]\n!echo[1] ok\n')
             await future
 
     async def test_receive_request(self) -> None:
         await self.wait_connected()
         future = self.loop.create_task(self.client.request('echo'))
         with self.assertLogs(logging.getLogger('aiokatcp.client')):
-            await self._write(b'?surprise\n!echo[1] ok\n')
+            await self.write(b'?surprise\n!echo[1] ok\n')
             await future
 
     async def test_reply_no_mid(self) -> None:
         await self.wait_connected()
         future = self.loop.create_task(self.client.request('echo'))
         with self.assertLogs(logging.getLogger('aiokatcp.client')):
-            await self._write(b'!surprise ok\n!echo[1] ok\n')
+            await self.write(b'!surprise ok\n!echo[1] ok\n')
             await future
 
     async def test_context_manager(self) -> None:
@@ -242,17 +254,6 @@ class BaseTestClientAsync(BaseTestClient, asynctest.TestCase):
         writer.close()
         await client.wait_closed()
 
-
-@timelimit
-@istest
-class TestClient(BaseTestClientAsync):
-    @timelimit(1)
-    async def setUp(self) -> None:
-        self.server, self.client_queue = await self.make_server(self.loop)
-        self.client, self.remote_reader, self.remote_writer = \
-            await self.make_client(self.server, self.client_queue)
-        self.addCleanup(self.remote_writer.close)
-
     async def test_unparsable_protocol(self) -> None:
         with self.assertLogs(logging.getLogger('aiokatcp.client')) as cm:
             self.remote_writer.write(b'#version-connect katcp-protocol notvalid\n')
@@ -266,13 +267,6 @@ class TestClient(BaseTestClientAsync):
             line = await self.remote_reader.read()
         self.assertEqual(line, b'')
         self.assertRegex(cm.output[0], r'Unknown protocol version 4\.0')
-
-    async def test_bad_flags(self) -> None:
-        with self.assertLogs(logging.getLogger('aiokatcp.client')) as cm:
-            self.remote_writer.write(b'#version-connect katcp-protocol 5.0-M\n')
-            line = await self.remote_reader.read()
-        self.assertEqual(line, b'')
-        self.assertRegex(cm.output[0], r'Message IDs not supported by server')
 
     async def test_no_connection(self) -> None:
         # Open a second client, which will not get the #version-connect
@@ -290,7 +284,7 @@ class TestClient(BaseTestClientAsync):
 
     async def test_disconnected(self) -> None:
         await self.wait_connected()
-        await self._write(b'#disconnect Server\\_exiting\n')
+        await self.write(b'#disconnect Server\\_exiting\n')
         await self.client.wait_disconnected()
         with self.assertRaises(BrokenPipeError):
             await self.client.request('help')
@@ -311,7 +305,7 @@ class TestClient(BaseTestClientAsync):
 
 @timelimit
 @istest
-class TestClientNoReconnect(BaseTestClientAsync):
+class TestClientNoReconnect(TestClient):
     @timelimit(1)
     async def setUp(self) -> None:
         self.server, self.client_queue = await self.make_server(self.loop)
@@ -337,7 +331,7 @@ class TestClientNoReconnect(BaseTestClientAsync):
 
     async def test_disconnected(self) -> None:
         await self.wait_connected()
-        await self._write(b'#disconnect Server\\_exiting\n')
+        await self.write(b'#disconnect Server\\_exiting\n')
         await self.client.wait_disconnected()
         with self.assertRaises(BrokenPipeError):
             await self.client.request('help')
@@ -354,6 +348,41 @@ class TestClientNoReconnect(BaseTestClientAsync):
         writer.close()
         with self.assertRaises(ConnectionAbortedError):
             await client_task
+
+
+@timelimit
+@istest
+class TestClientNoMidSupport(BaseTestClientAsync):
+    @timelimit(1)
+    async def setUp(self) -> None:
+        self.server, self.client_queue = await self.make_server(self.loop)
+        self.client, self.remote_reader, self.remote_writer = \
+            await self.make_client(self.server, self.client_queue)
+        self.addCleanup(self.remote_writer.close)
+
+    async def test_single(self):
+        self.remote_writer.write(b'#version-connect katcp-protocol 5.0-M\n')
+        await self.client.wait_connected()
+        future = self.loop.create_task(self.client.request('echo'))
+        await self.check_received(re.compile(br'^\?echo\n\Z'))
+        await self.write(b'#echo an\\_inform\n')
+        await self.write(b'!echo ok\n')
+        result = await future
+        self.assertEqual(result, ([], [Message.inform('echo', b'an inform')]))
+
+    async def test_concurrent(self):
+        self.remote_writer.write(b'#version-connect katcp-protocol 5.0-M\n')
+        await self.client.wait_connected()
+        future1 = self.loop.create_task(self.client.request('echo', 1))
+        future2 = self.loop.create_task(self.client.request('echo', 2))
+        for i in range(2):
+            match = await self.check_received(re.compile(br'^\?echo (1|2)\n\Z'))
+            await self.write(b'#echo value ' + match.group(1) + b'\n')
+            await self.write(b'!echo ok ' + match.group(1) + b'\n')
+        result1 = await future1
+        self.assertEqual(result1, ([b'1'], [Message.inform('echo', b'value', b'1')]))
+        result2 = await future2
+        self.assertEqual(result2, ([b'2'], [Message.inform('echo', b'value', b'2')]))
 
 
 @istest

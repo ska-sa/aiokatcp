@@ -1,6 +1,10 @@
 Changelog
 =========
 
+.. rubric:: Version 0.4.2
+
+- Make :class:`~.Client` work with servers that don't support message IDs
+
 .. rubric:: Version 0.4.1
 
 - Make async-timeout a requirement so that katcpcmd works
