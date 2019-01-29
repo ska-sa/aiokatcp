@@ -1,6 +1,10 @@
 Changelog
 =========
 
+.. rubric:: Version 0.4.3
+
+- Fix endless loop of "socket.send() raised except" when client disconnects
+
 .. rubric:: Version 0.4.2
 
 - Make :class:`~.Client` work with servers that don't support message IDs
