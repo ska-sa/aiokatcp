@@ -149,6 +149,12 @@ class Connection(object):
         if self.writer is None:
             return     # We previously detected that it was closed
         try:
+            # Normally this would be checked by the internals of
+            # self.writer.drain and bubble out to self.drain, but there is no
+            # guaranteed that self.drain will be called in the near future
+            # (see Github issue #11).
+            if self.writer.transport.is_closing():
+                raise ConnectionResetError('Connection lost')
             raw = b''.join(bytes(msg) for msg in msgs)
             self.writer.write(raw)
             self.logger.debug('Sent message %r', raw)
