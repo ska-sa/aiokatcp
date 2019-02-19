@@ -17,9 +17,9 @@ uses of coroutines and type annotations. It is loosely inspired by the `Python
 
 .. _Python 2 bindings: https://github.com/ska-sa/katcp-python
 
-The current implementation only provides a device server, but it is expected
-that a client will also be added. It only supports katcp version 5, and does
-not support a number of features that are marked deprecated in version 5.
+The current implementation provides both client and server APIs. It only
+supports katcp version 5, and does not support a number of features that are
+marked deprecated in version 5.
 
 Full documentation can be found on `readthedocs`_.
 
