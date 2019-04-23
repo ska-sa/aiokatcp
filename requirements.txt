@@ -22,4 +22,4 @@ pycodestyle==2.4.0        # via flake8
 pyflakes==2.0.0           # via flake8
 requests==2.20.0          # via coveralls
 typed-ast==1.2.0          # via mypy
-urllib3==1.24             # via requests
+urllib3==1.24.2           # via requests
