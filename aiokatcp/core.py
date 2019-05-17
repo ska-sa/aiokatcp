@@ -237,7 +237,7 @@ def get_type(type_: Type[_T]) -> TypeInfo[_T]:
     """
     for info in reversed(_types):
         try:
-            if issubclass(type_, info.type_):
+            if type_ == info.type_ or issubclass(type_, info.type_):
                 return info
         except TypeError:
             pass     # On Python 3.7, issubclass requires type_ to be a class
