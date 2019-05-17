@@ -1,6 +1,10 @@
 Changelog
 =========
 
+.. rubric:: Version 0.4.4
+
+- Support Python 3.7
+
 .. rubric:: Version 0.4.3
 
 - Fix endless loop of "socket.send() raised except" when client disconnects
