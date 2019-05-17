@@ -6,7 +6,12 @@ python:
     - 3.6
     - 3.7
 script:
-    - python -Werror -Wignore::DeprecationWarning:site -Wignore::PendingDeprecationWarning:nose.importer -Wignore::DeprecationWarning:nose.importer `which nosetests` --with-coverage --cover-erase --cover-package aiokatcp
+    - python -Werror
+        -Wignore::DeprecationWarning:site
+        -Wignore::PendingDeprecationWarning:nose.importer
+        -Wignore::DeprecationWarning:nose.importer
+        -Wignore::DeprecationWarning:nose.suite
+        `which nosetests` --with-coverage --cover-erase --cover-package aiokatcp
     - flake8 aiokatcp examples
     - mypy aiokatcp examples
 after_success: coveralls
