@@ -332,7 +332,7 @@ def _union_args(cls: Any) -> Optional[Tuple[Type]]:
 
     Returns ``None`` if `cls` is not a specific :class:`typing.Union` type.
     """
-    if type(cls) != type(Union[int, float]):
+    if not isinstance(cls, type(Union[int, float])):
         return None
     try:
         # Python 3.5.3 onwards
