@@ -236,11 +236,8 @@ def get_type(type_: Type[_T]) -> TypeInfo[_T]:
         if none of the registrations match `type_`
     """
     for info in reversed(_types):
-        try:
-            if issubclass(type_, info.type_):
-                return info
-        except TypeError:
-            pass     # On Python 3.7, issubclass requires type_ to be a class
+        if issubclass(type_, info.type_):
+            return info
     raise TypeError('{} is not registered'.format(type_))
 
 
