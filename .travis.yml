@@ -3,6 +3,7 @@ sudo: false
 python:
     - 3.5
     - 3.6
+    - 3.7
 script:
     - python -Werror -Wignore::DeprecationWarning:site -Wignore::PendingDeprecationWarning:nose.importer -Wignore::DeprecationWarning:nose.importer `which nosetests` --with-coverage --cover-erase --cover-package aiokatcp
     - flake8 aiokatcp examples
