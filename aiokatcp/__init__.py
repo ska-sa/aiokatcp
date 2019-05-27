@@ -40,9 +40,9 @@ from .core import (                                   # noqa: F401
     Message, KatcpSyntaxError, Address, Timestamp, TimestampOrNow, Now,
     encode, decode, register_type, get_type, TypeInfo)
 from .connection import Connection, FailReply, InvalidReply      # noqa: F401
-from .server import DeviceServer, RequestContext, SensorSet      # noqa: F401
-from .client import Client, ProtocolError             # noqa: F401
-from .sensor import Reading, Sensor, SensorSampler    # noqa: F401
+from .server import DeviceServer, RequestContext                 # noqa: F401
+from .client import Client, ProtocolError                        # noqa: F401
+from .sensor import Reading, Sensor, SensorSampler, SensorSet    # noqa: F401
 
 
 def minor_version():

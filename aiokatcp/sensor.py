@@ -1,4 +1,4 @@
-# Copyright 2017 National Research Foundation (Square Kilometre Array)
+# Copyright 2017, 2019 National Research Foundation (Square Kilometre Array)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -30,7 +30,9 @@ import time
 import abc
 import asyncio
 import warnings
-from typing import Generic, TypeVar, Type, List, Tuple, Iterable, Optional, Any, Callable, cast
+from typing import (Generic, TypeVar, Type, List, Tuple, Mapping, Iterable,
+                    KeysView, ValuesView, ItemsView,
+                    Iterator, Optional, Any, Union, Callable, cast, overload)
 # Imports only used for type comments, otherwise unused
 from typing import Set, Dict     # noqa: F401
 
@@ -395,3 +397,125 @@ class _SensorSamplerDifferentialRate(SensorSampler[_T]):
                 self.difference,
                 core.Timestamp(self.shortest),
                 core.Timestamp(self.longest))
+
+
+class SensorSet(Mapping[str, Sensor]):
+    """A dict-like and set-like collection of sensors.
+
+    It is possible to monitor for removal of sensors using
+    :meth:`add_remove_callback`.
+    """
+
+    class _Sentinel(enum.Enum):
+        """Internal enum used to signal that no default is provided to pop"""
+        NO_DEFAULT = 0
+
+    def __init__(self) -> None:
+        self._sensors = {}             # type: Dict[str, Sensor]
+        self._remove_callbacks = []    # type: List[Callable[[Sensor], None]]
+
+    def _removed(self, s: Sensor):
+        """Clear a sensor's samplers from all connections."""
+        for callback in list(self._remove_callbacks):
+            callback(s)
+
+    def add_remove_callback(self, callback: Callable[[Sensor], None]):
+        """Add a callback that will be passed any sensor removed from the set."""
+        self._remove_callbacks.append(callback)
+
+    def add(self, elem: Sensor):
+        if elem.name in self._sensors:
+            if self._sensors[elem.name] is not elem:
+                del self[elem.name]
+            else:
+                return
+        self._sensors[elem.name] = elem
+
+    def remove(self, elem: Sensor) -> None:
+        if elem not in self:
+            raise KeyError(elem.name)
+        del self[elem.name]
+
+    def discard(self, elem: Sensor) -> None:
+        try:
+            self.remove(elem)
+        except KeyError:
+            pass
+
+    def clear(self) -> None:
+        while self._sensors:
+            self.popitem()
+
+    def popitem(self) -> Tuple[str, Sensor]:
+        name, value = self._sensors.popitem()
+        self._removed(value)
+        return name, value
+
+    def pop(self, key: str,
+            default: Union[Sensor, None, _Sentinel] = _Sentinel.NO_DEFAULT) -> Optional[Sensor]:
+        if key not in self._sensors:
+            if isinstance(default, self._Sentinel):
+                raise KeyError(key)
+            else:
+                return default
+        else:
+            s = self._sensors.pop(key)
+            self._removed(s)
+            return s
+
+    def __delitem__(self, key: str) -> None:
+        s = self._sensors.pop(key)
+        self._removed(s)
+
+    def __getitem__(self, name: str) -> Sensor:
+        return self._sensors[name]
+
+    @overload
+    def get(self, name: str) -> Optional[Sensor]: ...
+
+    @overload     # noqa: F811
+    def get(self, name: str, default: Union[Sensor, _T]) -> Union[Sensor, _T]: ...
+
+    def get(self, name: str, default: object = None) -> object:    # noqa: F811
+        return self._sensors.get(name, default)
+
+    def __contains__(self, s: object) -> bool:
+        if isinstance(s, Sensor):
+            return s.name in self._sensors and self._sensors[s.name] is s
+        else:
+            return s in self._sensors
+
+    def __len__(self) -> int:
+        return len(self._sensors)
+
+    def __bool__(self) -> bool:
+        return bool(self._sensors)
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._sensors)
+
+    def keys(self) -> KeysView[str]:
+        return self._sensors.keys()
+
+    def values(self) -> ValuesView[Sensor]:
+        return self._sensors.values()
+
+    def items(self) -> ItemsView[str, Sensor]:
+        return self._sensors.items()
+
+    def copy(self) -> Dict[str, Sensor]:
+        return self._sensors.copy()
+
+    __hash__ = None     # type: ignore     # mypy can't handle this
+
+    add.__doc__ = set.add.__doc__
+    remove.__doc__ = set.remove.__doc__
+    discard.__doc__ = set.discard.__doc__
+    clear.__doc__ = dict.clear.__doc__
+    popitem.__doc__ = dict.popitem.__doc__
+    pop.__doc__ = dict.pop.__doc__
+    get.__doc__ = dict.get.__doc__
+    keys.__doc__ = dict.keys.__doc__
+    values.__doc__ = dict.values.__doc__
+    items.__doc__ = dict.items.__doc__
+    copy.__doc__ = dict.copy.__doc__
