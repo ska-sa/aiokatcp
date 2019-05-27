@@ -132,6 +132,7 @@ class Client(metaclass=ClientMeta):
         self._connected_callbacks = []       # type: List[Callable[[], None]]
         self._disconnected_callbacks = []    # type: List[Callable[[], None]]
         self._failed_connect_callbacks = []  # type: List[Callable[[Exception], None]]
+        self._inform_callbacks = {}      # type: Dict[str, List[Callable[[core.Message], None]]]
         self._mid_support = False
         # Used to serialize requests if the server does not support message IDs
         self._request_lock = asyncio.Lock(loop=loop)
@@ -193,14 +194,17 @@ class Client(metaclass=ClientMeta):
             self.logger.warning('error in inform %s: %s', msg.name, error)
         except Exception:
             self.logger.exception('unhandled exception in inform %s', msg.name, exc_info=True)
+        self._run_callbacks(self._inform_callbacks.get(msg.name, {}), msg)
 
     def unhandled_inform(self, msg: core.Message) -> None:
         """Called if an inform is received for which no handler is registered.
 
-        The default simply logs a debug message. Subclasses may override this
-        to provide other behaviour for unknown informs.
+        The default simply logs a debug message if there are no inform
+        callbacks registered for the message. Subclasses may override this to
+        provide other behaviour for unknown informs.
         """
-        self.logger.debug('unknown inform %s', msg.name)
+        if msg.name not in self._inform_callbacks:
+            self.logger.debug('unknown inform %s', msg.name)
 
     def _close_connection(self) -> None:
         if self._connection is not None:
@@ -275,6 +279,26 @@ class Client(metaclass=ClientMeta):
     def remove_failed_connect_callback(self, callback: Callable[[Exception], None]) -> None:
         """Remove a callback registered with :meth:`add_failed_connect_callback`."""
         self._failed_connect_callbacks.remove(callback)
+
+    def add_inform_callback(self, name: str, callback: Callable[[core.Message], None]) -> None:
+        """Add a callback called on every asynchronous inform.
+
+        The message arguments are unpacked according to the type annotations
+        on the arguments of the callback. Callbacks are called in the order
+        registered, after any handlers defined by methods in the class.
+        """
+        wrapper = connection.wrap_handler(name, callback, 0)
+        self._inform_callbacks.setdefault(name, []).append(wrapper)
+
+    def remove_inform_callback(self, name: str, callback: Callable[[core.Message], None]) -> None:
+        """Remove a callback registered with :meth:`add_inform_callback`."""
+        cbs = self._inform_callbacks.get(name, {})
+        for i in range(len(cbs)):
+            if cbs[i]._aiokatcp_orig_handler == callback:
+                del cbs[i]
+                if not cbs:
+                    del self._inform_callbacks[name]
+                break
 
     # callbacks should be marked as Iterable[Callable[..., None]], but in
     # Python 3.5.2 that gives an error in the typing module.

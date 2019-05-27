@@ -215,6 +215,20 @@ class TestClient(BaseTestClientAsync):
         msg = await client.unhandled.get()
         self.assertEqual(msg, Message.inform('unhandled', b'arg'))
 
+    async def test_inform_callback(self) -> None:
+        def callback(string: str, integer: int) -> None:
+            values.put_nowait((string, integer))
+
+        values = asyncio.Queue(loop=self.loop)
+        client = cast(DummyClient, self.client)
+        client.add_inform_callback('bar', callback)
+        await self.wait_connected()
+        await self.write(b'#bar hello 42\n')
+        value = await values.get()
+        self.assertEqual(value, ('hello', 42))
+        client.remove_inform_callback('bar', callback)
+        self.assertEqual(client._inform_callbacks, {})
+
     async def test_unsolicited_reply(self) -> None:
         await self.wait_connected()
         future = self.loop.create_task(self.client.request('echo'))
