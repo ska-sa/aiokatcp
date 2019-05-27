@@ -6,6 +6,7 @@ Changelog
 - Make :class:`~.SensorSet` more generic and move into :mod:`aiokatcp.sensor`
   package. It no longer takes a list of connections; instead, one may register
   callbacks to get notification of removals.
+- Add :meth:`aiokatcp.sensor.Sensor.Status.valid_value`
 
 .. rubric:: Version 0.4.4
 

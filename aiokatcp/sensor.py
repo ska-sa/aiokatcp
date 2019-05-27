@@ -103,6 +103,10 @@ class Sensor(Generic[_T]):
         UNREACHABLE = 5
         INACTIVE = 6
 
+        def valid_value(self) -> bool:
+            """True if this state is one where the value provided is valid."""
+            return self in {Sensor.Status.NOMINAL, Sensor.Status.WARN, Sensor.Status.ERROR}
+
     def __init__(self, sensor_type: Type[_T],
                  name: str,
                  description: str = None,

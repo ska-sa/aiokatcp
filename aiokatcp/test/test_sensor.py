@@ -37,6 +37,18 @@ import asynctest
 from aiokatcp.sensor import Sensor, SensorSampler, SensorSet
 
 
+class TestSensorState(unittest.TestCase):
+    def test_valid_value(self):
+        Status = Sensor.Status
+        self.assertFalse(Status.UNKNOWN.valid_value())
+        self.assertTrue(Status.NOMINAL.valid_value())
+        self.assertTrue(Status.WARN.valid_value())
+        self.assertTrue(Status.ERROR.valid_value())
+        self.assertFalse(Status.FAILURE.valid_value())
+        self.assertFalse(Status.UNREACHABLE.valid_value())
+        self.assertFalse(Status.INACTIVE.valid_value())
+
+
 class TestSensor(unittest.TestCase):
     def test_status_func(self):
         def status_func(value):
