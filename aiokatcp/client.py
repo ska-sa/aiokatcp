@@ -32,11 +32,14 @@ import warnings
 import inspect
 import random
 import functools
-from typing import Any, List, Iterable, Callable, Tuple
+import enum
+import time
+import contextlib
+from typing import Any, List, Iterable, Callable, Tuple, Sequence, Type, Set, Generator
 # Only used in type comments, so flake8 complains
 from typing import Dict, Optional, Union   # noqa: F401
 
-from . import core, connection
+from . import core, connection, sensor
 from .connection import FailReply, InvalidReply
 
 
@@ -133,6 +136,7 @@ class Client(metaclass=ClientMeta):
         self._disconnected_callbacks = []    # type: List[Callable[[], None]]
         self._failed_connect_callbacks = []  # type: List[Callable[[Exception], None]]
         self._inform_callbacks = {}      # type: Dict[str, List[Callable[[core.Message], None]]]
+        self._sensor_monitor = None          # type: Optional[_SensorMonitor]
         self._mid_support = False
         # Used to serialize requests if the server does not support message IDs
         self._request_lock = asyncio.Lock(loop=loop)
@@ -280,7 +284,7 @@ class Client(metaclass=ClientMeta):
         """Remove a callback registered with :meth:`add_failed_connect_callback`."""
         self._failed_connect_callbacks.remove(callback)
 
-    def add_inform_callback(self, name: str, callback: Callable[[core.Message], None]) -> None:
+    def add_inform_callback(self, name: str, callback: Callable[..., None]) -> None:
         """Add a callback called on every asynchronous inform.
 
         The message arguments are unpacked according to the type annotations
@@ -290,11 +294,11 @@ class Client(metaclass=ClientMeta):
         wrapper = connection.wrap_handler(name, callback, 0)
         self._inform_callbacks.setdefault(name, []).append(wrapper)
 
-    def remove_inform_callback(self, name: str, callback: Callable[[core.Message], None]) -> None:
+    def remove_inform_callback(self, name: str, callback: Callable[..., None]) -> None:
         """Remove a callback registered with :meth:`add_inform_callback`."""
-        cbs = self._inform_callbacks.get(name, {})
+        cbs = self._inform_callbacks.get(name, [])
         for i in range(len(cbs)):
-            if cbs[i]._aiokatcp_orig_handler == callback:
+            if cbs[i]._aiokatcp_orig_handler == callback:     # type: ignore
                 del cbs[i]
                 if not cbs:
                     del self._inform_callbacks[name]
@@ -387,6 +391,9 @@ class Client(metaclass=ClientMeta):
             self._run_task.cancel()
             self._close_connection()    # Ensures the transport gets closed now
             self._closing = True
+            if self._sensor_monitor is not None:
+                self._sensor_monitor.close()
+                self._sensor_monitor = None
 
     async def wait_closed(self) -> None:
         """Wait for the process started by :meth:`close` to complete."""
@@ -553,3 +560,333 @@ class Client(metaclass=ClientMeta):
             raise FailReply(error.decode('utf-8', errors='replace'))
         else:
             raise InvalidReply(error.decode('utf-8', errors='replace'))
+
+    def add_sensor_watcher(self, watcher: 'SensorWatcher') -> None:
+        if self._sensor_monitor is None:
+            self._sensor_monitor = _SensorMonitor(self)
+        self._sensor_monitor.add_watcher(watcher)
+
+    def remove_sensor_watcher(self, watcher: 'SensorWatcher') -> None:
+        if self._sensor_monitor is not None:
+            self._sensor_monitor.remove_watcher(watcher)
+            if not self._sensor_monitor:   # i.e. no more watchers
+                self._sensor_monitor.close()
+                self._sensor_monitor = None
+
+
+class SyncState(enum.Enum):
+    CLOSED = 1             # Client object was closed
+    DISCONNECTED = 2       # No connection to server
+    UNSYNCED = 3           # Connection working, but waiting for sensor-list or subscriptions
+    SYNCED = 4             # List of sensors is up to date
+
+
+class AbstractSensorWatcher:
+    """Base class for receiving notifications about sensor changes.
+
+    This class is intended to be subclassed to implement any of the
+    notification callbacks.
+    """
+    def sensor_added(self, name: str, description: str, units: str, type_name: str,
+                     *args: bytes) -> None:
+        pass
+
+    def sensor_removed(self, name: str) -> None:
+        pass
+
+    def sensor_updated(self, name: str, value: bytes,
+                       status: sensor.Sensor.Status, timestamp: float) -> None:
+        pass
+
+    def batch_start(self) -> None:
+        """Called at the start of a batch of back-to-back updates."""
+        pass
+
+    def batch_stop(self) -> None:
+        """Called at the end of a batch of back-to-back updates."""
+        pass
+
+    def disconnected(self) -> None:
+        pass
+
+    def state_update(self, state: SyncState) -> None:
+        """Indicates the state of the synchronisation state machine.
+
+        Implementations should assume the initial state is DISCONNECTED.
+        """
+        pass
+
+
+class DiscreteMixin:
+    @property
+    def katcp_value(self):
+        return self.value
+
+
+class SensorWatcher(AbstractSensorWatcher):
+    """Sensor watcher that mirrors sensors into a :class:`~.SensorSet`.
+
+    Parameters
+    ----------
+    client
+        Client to which this watcher will be attached. It is currently only used to
+        get the correct logger and event loop.
+    sensors
+        Place to store mirrored sensors. If not provided, one will be created.
+    enum_types
+        Enum types to be used for discrete sensors. An enum type is used if it
+        has the same legal values in the same order as the remote sensor. If
+        a discrete sensor has no matching enum type, one is synthesized on the
+        fly.
+    """
+
+    SENSOR_TYPES = {
+        'integer': int,
+        'float': float,
+        'boolean': bool,
+        'timestamp': core.Timestamp,
+        'discrete': enum.Enum,    # Actual type is constructed dynamically
+        'address': core.Address,
+        'string': bytes      # Allows passing through arbitrary values even if not UTF-8
+    }
+
+    def __init__(self, client: Client, sensors: Optional[sensor.SensorSet] = None,
+                 enum_types: Sequence[Type[enum.Enum]] = ()) -> None:
+        self.synced = asyncio.Event(loop=client.loop)
+        self.logger = client.logger
+        if sensors is None:
+            self.sensors = sensor.SensorSet()
+        else:
+            self.sensors = sensors
+        # Synthesized enum types for discrete sensors
+        self._enum_cache = {}              # type: Dict[Tuple[bytes, ...], Type[enum.Enum]]
+        for enum_type in enum_types:
+            key = tuple(core.encode(value) for value in enum_type.__members__.values())
+            self._enum_cache[key] = enum_type
+
+    def rewrite_name(self, name: str) -> str:
+        """Convert name of incoming sensor to name to use in the sensor set.
+
+        This defaults to the identity, but can be overridden to provide name mangling.
+        """
+        return name
+
+    def make_type(self, type_name: str, parameters: Sequence[bytes]) -> type:
+        """Get the sensor type for a given type name"""
+        if type_name == 'discrete':
+            values = tuple(parameters)
+            if values in self._enum_cache:
+                return self._enum_cache[values]
+            else:
+                # We need unique Python identifiers for each value, but simply
+                # normalising names in some way doesn't guarantee that.
+                # Instead, we use arbitrary numbering.
+                enums = [('ENUM{}'.format(i), value) for i, value in enumerate(values)]
+                stype = enum.Enum('discrete', enums, type=DiscreteMixin)
+                self._enum_cache[values] = stype
+                return stype
+        else:
+            return self.SENSOR_TYPES[type_name]
+
+    def sensor_added(self, name: str, description: str, units: str, type_name: str,
+                     *args: bytes) -> None:
+        if type_name not in self.SENSOR_TYPES:
+            self.logger.warning('Type %s is not recognised, skipping sensor %s',
+                                type_name, name)
+            return
+        stype = self.make_type(type_name, args)
+        s = sensor.Sensor(stype, self.rewrite_name(name),
+                          description, units)   # type: sensor.Sensor
+        self.sensors.add(s)
+
+    def sensor_removed(self, name: str) -> None:
+        self.sensors.pop(self.rewrite_name(name), None)
+
+    def sensor_updated(self, name: str, value: bytes,
+                       status: sensor.Sensor.Status, timestamp: float) -> None:
+        try:
+            sensor = self.sensors[self.rewrite_name(name)]
+        except KeyError:
+            self.logger.warning('Received update for unknown sensor %s', name)
+            return
+
+        try:
+            decoded = core.decode(sensor.stype, value)
+        except ValueError as exc:
+            self.logger.warning('Sensor %s: value %r does not match type %s: %s',
+                                name, value, sensor.type_name, exc)
+            return
+
+        sensor.set_value(decoded, status=status, timestamp=timestamp)
+
+    def state_update(self, state: SyncState) -> None:
+        if state == SyncState.DISCONNECTED:
+            now = time.time()
+            for s in self.sensors.values():
+                s.set_value(s.value, status=sensor.Sensor.Status.UNREACHABLE, timestamp=now)
+
+        if state == SyncState.SYNCED:
+            self.synced.set()
+        else:
+            self.synced.clear()
+
+
+class _SensorMonitor:
+    """Tracks the sensors on a client.
+
+    Only a single instance is added to a given client, and it distributes
+    notifications to instances of :class:`SensorWatcher`.
+
+    Users should not interact with this class directly.
+    """
+
+    def __init__(self, client: Client) -> None:
+        self.client = client
+        self.logger = client.logger
+        client.add_connected_callback(self._connected)
+        client.add_disconnected_callback(self._disconnected)
+        client.add_inform_callback('interface-changed', self._interface_changed)
+        client.add_inform_callback('sensor-status', self._sensor_status)
+        self._update_task = None           # type: Optional[asyncio.Task]
+        # Sensors we have seen: maps name to arguments
+        self._sensors = {}                 # type: Dict[str, Tuple[bytes, ...]]
+        # Sensors whose sampling strategy has been set
+        self._sampling_set = set()         # type: Set[str]
+        self._in_batch = False
+        self._watchers = set()             # type: Set[SensorWatcher]
+
+    def add_watcher(self, watcher: SensorWatcher) -> None:
+        self._watchers.add(watcher)
+
+    def remove_watcher(self, watcher: SensorWatcher) -> None:
+        self._watchers.discard(watcher)
+
+    def __bool__(self) -> bool:
+        """True if there are any watchers"""
+        return bool(self._watchers)
+
+    def __len__(self) -> int:
+        """Number of watchers"""
+        return len(self._watchers)
+
+    @contextlib.contextmanager
+    def _batch(self) -> Generator[None, None, None]:
+        assert not self._in_batch, 'Re-entered _batch'
+        self._in_batch = True
+        for watcher in self._watchers:
+            watcher.batch_start()
+        try:
+            yield
+        finally:
+            for watcher in self._watchers:
+                watcher.batch_stop()
+
+    def _cancel_update(self) -> None:
+        if self._update_task is not None:
+            self._update_task.cancel()
+            self._update_task = None
+
+    def _update_done(self, future):
+        try:
+            future.result()
+        except asyncio.CancelledError:
+            pass
+        except OSError as error:
+            # Connection died before we finished. Log it, but no need for
+            # a stack trace.
+            self._logger.warning('Connection error in update task: %s', error)
+        except Exception:
+            self._logger.exception('Exception in update task')
+
+    def _trigger_update(self) -> None:
+        self.logger.debug('Sensor sync triggered')
+        for watcher in self._watchers:
+            watcher.state_update(SyncState.UNSYNCED)
+        self._cancel_update()
+        self._update_task = self.client.loop.create_task(self._update())
+        self._update_task.add_done_callback(self._update_done)
+
+    async def _set_sampling(self, names: Sequence[str]) -> None:
+        """Register sampling strategy with sensors in `names`"""
+        coros = [self.client.request('sensor-sampling', name, 'auto') for name in names]
+        results = await asyncio.gather(*coros, loop=self.client.loop, return_exceptions=True)
+        for name, result in zip(names, results):
+            if isinstance(result, Exception):
+                try:
+                    raise result
+                except (FailReply, InvalidReply) as error:
+                    self.logger.warning('Failed to set strategy on %s: %s', name, error)
+            else:
+                self._sampling_set.add(name)
+
+    async def _update(self) -> None:
+        reply, informs = await self.client.request('sensor-list')
+        sampling = []       # type: List[str]
+        seen = set()        # type: Set[str]
+        with self._batch():
+            # Enumerate all sensors and add new or changed ones
+            for inform in informs:
+                name, description, units, type_name = [
+                    core.decode(str, inform.arguments[i]) for i in range(4)]
+                seen.add(name)
+                params = tuple(inform.arguments[1:])
+                # Check if it already exists with the same parameters
+                old = self._sensors.get(name)
+                if old != params:
+                    for watcher in self._watchers:
+                        watcher.sensor_added(name, description, units, type_name,
+                                             *inform.arguments[4:])
+                    self._sensors[name] = params
+                if name not in self._sampling_set:
+                    sampling.append(name)
+            # Remove old sensors
+            for name in list(self._sensors.keys()):
+                if name not in seen:
+                    for watcher in self._watchers:
+                        watcher.sensor_removed(name)
+            await self._set_sampling(sampling)
+            for watcher in self._watchers:
+                watcher.state_update(SyncState.SYNCED)
+
+    def _connected(self) -> None:
+        self._sampling_set.clear()
+        self._trigger_update()
+
+    def _disconnected(self) -> None:
+        self._sampling_set.clear()
+        self._cancel_update()
+        for watcher in self._watchers:
+            watcher.state_update(SyncState.DISCONNECTED)
+
+    def _interface_changed(self, *args: bytes) -> None:
+        # This could eventually be smarter and consult the args
+        self._trigger_update()
+
+    def _sensor_status(self, timestamp: core.Timestamp, n: int, *args) -> None:
+        if len(args) != 3 * n:
+            raise FailReply('Incorrect number of arguments')
+        with self._batch():
+            for i in range(n):
+                name = '<unknown>'
+                try:
+                    name = core.decode(str, args[3 * i])
+                    status = core.decode(sensor.Sensor.Status, args[3 * i + 1])
+                    value = args[3 * i + 2]
+                    for watcher in self._watchers:
+                        watcher.sensor_updated(name, value, status, timestamp)
+                except Exception:
+                    self.logger.warning('Failed to process #sensor-status for %s',
+                                        name, exc_info=True)
+
+    def close(self) -> None:
+        self._cancel_update()
+        self.client.remove_connected_callback(self._connected)
+        self.client.remove_disconnected_callback(self._disconnected)
+        self.client.remove_inform_callback('interface-changed', self._interface_changed)
+        self.client.remove_inform_callback('sensor-status', self._sensor_status)
+        # The monitor is closed if there are no more watchers or if the
+        # client is closed. In the latter case, let the watchers know.
+        for watcher in self._watchers:
+            watcher.state_update(SyncState.CLOSED)
+        self._sensors.clear()
+        self._sampling_set.clear()
