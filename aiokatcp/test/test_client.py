@@ -29,6 +29,7 @@ import asyncio
 import re
 import logging
 import gc
+import enum
 import unittest
 import unittest.mock
 from unittest.mock import call
@@ -38,7 +39,7 @@ from nose.tools import nottest, istest
 import asynctest
 
 from aiokatcp import (Client, FailReply, InvalidReply, ProtocolError, Message,
-                      Sensor, SensorWatcher, AbstractSensorWatcher, SyncState)
+                      Sensor, SensorWatcher, AbstractSensorWatcher, SyncState, encode)
 from .test_utils import timelimit
 
 
@@ -324,6 +325,11 @@ class TestClient(BaseTestClientAsync):
 @timelimit
 @istest
 class TestSensorMonitor(BaseTestClientAsync):
+    """Test the sensor monitoring interface.
+
+    This mocks out the :class:`~.AbstractSensorWatcher`.
+    """
+
     @timelimit(1)
     async def setUp(self) -> None:
         self.server, self.client_queue = await self.make_server(self.loop)
@@ -501,14 +507,11 @@ class TestSensorMonitor(BaseTestClientAsync):
         self.client.remove_sensor_watcher(self.watcher)
 
     async def test_close(self):
-        """Closing the client must remove all sensors"""
+        """Closing the client must update the state"""
         await self.test_init()
         self.client.close()
         await self.client.wait_closed()
         self.assertEqual(self.watcher.mock_calls, [
-            call.batch_start(),
-            call.sensor_removed('device-status'),
-            call.batch_stop(),
             call.state_updated(SyncState.CLOSED)
         ])
 
@@ -541,6 +544,136 @@ class TestSensorMonitor(BaseTestClientAsync):
             call.state_updated(SyncState.SYNCED)
         ])
         self.watcher.reset_mock()
+
+
+class DummySensorWatcher(SensorWatcher):
+    def rewrite_name(self, name: str) -> str:
+        return 'test_' + name
+
+
+class DummyEnum(enum.Enum):
+    THING_ONE = 1
+    THING_TWO = 2
+
+
+class TestSensorWatcher(asynctest.TestCase):
+    """Test :class:`~.SensorWatcher`."""
+    def setUp(self):
+        client = unittest.mock.MagicMock()
+        client.loop = self.loop
+        self.watcher = DummySensorWatcher(client, enum_types=[DummyEnum])
+
+    def test_construct(self):
+        self.assertEqual(len(self.watcher.sensors), 0)
+        self.assertFalse(self.watcher.synced.is_set())
+
+    def test_sensor_added(self):
+        self.watcher.batch_start()
+        self.watcher.sensor_added('foo', 'A sensor', 'F', 'float')
+        self.watcher.batch_stop()
+        self.assertEqual(len(self.watcher.sensors), 1)
+        sensor = self.watcher.sensors['test_foo']
+        self.assertEqual(sensor.name, 'test_foo')
+        self.assertEqual(sensor.description, 'A sensor')
+        self.assertEqual(sensor.units, 'F')
+        self.assertEqual(sensor.stype, float)
+        self.assertEqual(sensor.status, Sensor.Status.UNKNOWN)
+
+    def test_sensor_added_discrete(self):
+        self.watcher.batch_start()
+        self.watcher.sensor_added('disc', 'Discrete sensor', '', 'discrete', b'abc', b'def-xyz')
+        self.watcher.sensor_added('disc2', 'Discrete sensor 2', '', 'discrete', b'abc', b'def-xyz')
+        self.watcher.batch_stop()
+        self.assertEqual(len(self.watcher.sensors), 2)
+        sensor = self.watcher.sensors['test_disc']
+        self.assertEqual(sensor.name, 'test_disc')
+        self.assertEqual(sensor.description, 'Discrete sensor')
+        self.assertEqual(sensor.units, '')
+        self.assertEqual(sensor.type_name, 'discrete')
+        self.assertEqual(sensor.status, Sensor.Status.UNKNOWN)
+        members = [encode(member) for member in sensor.stype.__members__.values()]
+        self.assertEqual(members, [b'abc', b'def-xyz'])
+        self.assertIs(self.watcher.sensors['test_disc'].stype,
+                      self.watcher.sensors['test_disc2'].stype,
+                      'Enum cache did not work')
+
+    def test_sensor_added_known_discrete(self):
+        self.watcher.batch_start()
+        self.watcher.sensor_added('disc', 'Discrete sensor', '', 'discrete',
+                                  b'thing-one', b'thing-two')
+        self.watcher.batch_stop()
+        self.assertEqual(len(self.watcher.sensors), 1)
+        sensor = self.watcher.sensors['test_disc']
+        self.assertEqual(sensor.name, 'test_disc')
+        self.assertEqual(sensor.description, 'Discrete sensor')
+        self.assertEqual(sensor.units, '')
+        self.assertEqual(sensor.type_name, 'discrete')
+        self.assertIs(sensor.stype, DummyEnum)
+        self.assertEqual(sensor.status, Sensor.Status.UNKNOWN)
+
+    def test_sensor_added_bad_type(self):
+        self.watcher.batch_start()
+        self.watcher.sensor_added('foo', 'A sensor', 'F', 'blah')
+        self.watcher.batch_stop()
+        self.assertEqual(len(self.watcher.sensors), 0)
+        self.watcher.logger.warning.assert_called_once_with(
+            'Type %s is not recognised, skipping sensor %s', 'blah', 'foo')
+
+    def test_sensor_removed(self):
+        self.test_sensor_added()
+
+        self.watcher.batch_start()
+        self.watcher.sensor_removed('foo')
+        self.watcher.batch_stop()
+        self.assertEqual(len(self.watcher.sensors), 0)
+
+    def test_sensor_updated(self):
+        self.test_sensor_added()
+
+        self.watcher.batch_start()
+        self.watcher.sensor_updated('foo', b'12.5', Sensor.Status.WARN, 1234567890.0)
+        self.watcher.batch_stop()
+        sensor = self.watcher.sensors['test_foo']
+        self.assertEqual(sensor.value, 12.5)
+        self.assertEqual(sensor.status, Sensor.Status.WARN)
+        self.assertEqual(sensor.timestamp, 1234567890.0)
+
+    def test_sensor_updated_bad_value(self):
+        self.test_sensor_added()
+
+        self.watcher.batch_start()
+        self.watcher.sensor_updated('foo', b'not a float', Sensor.Status.WARN, 1234567890.0)
+        self.watcher.batch_stop()
+        self.watcher.logger.warning.assert_called_once_with(
+            'Sensor %s: value %r does not match type %s: %s',
+            'foo', b'not a float', 'float', unittest.mock.ANY)
+
+    def test_sensor_updated_unknown_sensor(self):
+        self.test_sensor_added()
+
+        self.watcher.batch_start()
+        self.watcher.sensor_updated('bar', b'123.0', Sensor.Status.WARN, 1234567890.0)
+        self.watcher.batch_stop()
+        self.watcher.logger.warning.assert_called_once_with(
+            'Received update for unknown sensor %s', 'bar')
+
+    def test_state_updated(self):
+        self.test_sensor_added()
+
+        self.watcher.state_updated(SyncState.UNSYNCED)
+        self.assertFalse(self.watcher.synced.is_set())
+        self.assertEqual(len(self.watcher.sensors), 1)
+        self.assertEqual(self.watcher.sensors['test_foo'].status, Sensor.Status.UNKNOWN)
+
+        self.watcher.state_updated(SyncState.SYNCED)
+        self.assertTrue(self.watcher.synced.is_set())
+        self.assertEqual(len(self.watcher.sensors), 1)
+        self.assertEqual(self.watcher.sensors['test_foo'].status, Sensor.Status.UNKNOWN)
+
+        self.watcher.state_updated(SyncState.DISCONNECTED)
+        self.assertFalse(self.watcher.synced.is_set())
+        # Disconnecting should set all sensors to UNREACHABLE
+        self.assertEqual(self.watcher.sensors['test_foo'].status, Sensor.Status.UNREACHABLE)
 
 
 @timelimit
