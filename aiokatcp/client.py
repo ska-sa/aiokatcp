@@ -603,14 +603,14 @@ class AbstractSensorWatcher:
 
         Calls to :meth:`sensor_added`, :meth:`sensor_removed` and :meth:`sensor_updated`
         will always be bracketed by :meth:`batch_start` and :meth:`batch_stop`. This
-        does not apply to :meth:`state_update`."""
+        does not apply to :meth:`state_updated`."""
         pass
 
     def batch_stop(self) -> None:
         """Called at the end of a batch of back-to-back updates."""
         pass
 
-    def state_update(self, state: SyncState) -> None:
+    def state_updated(self, state: SyncState) -> None:
         """Indicates the state of the synchronisation state machine.
 
         Implementations should assume the initial state is DISCONNECTED.
@@ -721,7 +721,7 @@ class SensorWatcher(AbstractSensorWatcher):
 
         sensor.set_value(decoded, status=status, timestamp=timestamp)
 
-    def state_update(self, state: SyncState) -> None:
+    def state_updated(self, state: SyncState) -> None:
         if state == SyncState.DISCONNECTED:
             now = time.time()
             for s in self.sensors.values():
@@ -773,8 +773,7 @@ class _SensorMonitor:
 
     @contextlib.contextmanager
     def _batch(self) -> Generator[None, None, None]:
-        if self._in_batch:     # TODO: remove
-            assert not self._in_batch, 'Re-entered _batch'
+        assert not self._in_batch, 'Re-entered _batch'
         self._in_batch = True
         self.logger.debug('Entering batch')
         try:
@@ -807,7 +806,7 @@ class _SensorMonitor:
     def _trigger_update(self) -> None:
         self.logger.debug('Sensor sync triggered')
         for watcher in self._watchers:
-            watcher.state_update(SyncState.UNSYNCED)
+            watcher.state_updated(SyncState.UNSYNCED)
         self._cancel_update()
         self._update_task = self.client.loop.create_task(self._update())
         self._update_task.add_done_callback(self._update_done)
@@ -854,7 +853,7 @@ class _SensorMonitor:
                     self._sampling_set.discard(name)
         await self._set_sampling(sampling)
         for watcher in self._watchers:
-            watcher.state_update(SyncState.SYNCED)
+            watcher.state_updated(SyncState.SYNCED)
 
     def _connected(self) -> None:
         self._sampling_set.clear()
@@ -864,7 +863,7 @@ class _SensorMonitor:
         self._sampling_set.clear()
         self._cancel_update()
         for watcher in self._watchers:
-            watcher.state_update(SyncState.DISCONNECTED)
+            watcher.state_updated(SyncState.DISCONNECTED)
 
     def _interface_changed(self, *args: bytes) -> None:
         # This could eventually be smarter and consult the args
@@ -899,6 +898,6 @@ class _SensorMonitor:
                 for name in self._sensors.keys():
                     watcher.sensor_removed(name)
         for watcher in self._watchers:
-            watcher.state_update(SyncState.CLOSED)
+            watcher.state_updated(SyncState.CLOSED)
         self._sensors.clear()
         self._sampling_set.clear()
