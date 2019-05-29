@@ -173,7 +173,7 @@ class Client(metaclass=ClientMeta):
             except KeyError:
                 self.logger.debug(
                     'Received %r with unknown message ID %s (possibly cancelled request)',
-                    bytes(msg), msg.mid)    # type: ignore
+                    bytes(msg), msg.mid)
             else:
                 if msg.mtype == core.Message.Type.REPLY:
                     req.reply.set_result(msg)
@@ -191,7 +191,7 @@ class Client(metaclass=ClientMeta):
         self.logger.debug('Received %s', bytes(msg))
         # TODO: provide dispatch mechanism for informs
         handler = self._inform_handlers.get(               # type: ignore
-            msg.name, self.__class__.unhandled_inform)     # type: ignore
+            msg.name, self.__class__.unhandled_inform)
         try:
             handler(self, msg)
         except FailReply as error:
