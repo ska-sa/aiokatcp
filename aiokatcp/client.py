@@ -790,9 +790,9 @@ class _SensorMonitor:
         except OSError as error:
             # Connection died before we finished. Log it, but no need for
             # a stack trace.
-            self._logger.warning('Connection error in update task: %s', error)
+            self.logger.warning('Connection error in update task: %s', error)
         except Exception:
-            self._logger.exception('Exception in update task')
+            self.logger.exception('Exception in update task')
 
     def _trigger_update(self) -> None:
         self.logger.debug('Sensor sync triggered')
