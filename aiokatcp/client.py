@@ -393,7 +393,7 @@ class Client(metaclass=ClientMeta):
             self._close_connection()    # Ensures the transport gets closed now
             self._closing = True
             if self._sensor_monitor is not None:
-                self._sensor_monitor.close()
+                self._sensor_monitor.close(True)
                 self._sensor_monitor = None
 
     async def wait_closed(self) -> None:
@@ -571,7 +571,7 @@ class Client(metaclass=ClientMeta):
         if self._sensor_monitor is not None:
             self._sensor_monitor.remove_watcher(watcher)
             if not self._sensor_monitor:   # i.e. no more watchers
-                self._sensor_monitor.close()
+                self._sensor_monitor.close(False)
                 self._sensor_monitor = None
 
 
@@ -846,6 +846,10 @@ class _SensorMonitor:
         for watcher in self._watchers:
             watcher.state_updated(SyncState.SYNCED)
 
+    async def _unsubscribe(self, sampling_set: Set[str]) -> None:
+        for name in sampling_set:
+            await self.client.request('sensor-sampling', name, 'none')
+
     def _connected(self) -> None:
         self._sampling_set.clear()
         self._trigger_update()
@@ -876,7 +880,7 @@ class _SensorMonitor:
                     self.logger.warning('Failed to process #sensor-status for %s',
                                         name, exc_info=True)
 
-    def close(self) -> None:
+    def close(self, client_closing: bool) -> None:
         self._cancel_update()
         self.client.remove_connected_callback(self._connected)
         self.client.remove_disconnected_callback(self._disconnected)
@@ -886,5 +890,8 @@ class _SensorMonitor:
         # client is closed. In the latter case, let the watchers know.
         for watcher in self._watchers:
             watcher.state_updated(SyncState.CLOSED)
+        if not client_closing and self._sampling_set:
+            task = self.client.loop.create_task(self._unsubscribe(set(self._sampling_set)))
+            task.add_done_callback(self._update_done)
         self._sensors.clear()
         self._sampling_set.clear()

@@ -502,9 +502,11 @@ class TestSensorMonitor(BaseTestClientAsync):
         self.watcher.reset_mock()
 
     async def test_remove_sensor_watcher(self):
-        # Mostly just a coverage test
+        """Removing the last watcher unsubscribes"""
         await self.test_init()
         self.client.remove_sensor_watcher(self.watcher)
+        await self.check_received(b'?sensor-sampling[3] device-status none\n')
+        await self.write(b'!sensor-sampling[3] ok device-status none\n')
 
     async def test_close(self):
         """Closing the client must update the state"""
