@@ -682,7 +682,8 @@ class SensorWatcher(AbstractSensorWatcher):
                 # normalising names in some way doesn't guarantee that.
                 # Instead, we use arbitrary numbering.
                 enums = [('ENUM{}'.format(i), value) for i, value in enumerate(values)]
-                stype = enum.Enum('discrete', enums, type=DiscreteMixin)
+                # Type checking disabled due to https://github.com/python/mypy/issues/4184
+                stype = enum.Enum('discrete', enums, type=DiscreteMixin)  # type: ignore
                 self._enum_cache[values] = stype
                 return stype
         else:

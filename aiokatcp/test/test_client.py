@@ -219,7 +219,7 @@ class TestClient(BaseTestClientAsync):
         def callback(string: str, integer: int) -> None:
             values.put_nowait((string, integer))
 
-        values = asyncio.Queue(loop=self.loop)
+        values = asyncio.Queue(loop=self.loop)    # type: asyncio.Queue[Tuple[str, int]]
         client = cast(DummyClient, self.client)
         client.add_inform_callback('bar', callback)
         await self.wait_connected()
