@@ -599,14 +599,15 @@ class AbstractSensorWatcher:
         pass
 
     def batch_start(self) -> None:
-        """Called at the start of a batch of back-to-back updates."""
+        """Called at the start of a batch of back-to-back updates.
+
+        Calls to :meth:`sensor_added`, :meth:`sensor_removed` and :meth:`sensor_updated`
+        will always be bracketed by :meth:`batch_start` and :meth:`batch_stop`. This
+        does not apply to :meth:`state_update`."""
         pass
 
     def batch_stop(self) -> None:
         """Called at the end of a batch of back-to-back updates."""
-        pass
-
-    def disconnected(self) -> None:
         pass
 
     def state_update(self, state: SyncState) -> None:
@@ -772,13 +773,17 @@ class _SensorMonitor:
 
     @contextlib.contextmanager
     def _batch(self) -> Generator[None, None, None]:
-        assert not self._in_batch, 'Re-entered _batch'
+        if self._in_batch:     # TODO: remove
+            assert not self._in_batch, 'Re-entered _batch'
         self._in_batch = True
-        for watcher in self._watchers:
-            watcher.batch_start()
+        self.logger.debug('Entering batch')
         try:
+            for watcher in self._watchers:
+                watcher.batch_start()
             yield
         finally:
+            self.logger.debug('Exiting batch')
+            self._in_batch = False
             for watcher in self._watchers:
                 watcher.batch_stop()
 
@@ -838,6 +843,7 @@ class _SensorMonitor:
                         watcher.sensor_added(name, description, units, type_name,
                                              *inform.arguments[4:])
                     self._sensors[name] = params
+                    self._sampling_set.discard(name)
                 if name not in self._sampling_set:
                     sampling.append(name)
             # Remove old sensors
@@ -845,9 +851,10 @@ class _SensorMonitor:
                 if name not in seen:
                     for watcher in self._watchers:
                         watcher.sensor_removed(name)
-            await self._set_sampling(sampling)
-            for watcher in self._watchers:
-                watcher.state_update(SyncState.SYNCED)
+                    self._sampling_set.discard(name)
+        await self._set_sampling(sampling)
+        for watcher in self._watchers:
+            watcher.state_update(SyncState.SYNCED)
 
     def _connected(self) -> None:
         self._sampling_set.clear()
@@ -887,6 +894,10 @@ class _SensorMonitor:
         self.client.remove_inform_callback('sensor-status', self._sensor_status)
         # The monitor is closed if there are no more watchers or if the
         # client is closed. In the latter case, let the watchers know.
+        with self._batch():
+            for watcher in self._watchers:
+                for name in self._sensors.keys():
+                    watcher.sensor_removed(name)
         for watcher in self._watchers:
             watcher.state_update(SyncState.CLOSED)
         self._sensors.clear()
