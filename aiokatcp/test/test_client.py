@@ -36,7 +36,8 @@ from typing import Tuple, Type, Pattern, Match, cast
 from nose.tools import nottest, istest
 import asynctest
 
-from aiokatcp import Client, FailReply, InvalidReply, ProtocolError, Message
+from aiokatcp import (Client, FailReply, InvalidReply, ProtocolError, Message,
+                      Sensor, SensorWatcher, AbstractSensorWatcher, SyncState)
 from .test_utils import timelimit
 
 
@@ -317,6 +318,136 @@ class TestClient(BaseTestClientAsync):
                 await asynctest.exhaust_callbacks(self.loop)
         self.assertRegex(cm.output[0], 'Failed to connect to invalid.invalid:1: ')
         task.cancel()
+
+
+@timelimit
+@istest
+class TestSensorMonitor(BaseTestClientAsync):
+    @timelimit(1)
+    async def setUp(self) -> None:
+        self.server, self.client_queue = await self.make_server(self.loop)
+        self.client, self.remote_reader, self.remote_writer = \
+            await self.make_client(self.server, self.client_queue, auto_reconnect=False)
+        self.addCleanup(self.remote_writer.close)
+        self.watcher = unittest.mock.Mock(autospec=AbstractSensorWatcher)
+        self.client.add_sensor_watcher(self.watcher)
+        # Make it possible to wait for particular informs to reach the client
+        # and get processed.
+        self.sensor_status_called = asyncio.Event(loop=self.loop)
+        self.interface_changed_called = asyncio.Event(loop=self.loop)
+        self.client.add_inform_callback('sensor-status',
+                                        lambda *args: self.sensor_status_called.set())
+        self.client.add_inform_callback('interface-changed',
+                                        lambda *args: self.interface_changed_called.set())
+
+    async def wait_sensor_status(self):
+        await self.sensor_status_called.wait()
+        self.sensor_status_called.clear()
+
+    async def wait_interface_changed(self):
+        await self.interface_changed_called.wait()
+        self.interface_changed_called.clear()
+
+    async def test_init(self) -> None:
+        call = unittest.mock.call
+        await self.wait_connected()
+        self.watcher.state_updated.assert_called_with(SyncState.UNSYNCED)
+        self.watcher.reset_mock()
+
+        await self.check_received(b'?sensor-list[1]\n')
+        await self.write(
+            b'#sensor-list[1] device-status Device\\_status \\@ discrete ok degraded fail\n'
+            b'!sensor-list[1] ok 1\n')
+        await self.check_received(b'?sensor-sampling[2] device-status auto\n')
+        self.assertEqual(self.watcher.mock_calls, [
+            call.batch_start(),
+            call.sensor_added('device-status', 'Device status', '', 'discrete',
+                              b'ok', b'degraded', b'fail'),
+            call.batch_stop()
+        ])
+        self.watcher.reset_mock()
+
+        await self.write(
+            b'#sensor-status 123456789.0 1 device-status nominal ok\n'
+            b'!sensor-sampling[2] ok device-status auto\n')
+        await self.wait_sensor_status()
+        await asynctest.exhaust_callbacks(self.loop)
+        self.assertEqual(self.watcher.mock_calls, [
+            call.batch_start(),
+            call.sensor_updated('device-status', b'ok', Sensor.Status.NOMINAL,
+                                123456789.0),
+            call.batch_stop(),
+            call.state_updated(SyncState.SYNCED)
+        ])
+        self.watcher.reset_mock()
+
+    async def test_add_remove_sensors(self):
+        call = unittest.mock.call
+        await self.test_init()
+        await self.write(b'#interface-changed sensor-list\n')
+        await self.wait_interface_changed()
+        self.watcher.state_updated.assert_called_with(SyncState.UNSYNCED)
+        self.watcher.reset_mock()
+
+        await self.check_received(b'?sensor-list[3]\n')
+        await self.write(
+            b'#sensor-list[3] temp Temperature F float\n'
+            b'!sensor-list[3] ok 1\n')
+        await self.check_received(b'?sensor-sampling[4] temp auto\n')
+        self.assertEqual(self.watcher.mock_calls, [
+            call.batch_start(),
+            call.sensor_added('temp', 'Temperature', 'F', 'float'),
+            call.sensor_removed('device-status'),
+            call.batch_stop()
+        ])
+        self.watcher.reset_mock()
+
+        await self.write(
+            b'#sensor-status 123456790.0 1 temp warn 451.0\n'
+            b'!sensor-sampling[4] ok temp auto\n')
+        await self.wait_sensor_status()
+        await asynctest.exhaust_callbacks(self.loop)
+        self.assertEqual(self.watcher.mock_calls, [
+            call.batch_start(),
+            call.sensor_updated('temp', b'451.0', Sensor.Status.WARN, 123456790.0),
+            call.batch_stop(),
+            call.state_updated(SyncState.SYNCED)
+        ])
+        self.watcher.reset_mock()
+
+    async def test_replace_sensor(self):
+        """Sensor has the same name but different parameters"""
+        call = unittest.mock.call
+        await self.test_init()
+        await self.write(b'#interface-changed sensor-list\n')
+        await self.wait_interface_changed()
+        self.watcher.state_updated.assert_called_with(SyncState.UNSYNCED)
+        self.watcher.reset_mock()
+
+        await self.check_received(b'?sensor-list[3]\n')
+        await self.write(
+            b'#sensor-list[3] device-status A\\_different\\_status \\@ int\n'
+            b'!sensor-list[3] ok 1\n')
+        await self.check_received(b'?sensor-sampling[4] device-status auto\n')
+        self.assertEqual(self.watcher.mock_calls, [
+            call.batch_start(),
+            call.sensor_added('device-status', 'A different status', '', 'int'),
+            call.batch_stop()
+        ])
+        self.watcher.reset_mock()
+
+        await self.write(
+            b'#sensor-status 123456791.0 1 device-status nominal 123\n'
+            b'!sensor-sampling[4] ok device-status auto\n')
+        await self.wait_sensor_status()
+        await asynctest.exhaust_callbacks(self.loop)
+        self.assertEqual(self.watcher.mock_calls, [
+            call.batch_start(),
+            call.sensor_updated('device-status', b'123', Sensor.Status.NOMINAL, 123456791.0),
+            call.batch_stop(),
+            call.state_updated(SyncState.SYNCED)
+        ])
+        self.watcher.reset_mock()
 
 
 @timelimit
