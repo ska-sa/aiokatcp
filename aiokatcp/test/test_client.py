@@ -328,7 +328,7 @@ class TestSensorMonitor(BaseTestClientAsync):
     async def setUp(self) -> None:
         self.server, self.client_queue = await self.make_server(self.loop)
         self.client, self.remote_reader, self.remote_writer = \
-            await self.make_client(self.server, self.client_queue, auto_reconnect=False)
+            await self.make_client(self.server, self.client_queue, auto_reconnect=True)
         self.addCleanup(self.remote_writer.close)
         self.watcher = unittest.mock.Mock(autospec=AbstractSensorWatcher)
         self.client.add_sensor_watcher(self.watcher)
@@ -511,6 +511,36 @@ class TestSensorMonitor(BaseTestClientAsync):
             call.batch_stop(),
             call.state_updated(SyncState.CLOSED)
         ])
+
+    async def test_disconnect(self):
+        """When the connection drops, the state must change appropriately"""
+        await self.test_init()
+        await self.write(b'#disconnect Testing\n')
+        (self.remote_reader, self.remote_writer) = await self.client_queue.get()
+
+        await self.wait_connected()
+        self.watcher.state_updated.assert_called_with(SyncState.UNSYNCED)
+        self.watcher.reset_mock()
+        await self.check_received(b'?sensor-list[3]\n')
+        await self.write(
+            b'#sensor-list[3] device-status Device\\_status \\@ discrete ok degraded fail\n'
+            b'!sensor-list[3] ok 1\n')
+        await self.check_received(b'?sensor-sampling[4] device-status auto\n')
+        await self.write(
+            b'#sensor-status 123456789.0 1 device-status nominal ok\n'
+            b'!sensor-sampling[4] ok device-status auto\n'
+            b'#wakeup\n')
+        await self.wakeup()
+        self.assertEqual(self.watcher.mock_calls, [
+            call.batch_start(),
+            # No sensor_added because the sensor was already known
+            call.batch_stop(),
+            call.batch_start(),
+            call.sensor_updated('device-status', b'ok', Sensor.Status.NOMINAL, 123456789.0),
+            call.batch_stop(),
+            call.state_updated(SyncState.SYNCED)
+        ])
+        self.watcher.reset_mock()
 
 
 @timelimit
