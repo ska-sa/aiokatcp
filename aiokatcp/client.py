@@ -633,8 +633,6 @@ class SensorWatcher(AbstractSensorWatcher):
     client
         Client to which this watcher will be attached. It is currently only used to
         get the correct logger and event loop.
-    sensors
-        Place to store mirrored sensors. If not provided, one will be created.
     enum_types
         Enum types to be used for discrete sensors. An enum type is used if it
         has the same legal values in the same order as the remote sensor. If
@@ -652,14 +650,10 @@ class SensorWatcher(AbstractSensorWatcher):
         'string': bytes      # Allows passing through arbitrary values even if not UTF-8
     }
 
-    def __init__(self, client: Client, sensors: Optional[sensor.SensorSet] = None,
-                 enum_types: Sequence[Type[enum.Enum]] = ()) -> None:
+    def __init__(self, client: Client, enum_types: Sequence[Type[enum.Enum]] = ()) -> None:
         self.synced = asyncio.Event(loop=client.loop)
         self.logger = client.logger
-        if sensors is None:
-            self.sensors = sensor.SensorSet()
-        else:
-            self.sensors = sensors
+        self.sensors = sensor.SensorSet()
         # Synthesized enum types for discrete sensors
         self._enum_cache = {}              # type: Dict[Tuple[bytes, ...], Type[enum.Enum]]
         for enum_type in enum_types:
@@ -890,10 +884,6 @@ class _SensorMonitor:
         self.client.remove_inform_callback('sensor-status', self._sensor_status)
         # The monitor is closed if there are no more watchers or if the
         # client is closed. In the latter case, let the watchers know.
-        with self._batch():
-            for watcher in self._watchers:
-                for name in self._sensors.keys():
-                    watcher.sensor_removed(name)
         for watcher in self._watchers:
             watcher.state_updated(SyncState.CLOSED)
         self._sensors.clear()
