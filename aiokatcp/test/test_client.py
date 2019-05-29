@@ -31,6 +31,7 @@ import logging
 import gc
 import unittest
 import unittest.mock
+from unittest.mock import call
 from typing import Tuple, Type, Pattern, Match, cast
 
 from nose.tools import nottest, istest
@@ -333,28 +334,24 @@ class TestSensorMonitor(BaseTestClientAsync):
         self.client.add_sensor_watcher(self.watcher)
         # Make it possible to wait for particular informs to reach the client
         # and get processed.
-        self.sensor_status_called = asyncio.Event(loop=self.loop)
-        self.interface_changed_called = asyncio.Event(loop=self.loop)
-        self.client.add_inform_callback('sensor-status',
-                                        lambda *args: self.sensor_status_called.set())
-        self.client.add_inform_callback('interface-changed',
-                                        lambda *args: self.interface_changed_called.set())
+        self.wakeups = asyncio.Queue(loop=self.loop)  # type: asyncio.Queue[None]
+        self.client.add_inform_callback('wakeup',
+                                        lambda *args: self.wakeups.put_nowait(None))
 
-    async def wait_sensor_status(self):
-        await self.sensor_status_called.wait()
-        self.sensor_status_called.clear()
+    async def wakeup(self) -> None:
+        """Wait for #wakeup sent from server to be received"""
+        await self.wakeups.get()
+        await asynctest.exhaust_callbacks(self.loop)
 
-    async def wait_interface_changed(self):
-        await self.interface_changed_called.wait()
-        self.interface_changed_called.clear()
-
-    async def test_init(self) -> None:
-        call = unittest.mock.call
+    async def connect(self) -> None:
+        """Get as far as the monitor issuing ``?sensor-list``"""
         await self.wait_connected()
         self.watcher.state_updated.assert_called_with(SyncState.UNSYNCED)
         self.watcher.reset_mock()
-
         await self.check_received(b'?sensor-list[1]\n')
+
+    async def sensor_list(self) -> None:
+        """Send the sensor list and wait for ``?sensor-sampling``"""
         await self.write(
             b'#sensor-list[1] device-status Device\\_status \\@ discrete ok degraded fail\n'
             b'!sensor-list[1] ok 1\n')
@@ -367,11 +364,13 @@ class TestSensorMonitor(BaseTestClientAsync):
         ])
         self.watcher.reset_mock()
 
+    async def sensor_sampling(self) -> None:
+        """Reply to ``?sensor-sampling``"""
         await self.write(
             b'#sensor-status 123456789.0 1 device-status nominal ok\n'
-            b'!sensor-sampling[2] ok device-status auto\n')
-        await self.wait_sensor_status()
-        await asynctest.exhaust_callbacks(self.loop)
+            b'!sensor-sampling[2] ok device-status auto\n'
+            b'#wakeup\n')
+        await self.wakeup()
         self.assertEqual(self.watcher.mock_calls, [
             call.batch_start(),
             call.sensor_updated('device-status', b'ok', Sensor.Status.NOMINAL,
@@ -381,15 +380,22 @@ class TestSensorMonitor(BaseTestClientAsync):
         ])
         self.watcher.reset_mock()
 
-    async def test_add_remove_sensors(self):
-        call = unittest.mock.call
-        await self.test_init()
-        await self.write(b'#interface-changed sensor-list\n')
-        await self.wait_interface_changed()
+    async def test_init(self) -> None:
+        await self.connect()
+        await self.sensor_list()
+        await self.sensor_sampling()
+
+    async def interface_changed(self):
+        """Send a ``#interface-changed`` inform and wait for ``?sensor-list``"""
+        await self.write(b'#interface-changed sensor-list\n#wakeup\n')
+        await self.wakeup()
         self.watcher.state_updated.assert_called_with(SyncState.UNSYNCED)
         self.watcher.reset_mock()
-
         await self.check_received(b'?sensor-list[3]\n')
+
+    async def test_add_remove_sensors(self):
+        await self.test_init()
+        await self.interface_changed()
         await self.write(
             b'#sensor-list[3] temp Temperature F float\n'
             b'!sensor-list[3] ok 1\n')
@@ -404,9 +410,9 @@ class TestSensorMonitor(BaseTestClientAsync):
 
         await self.write(
             b'#sensor-status 123456790.0 1 temp warn 451.0\n'
-            b'!sensor-sampling[4] ok temp auto\n')
-        await self.wait_sensor_status()
-        await asynctest.exhaust_callbacks(self.loop)
+            b'!sensor-sampling[4] ok temp auto\n'
+            b'#wakeup\n')
+        await self.wakeup()
         self.assertEqual(self.watcher.mock_calls, [
             call.batch_start(),
             call.sensor_updated('temp', b'451.0', Sensor.Status.WARN, 123456790.0),
@@ -417,14 +423,8 @@ class TestSensorMonitor(BaseTestClientAsync):
 
     async def test_replace_sensor(self):
         """Sensor has the same name but different parameters"""
-        call = unittest.mock.call
         await self.test_init()
-        await self.write(b'#interface-changed sensor-list\n')
-        await self.wait_interface_changed()
-        self.watcher.state_updated.assert_called_with(SyncState.UNSYNCED)
-        self.watcher.reset_mock()
-
-        await self.check_received(b'?sensor-list[3]\n')
+        await self.interface_changed()
         await self.write(
             b'#sensor-list[3] device-status A\\_different\\_status \\@ int\n'
             b'!sensor-list[3] ok 1\n')
@@ -438,9 +438,9 @@ class TestSensorMonitor(BaseTestClientAsync):
 
         await self.write(
             b'#sensor-status 123456791.0 1 device-status nominal 123\n'
-            b'!sensor-sampling[4] ok device-status auto\n')
-        await self.wait_sensor_status()
-        await asynctest.exhaust_callbacks(self.loop)
+            b'!sensor-sampling[4] ok device-status auto\n'
+            b'#wakeup\n')
+        await self.wakeup()
         self.assertEqual(self.watcher.mock_calls, [
             call.batch_start(),
             call.sensor_updated('device-status', b'123', Sensor.Status.NOMINAL, 123456791.0),
@@ -448,6 +448,69 @@ class TestSensorMonitor(BaseTestClientAsync):
             call.state_updated(SyncState.SYNCED)
         ])
         self.watcher.reset_mock()
+
+    async def test_sensor_vanished(self):
+        """Sensor vanishes immediately after sensor-list reply."""
+        await self.connect()
+        await self.sensor_list()
+        await self.write(
+            b'#interface-changed sensor-list\n'
+            b"!sensor-sampling[2] fail Unknown\\_sensor\\_'device-status'\n")
+        await self.check_received(b'?sensor-list[3]\n')
+        await self.write(b'!sensor-list[3] ok 0\n#wakeup\n')
+        await self.wakeup()
+        self.assertEqual(self.watcher.mock_calls, [
+            call.state_updated(SyncState.UNSYNCED),
+            call.batch_start(),
+            call.sensor_removed('device-status'),
+            call.batch_stop(),
+            call.state_updated(SyncState.SYNCED)
+        ])
+        self.watcher.reset_mock()
+
+    async def test_sensor_vanished2(self):
+        """Sensor vanishes immediately after sensor-list reply (second case).
+
+        This is similar to :meth:`test_sensor_vanished`, but the inform arrives
+        only after the failure in ``?sensor-sampling``.
+        """
+        await self.connect()
+        await self.sensor_list()
+        await self.write(
+            b"!sensor-sampling[2] fail Unknown\\_sensor\\_'device-status'\n"
+            b'#wakeup\n')
+        # Wait until the update task finishes before sending interface-changed
+        await self.wakeup()
+        await self.write(b'#interface-changed sensor-list\n')
+        await self.check_received(b'?sensor-list[3]\n')
+        await self.write(b'!sensor-list[3] ok 0\n#wakeup\n')
+        await self.wakeup()
+        self.assertEqual(self.watcher.mock_calls, [
+            call.state_updated(SyncState.SYNCED),
+            call.state_updated(SyncState.UNSYNCED),
+            call.batch_start(),
+            call.sensor_removed('device-status'),
+            call.batch_stop(),
+            call.state_updated(SyncState.SYNCED)
+        ])
+        self.watcher.reset_mock()
+
+    async def test_remove_sensor_watcher(self):
+        # Mostly just a coverage test
+        await self.test_init()
+        self.client.remove_sensor_watcher(self.watcher)
+
+    async def test_close(self):
+        """Closing the client must remove all sensors"""
+        await self.test_init()
+        self.client.close()
+        await self.client.wait_closed()
+        self.assertEqual(self.watcher.mock_calls, [
+            call.batch_start(),
+            call.sensor_removed('device-status'),
+            call.batch_stop(),
+            call.state_updated(SyncState.CLOSED)
+        ])
 
 
 @timelimit

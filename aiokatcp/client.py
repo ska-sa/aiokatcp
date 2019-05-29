@@ -176,7 +176,8 @@ class Client(metaclass=ClientMeta):
                     bytes(msg), msg.mid)
             else:
                 if msg.mtype == core.Message.Type.REPLY:
-                    req.reply.set_result(msg)
+                    if not req.reply.done():
+                        req.reply.set_result(msg)
                 elif msg.mtype == core.Message.Type.INFORM:
                     req.informs.append(msg)
                 else:
@@ -589,14 +590,14 @@ class AbstractSensorWatcher:
     """
     def sensor_added(self, name: str, description: str, units: str, type_name: str,
                      *args: bytes) -> None:
-        pass
+        pass         # pragma: nocover
 
     def sensor_removed(self, name: str) -> None:
-        pass
+        pass         # pragma: nocover
 
     def sensor_updated(self, name: str, value: bytes,
                        status: sensor.Sensor.Status, timestamp: float) -> None:
-        pass
+        pass         # pragma: nocover
 
     def batch_start(self) -> None:
         """Called at the start of a batch of back-to-back updates.
@@ -604,18 +605,18 @@ class AbstractSensorWatcher:
         Calls to :meth:`sensor_added`, :meth:`sensor_removed` and :meth:`sensor_updated`
         will always be bracketed by :meth:`batch_start` and :meth:`batch_stop`. This
         does not apply to :meth:`state_updated`."""
-        pass
+        pass         # pragma: nocover
 
     def batch_stop(self) -> None:
         """Called at the end of a batch of back-to-back updates."""
-        pass
+        pass         # pragma: nocover
 
     def state_updated(self, state: SyncState) -> None:
         """Indicates the state of the synchronisation state machine.
 
         Implementations should assume the initial state is DISCONNECTED.
         """
-        pass
+        pass         # pragma: nocover
 
 
 class DiscreteMixin:
@@ -766,10 +767,6 @@ class _SensorMonitor:
     def __bool__(self) -> bool:
         """True if there are any watchers"""
         return bool(self._watchers)
-
-    def __len__(self) -> int:
-        """Number of watchers"""
-        return len(self._watchers)
 
     @contextlib.contextmanager
     def _batch(self) -> Generator[None, None, None]:
