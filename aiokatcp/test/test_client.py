@@ -97,7 +97,11 @@ class BaseTestClientAsync(BaseTestClient, asynctest.TestCase):
         (reader, writer) = await client_queue.get()
         return client, reader, writer
 
-    async def check_received(self, pattern: Pattern[bytes]) -> Match:
+    async def check_received(self, data: bytes) -> None:
+        line = await self.remote_reader.readline()
+        self.assertEqual(line, data)
+
+    async def check_received_regex(self, pattern: Pattern[bytes]) -> Match:
         line = await self.remote_reader.readline()
         self.assertRegex(line, pattern)
         # cast keeps mypy happy (it can't tell that it will always match after the assert)
@@ -127,7 +131,7 @@ class TestClient(BaseTestClientAsync):
     async def test_request_ok(self) -> None:
         await self.wait_connected()
         future = self.loop.create_task(self.client.request('echo'))
-        await self.check_received(re.compile(br'^\?echo\[1\]\n\Z'))
+        await self.check_received(b'?echo[1]\n')
         await self.write(b'!echo[1] ok\n')
         result = await future
         self.assertEqual(result, ([], []))
@@ -135,9 +139,8 @@ class TestClient(BaseTestClientAsync):
         # characters, and null escaping.
         arg = b'h\xaf\xce\0'
         arg_esc = b'h\xaf\xce\\0'  # katcp escaping
-        arg_esc_re = re.escape(arg_esc)
         future = self.loop.create_task(self.client.request('echo', b'123', arg))
-        await self.check_received(re.compile(br'^\?echo\[2\] 123 ' + arg_esc_re + br'\n\Z'))
+        await self.check_received(b'?echo[2] 123 ' + arg_esc + b'\n')
         await self.write(b'!echo[2] ok 123 ' + arg_esc + b'\n')
         result = await future
         self.assertEqual(result, ([b'123', arg], []))
@@ -145,7 +148,7 @@ class TestClient(BaseTestClientAsync):
     async def test_request_fail(self) -> None:
         await self.wait_connected()
         future = self.loop.create_task(self.client.request('failme'))
-        await self.check_received(re.compile(br'^\?failme\[1\]\n\Z'))
+        await self.check_received(b'?failme[1]\n')
         await self.write(b'!failme[1] fail Error\\_message\n')
         with self.assertRaisesRegex(FailReply, '^Error message$'):
             await future
@@ -153,7 +156,7 @@ class TestClient(BaseTestClientAsync):
     async def test_request_fail_no_msg(self) -> None:
         await self.wait_connected()
         future = self.loop.create_task(self.client.request('failme'))
-        await self.check_received(re.compile(br'^\?failme\[1\]\n\Z'))
+        await self.check_received(b'?failme[1]\n')
         await self.write(b'!failme[1] fail\n')
         with self.assertRaisesRegex(FailReply, '^$'):
             await future
@@ -161,7 +164,7 @@ class TestClient(BaseTestClientAsync):
     async def test_request_fail_msg_bad_encoding(self) -> None:
         await self.wait_connected()
         future = self.loop.create_task(self.client.request('failme'))
-        await self.check_received(re.compile(br'^\?failme\[1\]\n\Z'))
+        await self.check_received(b'?failme[1]\n')
         await self.write(b'!failme[1] fail \xaf\n')
         with self.assertRaisesRegex(FailReply, '^\uFFFD$'):
             await future
@@ -169,7 +172,7 @@ class TestClient(BaseTestClientAsync):
     async def test_request_invalid(self) -> None:
         await self.wait_connected()
         future = self.loop.create_task(self.client.request('invalid-request'))
-        await self.check_received(re.compile(br'^\?invalid-request\[1\]\n\Z'))
+        await self.check_received(b'?invalid-request[1]\n')
         await self.write(b'!invalid-request[1] invalid Unknown\\_request\n')
         with self.assertRaisesRegex(InvalidReply, '^Unknown request$'):
             await future
@@ -177,7 +180,7 @@ class TestClient(BaseTestClientAsync):
     async def test_request_no_code(self) -> None:
         await self.wait_connected()
         future = self.loop.create_task(self.client.request('invalid-request'))
-        await self.check_received(re.compile(br'^\?invalid-request\[1\]\n\Z'))
+        await self.check_received(b'?invalid-request[1]\n')
         await self.write(b'!invalid-request[1]\n')
         with self.assertRaisesRegex(InvalidReply, '^$'):
             await future
@@ -185,7 +188,7 @@ class TestClient(BaseTestClientAsync):
     async def test_request_with_informs(self) -> None:
         await self.wait_connected()
         future = self.loop.create_task(self.client.request('help'))
-        await self.check_received(re.compile(br'^\?help\[1\]\n\Z'))
+        await self.check_received(b'?help[1]\n')
         await self.write(b'#help[1] help Show\\_help\n')
         await self.write(b'#help[1] halt Halt\n')
         await self.write(b'!help[1] ok 2\n')
@@ -377,7 +380,7 @@ class TestClientNoMidSupport(BaseTestClientAsync):
         self.remote_writer.write(b'#version-connect katcp-protocol 5.0-M\n')
         await self.client.wait_connected()
         future = self.loop.create_task(self.client.request('echo'))
-        await self.check_received(re.compile(br'^\?echo\n\Z'))
+        await self.check_received(b'?echo\n')
         await self.write(b'#echo an\\_inform\n')
         await self.write(b'!echo ok\n')
         result = await future
@@ -389,7 +392,7 @@ class TestClientNoMidSupport(BaseTestClientAsync):
         future1 = self.loop.create_task(self.client.request('echo', 1))
         future2 = self.loop.create_task(self.client.request('echo', 2))
         for i in range(2):
-            match = await self.check_received(re.compile(br'^\?echo (1|2)\n\Z'))
+            match = await self.check_received_regex(re.compile(br'^\?echo (1|2)\n\Z'))
             await self.write(b'#echo value ' + match.group(1) + b'\n')
             await self.write(b'!echo ok ' + match.group(1) + b'\n')
         result1 = await future1
