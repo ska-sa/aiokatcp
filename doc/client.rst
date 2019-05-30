@@ -7,3 +7,4 @@ Writing a client
 
    client/tutorial
    client/reconnect
+   client/sensor_watcher
