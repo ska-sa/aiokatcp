@@ -303,7 +303,7 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
         self.observer = None
 
     @abc.abstractmethod
-    def parameters(self) -> Tuple:
+    def parameters(self) -> tuple:
         pass       # pragma: no cover
 
     @classmethod

@@ -758,7 +758,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
     async def request_sensor_sampling(
             self, ctx: RequestContext, name: str,
             strategy: sensor.SensorSampler.Strategy = None,
-            *args: bytes) -> Tuple:
+            *args: bytes) -> tuple:
         """Configure or query the way a sensor is sampled.
 
         Sampled values are reported asynchronously using the #sensor-status
