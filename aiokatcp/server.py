@@ -34,7 +34,7 @@ import io
 import re
 import time
 from typing import (Set, Callable, Awaitable, Sequence, Iterable,
-                    Optional, List, Tuple, Any, TypeVar, cast)
+                    Optional, List, Any, TypeVar, cast)
 # Only used in type comments, so flake8 complains
 from typing import Dict    # noqa: F401
 
