@@ -651,6 +651,13 @@ class SensorWatcher(AbstractSensorWatcher):
         has the same legal values in the same order as the remote sensor. If
         a discrete sensor has no matching enum type, one is synthesized on the
         fly.
+
+    Attributes
+    ----------
+    sensors : :class:`SensorSet`
+        The mirrored sensors
+    synced : :class:`asyncio.Event`
+        Event that is set whenever the state is :const:`SyncState.SYNCED`
     """
 
     SENSOR_TYPES = {
@@ -829,6 +836,7 @@ class _SensorMonitor:
                 self._sampling_set.add(name)
 
     async def _update(self) -> None:
+        """Refresh the sensor list and subscriptions."""
         reply, informs = await self.client.request('sensor-list')
         sampling = []       # type: List[str]
         seen = set()        # type: Set[str]
