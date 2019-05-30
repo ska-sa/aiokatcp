@@ -576,10 +576,15 @@ class Client(metaclass=ClientMeta):
 
 
 class SyncState(enum.Enum):
-    CLOSED = 1             # Client object was closed
-    DISCONNECTED = 2       # No connection to server
-    UNSYNCED = 3           # Connection working, but waiting for sensor-list or subscriptions
-    SYNCED = 4             # List of sensors is up to date
+    """State of synchronisation of an :class:`AbstractSensorWatcher`"""
+    #: Not currently connected to the server
+    DISCONNECTED = 1
+    #: Connected to the server, but still subscribing to sensors
+    UNSYNCED = 2
+    #: Connected to the server and sensor list is up to date
+    SYNCED = 3
+    #: Client object has been closed (:meth:`Client.close`)
+    CLOSED = 4
 
 
 class AbstractSensorWatcher:
@@ -590,13 +595,20 @@ class AbstractSensorWatcher:
     """
     def sensor_added(self, name: str, description: str, units: str, type_name: str,
                      *args: bytes) -> None:
+        """A sensor was added on the remote server.
+
+        This is also called if a sensor changed its properties. In that case
+        there is *no* call to :meth:`sensor_removed`.
+        """
         pass         # pragma: nocover
 
     def sensor_removed(self, name: str) -> None:
+        """A sensor disappeared from the remote server."""
         pass         # pragma: nocover
 
     def sensor_updated(self, name: str, value: bytes,
                        status: sensor.Sensor.Status, timestamp: float) -> None:
+        """The value of a sensor changed on the remote server."""
         pass         # pragma: nocover
 
     def batch_start(self) -> None:
@@ -614,7 +626,8 @@ class AbstractSensorWatcher:
     def state_updated(self, state: SyncState) -> None:
         """Indicates the state of the synchronisation state machine.
 
-        Implementations should assume the initial state is DISCONNECTED.
+        Implementations should assume the initial state is
+        :const:`SyncState.DISCONNECTED`.
         """
         pass         # pragma: nocover
 
@@ -626,7 +639,7 @@ class DiscreteMixin:
 
 
 class SensorWatcher(AbstractSensorWatcher):
-    """Sensor watcher that mirrors sensors into a :class:`~.SensorSet`.
+    """Sensor watcher that mirrors sensors into a :class:`SensorSet`.
 
     Parameters
     ----------
