@@ -63,6 +63,6 @@ General
   :meth:`AbstractEventLoop.call_soon_threadsafe`) to ensure that aiokatcp
   structures are touched only by the thread running the event loop.
 - None of the functions have timeout parameters. Instead, you can cancel
-  coroutines, for example, using `asyncio_timeout`_.
+  coroutines, for example, using `async_timeout`_.
 
-.. _asyncio_timeout: https://github.com/aio-libs/async-timeout
+.. _async_timeout: https://github.com/aio-libs/async-timeout
