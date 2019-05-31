@@ -580,7 +580,7 @@ class SyncState(enum.Enum):
     #: Not currently connected to the server
     DISCONNECTED = 1
     #: Connected to the server, but still subscribing to sensors
-    UNSYNCED = 2
+    SYNCING = 2
     #: Connected to the server and sensor list is up to date
     SYNCED = 3
     #: Client object has been closed (:meth:`Client.close`)
@@ -817,7 +817,7 @@ class _SensorMonitor:
     def _trigger_update(self) -> None:
         self.logger.debug('Sensor sync triggered')
         for watcher in self._watchers:
-            watcher.state_updated(SyncState.UNSYNCED)
+            watcher.state_updated(SyncState.SYNCING)
         self._cancel_update()
         self._update_task = self.client.loop.create_task(self._update())
         self._update_task.add_done_callback(self._update_done)

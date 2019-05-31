@@ -352,7 +352,7 @@ class TestSensorMonitor(BaseTestClientAsync):
     async def connect(self) -> None:
         """Get as far as the monitor issuing ``?sensor-list``"""
         await self.wait_connected()
-        self.watcher.state_updated.assert_called_with(SyncState.UNSYNCED)
+        self.watcher.state_updated.assert_called_with(SyncState.SYNCING)
         self.watcher.reset_mock()
         await self.check_received(b'?sensor-list[1]\n')
 
@@ -395,7 +395,7 @@ class TestSensorMonitor(BaseTestClientAsync):
         """Send a ``#interface-changed`` inform and wait for ``?sensor-list``"""
         await self.write(b'#interface-changed sensor-list\n#wakeup\n')
         await self.wakeup()
-        self.watcher.state_updated.assert_called_with(SyncState.UNSYNCED)
+        self.watcher.state_updated.assert_called_with(SyncState.SYNCING)
         self.watcher.reset_mock()
         await self.check_received(b'?sensor-list[3]\n')
 
@@ -466,7 +466,7 @@ class TestSensorMonitor(BaseTestClientAsync):
         await self.write(b'!sensor-list[3] ok 0\n#wakeup\n')
         await self.wakeup()
         self.assertEqual(self.watcher.mock_calls, [
-            call.state_updated(SyncState.UNSYNCED),
+            call.state_updated(SyncState.SYNCING),
             call.batch_start(),
             call.sensor_removed('device-status'),
             call.batch_stop(),
@@ -493,7 +493,7 @@ class TestSensorMonitor(BaseTestClientAsync):
         await self.wakeup()
         self.assertEqual(self.watcher.mock_calls, [
             call.state_updated(SyncState.SYNCED),
-            call.state_updated(SyncState.UNSYNCED),
+            call.state_updated(SyncState.SYNCING),
             call.batch_start(),
             call.sensor_removed('device-status'),
             call.batch_stop(),
@@ -524,7 +524,7 @@ class TestSensorMonitor(BaseTestClientAsync):
         (self.remote_reader, self.remote_writer) = await self.client_queue.get()
 
         await self.wait_connected()
-        self.watcher.state_updated.assert_called_with(SyncState.UNSYNCED)
+        self.watcher.state_updated.assert_called_with(SyncState.SYNCING)
         self.watcher.reset_mock()
         await self.check_received(b'?sensor-list[3]\n')
         await self.write(
@@ -662,7 +662,7 @@ class TestSensorWatcher(asynctest.TestCase):
     def test_state_updated(self):
         self.test_sensor_added()
 
-        self.watcher.state_updated(SyncState.UNSYNCED)
+        self.watcher.state_updated(SyncState.SYNCING)
         self.assertFalse(self.watcher.synced.is_set())
         self.assertEqual(len(self.watcher.sensors), 1)
         self.assertEqual(self.watcher.sensors['test_foo'].status, Sensor.Status.UNKNOWN)
