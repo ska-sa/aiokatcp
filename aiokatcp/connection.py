@@ -308,5 +308,6 @@ def wrap_handler(name: str, handler: Callable, fixed: int) -> Callable:
                           annotation=core.Message))
     wrapper.__signature__ = sig.replace(parameters=wrapper_parameters)  # type: ignore
     wrapper = _identity_decorator(wrapper)
+    wrapper._aiokatcp_orig_handler = handler                            # type: ignore
 
     return wrapper

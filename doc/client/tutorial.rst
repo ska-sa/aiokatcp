@@ -60,8 +60,8 @@ values into text.
 
 Asynchronous informs
 --------------------
-To handle asynchronous informs, it is necessary to subclass :class:`~.Client` and
-implement inform handlers. An inform handler is a message named
+There are two ways to handle asynchronous informs. The first is to subclass
+:class:`~.Client` and implement inform handlers. An inform handler is a message named
 :samp:`inform_{name}` where *name* is the name of the inform. The type
 annotations on the arguments are used to convert the arguments from raw bytes
 to those types. For more details, see :ref:`type-conversions`.
@@ -78,7 +78,7 @@ As an example, here is how one might handle ``#sensor-status`` informs:
 
     class MyClient(aiokatcp.Client):
         def inform_sensor_status(self, timestamp: aiokatcp.Timestamp,
-                                   num_sensors: int, *args) -> None:
+                                 num_sensors: int, *args) -> None:
             if len(args) != 3 * num_sensors:
                 raise FailReply('Wrong number of arguments')
             ...
@@ -88,3 +88,9 @@ informs for which there is no specific handler.
 
 Note that the base class already contains inform handlers for a number of
 standard informs.
+
+The second way to deal with asynchronous informs is to register callbacks. This
+has the advantage that it does not require subclassing and so can be used on an
+already-constructed :class:`~.Client`. Instead of a method inside the class,
+write a function (with type annotations on the arguments, as before) and pass
+it to :meth:`.Client.add_inform_callback`.

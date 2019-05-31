@@ -1,6 +1,16 @@
 Changelog
 =========
 
+.. rubric:: Development version
+
+- Make :class:`~.SensorSet` more generic and move into :mod:`aiokatcp.sensor`
+  package. It no longer takes a list of connections; instead, one may register
+  callbacks to get notification of removals. Note that the constructor
+  interface has changed in a non-compatible way.
+- Add :meth:`.Sensor.Status.valid_value`.
+- Add :meth:`.Client.add_inform_callback` and :meth:`.Client.remove_inform_callback`.
+- Add support for :ref:`sensor_watcher`.
+
 .. rubric:: Version 0.4.4
 
 - Support Python 3.7
