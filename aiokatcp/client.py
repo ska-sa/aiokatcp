@@ -793,9 +793,9 @@ class _SensorMonitor:
             yield
         finally:
             self.logger.debug('Exiting batch')
-            self._in_batch = False
             for watcher in self._watchers:
                 watcher.batch_stop()
+            self._in_batch = False
 
     def _cancel_update(self) -> None:
         if self._update_task is not None:
