@@ -4,8 +4,8 @@ Watching sensors
 ----------------
 While the low-level interface can be used to subscribe to updates of specific
 sensors, it is non-trivial to monitor all sensors of a specific remote server
-and react appropriate to changes in the sensor list, disconnections,
-reconnections and so on.  Use cases include proxying a sensor (and hence
+and react appropriately to changes in the sensor list, disconnections,
+reconnections and so on.  Use cases include proxying a remote server (and hence
 mirroring its sensors) and pushing sensor values into another monitoring
 system.
 
@@ -19,7 +19,7 @@ This is a low-level base class which should be subclassed to implement callbacks
 :class:`~.SensorWatcher` is a concrete implementation that processes the
 callbacks into a stored :class:`~.SensorSet` with the mirrored sensors. It can
 also (via subclassing and overriding :meth:`~.SensorWatcher.rewrite_name`)
-modify the names of the mirror sensors as they are created, which may be useful
+modify the names of the mirrored sensors as they are created, which may be useful
 for proxying.
 
 Sensor monitoring operates on a state machine, and state changes are reported
