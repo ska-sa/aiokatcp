@@ -1,7 +1,7 @@
 Changelog
 =========
 
-.. rubric:: Development version
+.. rubric:: Version 0.5.0
 
 - Make :class:`~.SensorSet` more generic and move into :mod:`aiokatcp.sensor`
   package. It no longer takes a list of connections; instead, one may register
