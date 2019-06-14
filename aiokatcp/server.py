@@ -82,7 +82,7 @@ class ClientConnection(connection.Connection):
         self.write_message(msg)
 
 
-class RequestContext(object):
+class RequestContext:
     """Interface for informs and replies to a request.
 
     Parameters

@@ -44,7 +44,7 @@ _E = TypeVar('_E', bound=enum.Enum)
 _IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
 
 
-class Address(object):
+class Address:
     """A katcp address.
 
     Parameters
@@ -394,7 +394,7 @@ class KatcpSyntaxError(ValueError):
         self.raw = raw
 
 
-class Message(object):
+class Message:
     __slots__ = ['mtype', 'name', 'arguments', 'mid']
 
     class Type(enum.Enum):

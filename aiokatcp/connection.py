@@ -113,10 +113,10 @@ class InvalidReply(Exception):
 
 class ConnectionLoggerAdapter(logging.LoggerAdapter):
     def process(self, msg, kwargs):
-        return '%s [%s]' % (msg, self.extra['address']), kwargs
+        return '{} [{}]'.format(msg, self.extra['address']), kwargs
 
 
-class Connection(object):
+class Connection:
     def __init__(self, owner: Any,
                  reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                  is_server: bool) -> None:
