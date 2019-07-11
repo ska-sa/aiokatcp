@@ -1,6 +1,10 @@
 Changelog
 =========
 
+.. rubric:: Development version
+
+- Add :meth:`.Server.on_stop`.
+
 .. rubric:: Version 0.5.0
 
 - Make :class:`~.SensorSet` more generic and move into :mod:`aiokatcp.sensor`
