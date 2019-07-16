@@ -1,7 +1,7 @@
 Changelog
 =========
 
-.. rubric:: Development version
+.. rubric:: Version 0.6.0
 
 - Add :meth:`.Server.on_stop`.
 
