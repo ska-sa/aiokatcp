@@ -304,6 +304,20 @@ class DeviceServer(metaclass=DeviceServerMeta):
             self._server = await self.loop.create_server(factory, self._host, self._port)
             self._stopping = False
 
+    async def on_stop(self) -> None:
+        """Extension point for subclasses to run shutdown code.
+
+        This is called after the TCP server has been shut down and all
+        in-flight requests have been completed or cancelled. Subclasses
+        should override this function rather than :meth:`stop` to run
+        late shutdown code because this is called *before* the flag is
+        set to wake up :meth:`join`.
+
+        It is only called if the server was running when :meth:`stop` was
+        called.
+        """
+        pass
+
     async def stop(self, cancel: bool = True) -> None:
         """Shut down the server.
 
@@ -328,6 +342,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
                     client.write_message(msg)
                     client.close()
                     await client.wait_closed()
+                await self.on_stop()
             self._stopped.set()
 
     def halt(self, cancel: bool = True) -> asyncio.Task:

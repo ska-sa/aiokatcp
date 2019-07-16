@@ -67,6 +67,7 @@ class DummyServer(DeviceServer):
         self.sensors.add(sensor)
         sensor = Sensor(float, 'float-sensor', 'generic float sensor')
         self.sensors.add(sensor)
+        self.on_stop_called = 0
 
     async def request_increment_counter(self, ctx: RequestContext) -> None:
         """Increment a counter"""
@@ -94,6 +95,9 @@ class DummyServer(DeviceServer):
     async def request_crash(self, ctx: RequestContext) -> None:
         """Request that always raises an exception"""
         raise RuntimeError("help I fell over")
+
+    async def on_stop(self) -> None:
+        self.on_stop_called += 1
 
 
 class BadServer(DummyServer):
@@ -406,6 +410,15 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
         await self._check_reply([
             re.compile(br'^#log info 123456789\.0 _aiokatcp.test.test_logger '
                        br'test_server\.py:\d+:\\_bar\n')])
+
+    async def test_on_stop(self) -> None:
+        self.assertEqual(self.server.on_stop_called, 0)
+        self.server.halt()
+        await self.server.join()
+        self.assertEqual(self.server.on_stop_called, 1)
+        # on_stop should not be called when already stopped
+        await self.server.stop()
+        self.assertEqual(self.server.on_stop_called, 1)
 
 
 class TestDeviceServerClocked(DeviceServerTestMixin, asynctest.ClockedTestCase):

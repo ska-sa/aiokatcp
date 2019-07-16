@@ -234,5 +234,15 @@ The latter is useful as a callback for a signal handler, e.g.
    asyncio.get_event_loop().add_signal_handler(signal.SIGINT, server.halt)
 
 The ``?halt`` request is implemented in terms of :meth:`~.DeviceServer.halt`
-and hence :meth:`~.DeviceServer.stop`. Thus, additional shutdown behaviour can
-be added to the server by overriding :meth:`~.DeviceServer.stop`.
+and hence :meth:`~.DeviceServer.stop`.
+
+One gotcha is that :meth:`~.DeviceServer.join` returns as soon as
+:meth:`~.DeviceServer.stop` completes. This is a problem if you override
+:meth:`~.DeviceServer.stop` to shut down other parts of your system after the
+katcp server has stopped, because this code may only run *after*
+:meth:`~.DeviceServer.join` returns (particularly if it is asynchronous
+code). Instead, one can override :meth:`~.DeviceServer.on_stop`, which
+is a coroutine that does nothing and is intended specifically for this
+purpose. It is called by :meth:`~.DeviceServer.stop` after it has
+completed its work, but before it signals :meth:`~.DeviceServer.join` to
+wake up.
