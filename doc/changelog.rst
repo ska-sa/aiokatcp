@@ -1,6 +1,12 @@
 Changelog
 =========
 
+.. rubric:: Version 0.6.1
+
+- Fix the type annotations to allow :meth:`.Client.add_sensor_watcher` to take a
+  :class:`.AbstractSensorWatcher` instead of a :class:`.SensorWatcher`.
+- Always call sensor watchers in the order they were added.
+
 .. rubric:: Version 0.6.0
 
 - Add :meth:`.Server.on_stop`.
