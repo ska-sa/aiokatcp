@@ -562,12 +562,12 @@ class Client(metaclass=ClientMeta):
         else:
             raise InvalidReply(error.decode('utf-8', errors='replace'))
 
-    def add_sensor_watcher(self, watcher: 'SensorWatcher') -> None:
+    def add_sensor_watcher(self, watcher: 'AbstractSensorWatcher') -> None:
         if self._sensor_monitor is None:
             self._sensor_monitor = _SensorMonitor(self)
         self._sensor_monitor.add_watcher(watcher)
 
-    def remove_sensor_watcher(self, watcher: 'SensorWatcher') -> None:
+    def remove_sensor_watcher(self, watcher: 'AbstractSensorWatcher') -> None:
         if self._sensor_monitor is not None:
             self._sensor_monitor.remove_watcher(watcher)
             if not self._sensor_monitor:   # i.e. no more watchers
@@ -770,12 +770,12 @@ class _SensorMonitor:
         # Sensors whose sampling strategy has been set
         self._sampling_set = set()         # type: Set[str]
         self._in_batch = False
-        self._watchers = set()             # type: Set[SensorWatcher]
+        self._watchers = set()             # type: Set[AbstractSensorWatcher]
 
-    def add_watcher(self, watcher: SensorWatcher) -> None:
+    def add_watcher(self, watcher: AbstractSensorWatcher) -> None:
         self._watchers.add(watcher)
 
-    def remove_watcher(self, watcher: SensorWatcher) -> None:
+    def remove_watcher(self, watcher: AbstractSensorWatcher) -> None:
         self._watchers.discard(watcher)
 
     def __bool__(self) -> bool:
