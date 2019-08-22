@@ -35,6 +35,7 @@ import functools
 import enum
 import time
 import contextlib
+from collections import OrderedDict
 from typing import Any, List, Iterable, Callable, Tuple, Sequence, Type, Set, Generator
 # Only used in type comments, so flake8 complains
 from typing import Dict, Optional, Union   # noqa: F401
@@ -770,13 +771,17 @@ class _SensorMonitor:
         # Sensors whose sampling strategy has been set
         self._sampling_set = set()         # type: Set[str]
         self._in_batch = False
-        self._watchers = set()             # type: Set[AbstractSensorWatcher]
+        # Really an OrderedSet, but no such type exists
+        self._watchers = OrderedDict()     # type: Dict[AbstractSensorWatcher, None]
 
     def add_watcher(self, watcher: AbstractSensorWatcher) -> None:
-        self._watchers.add(watcher)
+        self._watchers[watcher] = None
 
     def remove_watcher(self, watcher: AbstractSensorWatcher) -> None:
-        self._watchers.discard(watcher)
+        try:
+            del self._watchers[watcher]
+        except KeyError:
+            pass
 
     def __bool__(self) -> bool:
         """True if there are any watchers"""
