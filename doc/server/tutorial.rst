@@ -120,7 +120,7 @@ process binary data or apply another encoding, use :class:`bytes` instead,
 which does no conversion (this is also the default if no type annotation is
 provided for an argument).
 
-.. _specification: https://katcp-python.readthedocs.io/en/v0.6.4/_downloads/bff0f2ba64c586770b519594f52b1ab7/NRF-KAT7-6.0-IFCE-002-Rev5.pdf
+.. _specification: https://katcp-python.readthedocs.io/en/latest/_downloads/361189acb383a294be20d6c10c257cb4/NRF-KAT7-6.0-IFCE-002-Rev5-1.pdf
 
 There are also :class:`~aiokatcp.core.Timestamp` and
 :class:`~aiokatcp.core.Address` classes corresponding to the timestamp and
