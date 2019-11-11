@@ -92,6 +92,12 @@ class Sensor(Generic[_T]):
     status_func
         Function that maps a value to a status in :meth:`set_value` if none is given.
         The default is a function that always returns NOMINAL.
+    auto_strategy
+        Sampling strategy to use when a client requests the ``auto`` strategy.
+        The default is to send all updates of the value to the client
+        immediately.
+    auto_strategy_parameters
+        Parameters to use with `auto_strategy`. They must be already-decoded values.
     """
 
     class Status(enum.Enum):
@@ -114,7 +120,9 @@ class Sensor(Generic[_T]):
                  default: _T = None,
                  initial_status: Status = Status.UNKNOWN,
                  *,
-                 status_func: Callable[[_T], Status] = _default_status_func) -> None:
+                 status_func: Callable[[_T], Status] = _default_status_func,
+                 auto_strategy: Optional['SensorSampler.Strategy'] = None,
+                 auto_strategy_parameters: Iterable[Any] = ()) -> None:
         self.stype = sensor_type
         type_info = core.get_type(sensor_type)
         self.type_name = type_info.name
@@ -128,6 +136,12 @@ class Sensor(Generic[_T]):
         else:
             value = default
         self._reading = Reading(time.time(), initial_status, value)
+        if auto_strategy is None:
+            self.auto_strategy = SensorSampler.Strategy.AUTO
+        else:
+            self.auto_strategy = auto_strategy
+        self.auto_strategy_parameters = tuple(auto_strategy_parameters)
+        # TODO: should validate the parameters against the strategy.
 
     def notify(self, reading: Reading[_T]) -> None:
         """Notify all observers of changes to this sensor.
@@ -216,7 +230,7 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
                  difference: Optional[_T] = None,
                  shortest: core.Timestamp = core.Timestamp(0),
                  longest: core.Timestamp = None,
-                 *, always_update: bool = False) -> None:
+                 *, always_update: bool = False, is_auto: bool = False) -> None:
         if longest is not None:
             self.longest = float(longest)  # type: Optional[float]
             if self.longest <= 0:
@@ -228,6 +242,7 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
         self.observer = observer        # type: Optional[Callable[[Sensor[_T], Reading[_T]], None]]
         self.difference = difference
         self.always_update = always_update
+        self.is_auto = is_auto
         self.loop = loop
         self._callback_handle = None    # type: Optional[asyncio.Handle]
         self._last_time = 0.0
@@ -303,8 +318,15 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
         self.observer = None
 
     @abc.abstractmethod
-    def parameters(self) -> tuple:
+    def _parameters(self) -> tuple:
         pass       # pragma: no cover
+
+    def parameters(self) -> tuple:
+        """Return the parameters with which the sensor was created."""
+        if self.is_auto:
+            return (SensorSampler.Strategy.AUTO,)
+        else:
+            return self._parameters()
 
     @classmethod
     def factory(cls, sensor: Sensor[_T], observer: Callable[[Sensor[_T], Reading[_T]], None],
@@ -312,7 +334,7 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
                 strategy: 'SensorSampler.Strategy', *args: bytes) -> Optional['SensorSampler[_T]']:
         classes_types = {
             cls.Strategy.NONE: (None, []),
-            cls.Strategy.AUTO: (_SensorSamplerAuto, []),
+            cls.Strategy.AUTO: (_SensorSamplerEventAlways, []),
             cls.Strategy.PERIOD: (_SensorSamplerPeriod, [core.Timestamp]),
             cls.Strategy.EVENT: (_SensorSamplerEvent, []),
             cls.Strategy.DIFFERENTIAL: (_SensorSamplerDifferential, [sensor.stype]),
@@ -320,49 +342,61 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
             cls.Strategy.DIFFERENTIAL_RATE:
                 (_SensorSamplerDifferentialRate, [sensor.stype, core.Timestamp, core.Timestamp])
         }   # type: Dict[SensorSampler.Strategy, Tuple[Optional[Type[SensorSampler]], List[Type]]]
-        if strategy in (cls.Strategy.DIFFERENTIAL, cls.Strategy.DIFFERENTIAL_RATE):
-            if sensor.stype not in (int, float):
-                raise TypeError('differential strategies only valid for integer and float sensors')
-        out_cls, types = classes_types[strategy]
-        if len(types) != len(args):
-            raise ValueError('expected {} strategy arguments, found {}'.format(
-                len(types), len(args)))
-        decoded_args = [core.decode(type_, arg) for type_, arg in zip(types, args)]
+
+        if strategy == cls.Strategy.AUTO:
+            strategy = sensor.auto_strategy
+            decoded_args = sensor.auto_strategy_parameters
+            out_cls = classes_types[strategy][0]
+            is_auto = True
+        else:
+            if strategy in (cls.Strategy.DIFFERENTIAL, cls.Strategy.DIFFERENTIAL_RATE):
+                if sensor.stype not in (int, float):
+                    raise TypeError(
+                        'differential strategies only valid for integer and float sensors')
+            out_cls, types = classes_types[strategy]
+            if len(types) != len(args):
+                raise ValueError('expected {} strategy arguments, found {}'.format(
+                    len(types), len(args)))
+            decoded_args = tuple(core.decode(type_, arg) for type_, arg in zip(types, args))
+            is_auto = False
+
         if out_cls is None:
             return None
         else:
-            return out_cls(sensor, observer, loop, *decoded_args)
+            return out_cls(sensor, observer, loop, *decoded_args, is_auto=is_auto)
 
 
-class _SensorSamplerAuto(SensorSampler[_T]):
+class _SensorSamplerEventAlways(SensorSampler[_T]):
     def __init__(self, sensor: Sensor[_T], observer: Callable[[Sensor[_T], Reading[_T]], None],
-                 loop: asyncio.AbstractEventLoop) -> None:
-        super().__init__(sensor, observer, loop, always_update=True)
+                 loop: asyncio.AbstractEventLoop, *, is_auto: bool) -> None:
+        super().__init__(sensor, observer, loop, always_update=True, is_auto=is_auto)
 
-    def parameters(self) -> Tuple[SensorSampler.Strategy]:
+    def _parameters(self) -> Tuple[SensorSampler.Strategy]:
         return (SensorSampler.Strategy.AUTO,)
 
 
 class _SensorSamplerPeriod(SensorSampler[_T]):
     def __init__(self, sensor: Sensor[_T], observer: Callable[[Sensor[_T], Reading[_T]], None],
-                 loop: asyncio.AbstractEventLoop, period: core.Timestamp) -> None:
-        super().__init__(sensor, observer, loop, shortest=period, longest=period)
+                 loop: asyncio.AbstractEventLoop, period: core.Timestamp,
+                 *, is_auto: bool) -> None:
+        super().__init__(sensor, observer, loop, shortest=period, longest=period, is_auto=is_auto)
 
-    def parameters(self) -> Tuple[SensorSampler.Strategy, core.Timestamp]:
+    def _parameters(self) -> Tuple[SensorSampler.Strategy, core.Timestamp]:
         return (SensorSampler.Strategy.PERIOD, core.Timestamp(self.shortest))
 
 
 class _SensorSamplerEvent(SensorSampler[_T]):
-    def parameters(self) -> Tuple[SensorSampler.Strategy]:
+    def _parameters(self) -> Tuple[SensorSampler.Strategy]:
         return (SensorSampler.Strategy.EVENT,)
 
 
 class _SensorSamplerDifferential(SensorSampler[_T]):
     def __init__(self, sensor: Sensor[_T], observer: Callable[[Sensor[_T], Reading[_T]], None],
-                 loop: asyncio.AbstractEventLoop, difference: _T) -> None:
-        super().__init__(sensor, observer, loop, difference=difference)
+                 loop: asyncio.AbstractEventLoop, difference: _T,
+                 *, is_auto: bool) -> None:
+        super().__init__(sensor, observer, loop, difference=difference, is_auto=is_auto)
 
-    def parameters(self) -> Tuple[SensorSampler.Strategy, _T]:
+    def _parameters(self) -> Tuple[SensorSampler.Strategy, _T]:
         assert self.difference is not None      # To keep mypy happy
         return (SensorSampler.Strategy.DIFFERENTIAL, self.difference)
 
@@ -371,10 +405,12 @@ class _SensorSamplerEventRate(SensorSampler[_T]):
     def __init__(self, sensor: Sensor[_T], observer: Callable[[Sensor[_T], Reading[_T]], None],
                  loop: asyncio.AbstractEventLoop,
                  shortest: core.Timestamp,
-                 longest: core.Timestamp) -> None:
-        super().__init__(sensor, observer, loop, shortest=shortest, longest=longest)
+                 longest: core.Timestamp,
+                 *, is_auto: bool) -> None:
+        super().__init__(sensor, observer, loop, shortest=shortest, longest=longest,
+                         is_auto=is_auto)
 
-    def parameters(self) -> Tuple[SensorSampler.Strategy, core.Timestamp, core.Timestamp]:
+    def _parameters(self) -> Tuple[SensorSampler.Strategy, core.Timestamp, core.Timestamp]:
         # assertions to keep mypy happy
         assert self.shortest is not None
         assert self.longest is not None
@@ -388,11 +424,12 @@ class _SensorSamplerDifferentialRate(SensorSampler[_T]):
                  loop: asyncio.AbstractEventLoop,
                  difference: _T,
                  shortest: core.Timestamp,
-                 longest: core.Timestamp) -> None:
+                 longest: core.Timestamp,
+                 *, is_auto: bool) -> None:
         super().__init__(sensor, observer, loop,
-                         difference=difference, shortest=shortest, longest=longest)
+                         difference=difference, shortest=shortest, longest=longest, is_auto=is_auto)
 
-    def parameters(self) -> Tuple[SensorSampler.Strategy, _T, core.Timestamp, core.Timestamp]:
+    def _parameters(self) -> Tuple[SensorSampler.Strategy, _T, core.Timestamp, core.Timestamp]:
         # assertions to keep mypy happy
         assert self.difference is not None
         assert self.shortest is not None

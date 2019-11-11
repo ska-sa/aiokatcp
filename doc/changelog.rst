@@ -1,6 +1,10 @@
 Changelog
 =========
 
+.. rubric:: Development version
+
+- Add `auto_strategy` parameter to :class:`.Sensor` constructor.
+
 .. rubric:: Version 0.6.1
 
 - Fix the type annotations to allow :meth:`.Client.add_sensor_watcher` to take a

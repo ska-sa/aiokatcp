@@ -208,6 +208,14 @@ each time, one can provide a `status_func` callback to the constructor that
 takes the sensor value and returns the status. The callback can be overridden
 by passing an explicit status to :meth:`.Sensor.set_value`.
 
+Auto strategy
+^^^^^^^^^^^^^
+If a client requests the ``auto`` strategy for sampling a sensor, the default
+is to send it all updates as they happen (and unlike the ``event`` strategy,
+assignments that do not change the value will still be reported). This default
+can be changed by passing `auto_strategy` and `auto_strategy_parameters` when
+constructing the sensor.
+
 Cancellation
 ------------
 It is important that request handlers operate gracefully if cancelled (refer
