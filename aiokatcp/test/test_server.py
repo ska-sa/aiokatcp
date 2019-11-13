@@ -41,7 +41,7 @@ import aiokatcp
 from aiokatcp.core import Message, Address
 from aiokatcp.connection import FailReply
 from aiokatcp.server import DeviceServer, RequestContext
-from aiokatcp.sensor import Sensor
+from aiokatcp.sensor import Sensor, SensorSampler
 from .test_utils import timelimit
 
 
@@ -66,6 +66,10 @@ class DummyServer(DeviceServer):
         sensor = Sensor(Foo, 'foo', 'nonsense')
         self.sensors.add(sensor)
         sensor = Sensor(float, 'float-sensor', 'generic float sensor')
+        self.sensors.add(sensor)
+        sensor = Sensor(int, 'auto-override', 'overrides the auto strategy',
+                        auto_strategy=SensorSampler.Strategy.PERIOD,
+                        auto_strategy_parameters=(2.5,))
         self.sensors.add(sensor)
         self.on_stop_called = 0
 
@@ -230,10 +234,11 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
         await self.get_version_info()
         await self._write(b'?sensor-list[4]\n')
         await self._check_reply([
+            br'#sensor-list[4] auto-override overrides\_the\_auto\_strategy \@ integer' + b'\n',
             br'#sensor-list[4] counter-queries number\_of\_?counter\_queries \@ integer' + b'\n',
             br'#sensor-list[4] float-sensor generic\_float\_sensor \@ float' + b'\n',
             br'#sensor-list[4] foo nonsense \@ discrete first-value second-value' + b'\n',
-            b'!sensor-list[4] ok 3\n'])
+            b'!sensor-list[4] ok 4\n'])
 
     async def test_sensor_list_simple_filter(self) -> None:
         await self.get_version_info()
@@ -250,7 +255,7 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
 
     async def test_sensor_list_regex_filter(self) -> None:
         await self.get_version_info()
-        await self._write(b'?sensor-list[6] /[a-z-]+/\n')
+        await self._write(b'?sensor-list[6] /^[b-z][a-z-]+/\n')
         await self._check_reply([
             br'#sensor-list[6] counter-queries number\_of\_?counter\_queries \@ integer' + b'\n',
             br'#sensor-list[6] float-sensor generic\_float\_sensor \@ float' + b'\n',
@@ -273,10 +278,11 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
         await self.get_version_info()
         await self._write(b'?sensor-value[9]\n')
         await self._check_reply([
+            b'#sensor-value[9] 123456789.0 1 auto-override unknown 0\n',
             b'#sensor-value[9] 123456789.0 1 counter-queries nominal 0\n',
             b'#sensor-value[9] 123456789.0 1 float-sensor unknown 0.0\n',
             b'#sensor-value[9] 123456789.0 1 foo unknown first-value\n',
-            b'!sensor-value[9] ok 3\n'])
+            b'!sensor-value[9] ok 4\n'])
 
     async def test_sensor_value_filter(self) -> None:
         # The other filter tests are omitted since they're covered by the
@@ -646,6 +652,22 @@ class TestDeviceServerClocked(DeviceServerTestMixin, asynctest.ClockedTestCase):
         await self._write(b'?sensor-sampling bad-sensor event\n')
         await self._check_reply([
             br"!sensor-sampling fail Unknown\_sensor\_'bad-sensor'" + b'\n'])
+
+    async def test_sensor_sampling_auto_override(self) -> None:
+        await self.get_version_info()
+        await self._write(b'?sensor-sampling auto-override auto\n')
+        await self._check_reply([
+            b'#sensor-status 123456789.0 1 auto-override unknown 0\n',
+            b'!sensor-sampling ok auto-override auto\n'])
+        await self.advance(3.0)
+        self.server.sensors['auto-override'].value = 1
+        await self.advance(5.0)
+        await self._write(b'?watchdog\n')
+        await self._check_reply([
+            b'#sensor-status 123456789.0 1 auto-override unknown 0\n',
+            b'#sensor-status 123456792.0 1 auto-override nominal 1\n',
+            b'#sensor-status 123456792.0 1 auto-override nominal 1\n',
+            b'!watchdog ok\n'])
 
 
 @timelimit
