@@ -426,6 +426,16 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
         await self.server.stop()
         self.assertEqual(self.server.on_stop_called, 1)
 
+    async def test_slow_client(self) -> None:
+        self.server.max_backlog = 32768
+        # We need to be sure to push in lots of data, because some of it will
+        # be absorbed by TCP socket buffers, receive buffers etc.
+        big_str = b'x' * 200000
+        self.assertEqual(len(self.server._connections), 1)
+        for i in range(100):
+            self.server.mass_inform('big', big_str)
+        self.assertEqual(len(self.server._connections), 0)
+
 
 class TestDeviceServerClocked(DeviceServerTestMixin, asynctest.ClockedTestCase):
     """Tests for :class:`.DeviceServer` that use a fake clock.
