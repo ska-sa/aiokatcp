@@ -1,7 +1,7 @@
 Changelog
 =========
 
-.. rubric:: Development version
+.. rubric:: Version 0.7.0
 
 - Add `auto_strategy` parameter to :class:`.Sensor` constructor.
 - Disconnect clients that aren't keeping up with their asynchronous informs.
