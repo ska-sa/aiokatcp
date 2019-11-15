@@ -51,6 +51,7 @@ _T = TypeVar('_T')
 
 class ClientConnection(connection.Connection):
     """Server's view of the connection from a single client."""
+
     def __init__(self, owner: 'DeviceServer',
                  reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         super().__init__(owner, reader, writer, True)
@@ -206,6 +207,15 @@ class DeviceServer(metaclass=DeviceServerMeta):
     loop
         Event loop on which the server will run, defaulting to
         ``asyncio.get_event_loop()``.
+    max_backlog
+        Maximum backlog in the write queue to a client.
+
+        If a message is to be sent to a client and it has more than this many
+        bytes in its backlog, it is disconnected instead to prevent the server
+        running out of memory. At present this is only applied to asynchronous
+        informs, but it may be applied to other messages in future.
+
+        If not specified it defaults to twice `limit`.
     """
 
     _request_handlers = {}   # type: Dict[str, _RequestHandler]
@@ -253,6 +263,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
 
     def __init__(self, host: str, port: int, *,
                  limit: int = connection.DEFAULT_LIMIT, max_pending: int = 100,
+                 max_backlog: int = None,
                  loop: asyncio.AbstractEventLoop = None) -> None:
         super().__init__()
         if not self.VERSION:
@@ -266,6 +277,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             loop = asyncio.get_event_loop()
         self.loop = loop
         self._limit = limit
+        self.max_backlog = 2 * limit if max_backlog is None else max_backlog
         self._log_level = core.LogLevel.WARN
         self._server = None        # type: Optional[asyncio.events.AbstractServer]
         self._server_lock = asyncio.Lock(loop=loop)
@@ -388,11 +400,22 @@ class DeviceServer(metaclass=DeviceServerMeta):
             ('katcp-device', self.VERSION, self.BUILD_STATE),
         ], send_reply=send_reply)
 
+    def _write_async_message(self, conn: ClientConnection, msg: core.Message) -> None:
+        conn.write_message(msg)
+        if conn.writer is not None:
+            transport = cast(asyncio.WriteTransport, conn.writer.transport)
+            backlog = transport.get_write_buffer_size()
+            if backlog > self.max_backlog:
+                conn.logger.warning('Disconnecting client because it is too slow')
+                transport.abort()
+                conn.close()
+                self._connections.discard(conn)
+
     async def _client_connected_cb(
             self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         async def cleanup():
             await conn.wait_closed()
-            self._connections.remove(conn)
+            self._connections.discard(conn)
         conn = ClientConnection(self, reader, writer)
         # Copy the connection list, to avoid mutation while iterating and to
         # exclude the new connection from it.
@@ -405,7 +428,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         self.send_version_info(ctx, send_reply=False)
         msg = core.Message.inform('client-connected', conn.address)
         for old_conn in connections:
-            old_conn.write_message(msg)
+            self._write_async_message(old_conn, msg)
 
     def _handle_request_done_callback(self, ctx: RequestContext, task: asyncio.Task) -> None:
         """Completion callback for request handlers.
@@ -498,8 +521,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
             Fields for the inform
         """
         msg = core.Message.inform(name, *args)
-        for conn in self._connections:
-            conn.write_message(msg)
+        for conn in list(self._connections):
+            self._write_async_message(conn, msg)
 
     async def request_help(self, ctx: RequestContext, name: str = None) -> None:
         """Return help on the available requests.
