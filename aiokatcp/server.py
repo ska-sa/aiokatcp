@@ -521,6 +521,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             Fields for the inform
         """
         msg = core.Message.inform(name, *args)
+        # Copy the connection list, because _write_async_message can mutate it.
         for conn in list(self._connections):
             self._write_async_message(conn, msg)
 
