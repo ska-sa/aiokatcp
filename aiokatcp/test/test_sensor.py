@@ -237,3 +237,11 @@ class TestSensorSet(unittest.TestCase):
 
     def test_copy(self):
         self.assertEqual(self.ss.copy(), {'name0': self.sensors[0]})
+
+    def test_remove_callbacks(self):
+        self.ss.remove_remove_callback(self.remove_callback)
+        self.ss.remove_add_callback(self.add_callback)
+        self.ss.add(self.sensors[0])
+        self.ss.remove(self.sensors[0])
+        self.remove_callback.assert_not_called()
+        self.add_callback.assert_not_called()
