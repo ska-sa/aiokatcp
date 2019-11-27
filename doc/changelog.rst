@@ -1,6 +1,10 @@
 Changelog
 =========
 
+.. rubric:: Development version
+
+- Add :meth:`.SensorSet.add_add_callback`.
+
 .. rubric:: Version 0.7.0
 
 - Add `auto_strategy` parameter to :class:`.Sensor` constructor.

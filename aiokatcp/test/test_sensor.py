@@ -81,12 +81,14 @@ class TestSensorSampling(asynctest.TestCase):
 class TestSensorSet(unittest.TestCase):
     def setUp(self):
         self.ss = SensorSet()
-        self.callback = unittest.mock.MagicMock()
-        self.ss.add_remove_callback(self.callback)
         self.sensors = [Sensor(int, 'name{}'.format(i)) for i in range(5)]
         # A different set of sensors with the same names
         self.alt_sensors = [Sensor(float, 'name{}'.format(i)) for i in range(5)]
         self.ss.add(self.sensors[0])
+        self.add_callback = unittest.mock.MagicMock()
+        self.remove_callback = unittest.mock.MagicMock()
+        self.ss.add_add_callback(self.add_callback)
+        self.ss.add_remove_callback(self.remove_callback)
 
     def _assert_sensors(self, ss, sensors):
         """Assert that `ss` has the same sensors as `sensors`"""
@@ -101,14 +103,18 @@ class TestSensorSet(unittest.TestCase):
         # Add a new one
         self.ss.add(self.sensors[1])
         self._assert_sensors(self.ss, [self.sensors[0], self.sensors[1]])
+        self.add_callback.assert_called_with(self.sensors[1])
         # Add the same one
+        self.add_callback.reset_mock()
         self.ss.add(self.sensors[0])
         self._assert_sensors(self.ss, [self.sensors[0], self.sensors[1]])
+        self.add_callback.assert_not_called()
         # Replace one
-        self.callback.assert_not_called()
+        self.remove_callback.assert_not_called()
         self.ss.add(self.alt_sensors[1])
         self._assert_sensors(self.ss, [self.sensors[0], self.alt_sensors[1]])
-        self.callback.assert_called_once_with(self.sensors[1])
+        self.remove_callback.assert_called_once_with(self.sensors[1])
+        self.add_callback.assert_called_once_with(self.alt_sensors[1])
 
     def test_remove(self):
         # Try to remove non-existent name
@@ -119,10 +125,10 @@ class TestSensorSet(unittest.TestCase):
             self.ss.remove(self.alt_sensors[0])
         self._assert_sensors(self.ss, [self.sensors[0]])
         # Remove one
-        self.callback.assert_not_called()
+        self.remove_callback.assert_not_called()
         self.ss.remove(self.sensors[0])
         self._assert_sensors(self.ss, [])
-        self.callback.assert_called_once_with(self.sensors[0])
+        self.remove_callback.assert_called_once_with(self.sensors[0])
 
     def test_discard(self):
         # Try to remove non-existent name
@@ -131,17 +137,17 @@ class TestSensorSet(unittest.TestCase):
         self.ss.discard(self.alt_sensors[0])
         self._assert_sensors(self.ss, [self.sensors[0]])
         # Remove one
-        self.callback.assert_not_called()
+        self.remove_callback.assert_not_called()
         self.ss.discard(self.sensors[0])
         self._assert_sensors(self.ss, [])
-        self.callback.assert_called_once_with(self.sensors[0])
+        self.remove_callback.assert_called_once_with(self.sensors[0])
 
     def test_clear(self):
         self.ss.add(self.sensors[1])
         self.ss.clear()
         self._assert_sensors(self.ss, [])
-        self.callback.assert_any_call(self.sensors[0])
-        self.callback.assert_any_call(self.sensors[1])
+        self.remove_callback.assert_any_call(self.sensors[0])
+        self.remove_callback.assert_any_call(self.sensors[1])
 
     def test_popitem(self):
         self.ss.add(self.sensors[1])
@@ -153,8 +159,8 @@ class TestSensorSet(unittest.TestCase):
             pass
         items.sort(key=lambda x: x[0])
         self.assertEqual(items, [('name0', self.sensors[0]), ('name1', self.sensors[1])])
-        self.callback.assert_any_call(self.sensors[0])
-        self.callback.assert_any_call(self.sensors[1])
+        self.remove_callback.assert_any_call(self.sensors[0])
+        self.remove_callback.assert_any_call(self.sensors[1])
 
     def test_pop_absent(self):
         # Non-existent name
@@ -164,10 +170,10 @@ class TestSensorSet(unittest.TestCase):
         self.assertIsNone(self.ss.pop('name4', None))
         self.assertEqual(self.ss.pop('name4', 'foo'), 'foo')
         # Remove one
-        self.callback.assert_not_called()
+        self.remove_callback.assert_not_called()
         self.assertIs(self.ss.pop('name0'), self.sensors[0])
         self._assert_sensors(self.ss, [])
-        self.callback.assert_called_once_with(self.sensors[0])
+        self.remove_callback.assert_called_once_with(self.sensors[0])
 
     def test_delitem(self):
         # Try to remove non-existent name
@@ -175,10 +181,10 @@ class TestSensorSet(unittest.TestCase):
             del self.ss['name4']
         self._assert_sensors(self.ss, [self.sensors[0]])
         # Remove one
-        self.callback.assert_not_called()
+        self.remove_callback.assert_not_called()
         del self.ss['name0']
         self._assert_sensors(self.ss, [])
-        self.callback.assert_called_once_with(self.sensors[0])
+        self.remove_callback.assert_called_once_with(self.sensors[0])
 
     def test_getitem(self):
         # Non-existing name
