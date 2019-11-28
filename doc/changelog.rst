@@ -1,7 +1,7 @@
 Changelog
 =========
 
-.. rubric:: Development version
+.. rubric:: Version 0.8.0
 
 - Add :meth:`.SensorSet.add_add_callback`, :meth:`SensorSet.remove_add_callback` and
   :meth:`SensorSet.remove_remove_callback`.
