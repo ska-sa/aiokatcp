@@ -165,7 +165,7 @@ class TestEncodeDecode(unittest.TestCase):
     def test_bad_raw(self) -> None:
         for type_, value in self.BAD_VALUES:
             with self.assertRaises(ValueError,
-                                   msg='{} should not be valid for {}'.format(value, type_)):
+                                   msg='{!r} should not be valid for {}'.format(value, type_)):
                 decode(type_, value)
 
     @unittest.mock.patch('aiokatcp.core._types', [])   # type: ignore

@@ -379,10 +379,10 @@ def decode(cls: Any, value: bytes) -> Any:
         if len(values) == 1:
             return values[0]
         elif not values:
-            raise ValueError('None of the types in {} could decode {}'.format(
+            raise ValueError('None of the types in {} could decode {!r}'.format(
                 cls, value))
         else:
-            raise ValueError('{} is ambiguous for {}'.format(value, cls))
+            raise ValueError('{!r} is ambiguous for {}'.format(value, cls))
     else:
         return get_type(cls).decode(cls, value)
 
