@@ -453,24 +453,43 @@ class SensorSet(Mapping[str, Sensor]):
 
     def __init__(self) -> None:
         self._sensors = {}             # type: Dict[str, Sensor]
+        self._add_callbacks = []       # type: List[Callable[[Sensor], None]]
         self._remove_callbacks = []    # type: List[Callable[[Sensor], None]]
 
-    def _removed(self, s: Sensor):
-        """Clear a sensor's samplers from all connections."""
+    def _removed(self, s: Sensor) -> None:
+        """Call all the remove callbacks."""
         for callback in list(self._remove_callbacks):
             callback(s)
 
-    def add_remove_callback(self, callback: Callable[[Sensor], None]):
+    def _added(self, s: Sensor) -> None:
+        """Call all the add callbacks."""
+        for callback in list(self._add_callbacks):
+            callback(s)
+
+    def add_remove_callback(self, callback: Callable[[Sensor], None]) -> None:
         """Add a callback that will be passed any sensor removed from the set."""
         self._remove_callbacks.append(callback)
 
-    def add(self, elem: Sensor):
+    def add_add_callback(self, callback: Callable[[Sensor], None]) -> None:
+        """Add a callback that will be passed any sensor added to the set."""
+        self._add_callbacks.append(callback)
+
+    def remove_remove_callback(self, callback: Callable[[Sensor], None]) -> None:
+        """Remove a callback registered with :meth:`add_remove_callback`."""
+        self._remove_callbacks.remove(callback)
+
+    def remove_add_callback(self, callback: Callable[[Sensor], None]) -> None:
+        """Remove a callback registered with :meth:`add_add_callback`."""
+        self._add_callbacks.remove(callback)
+
+    def add(self, elem: Sensor) -> None:
         if elem.name in self._sensors:
             if self._sensors[elem.name] is not elem:
                 del self[elem.name]
             else:
                 return
         self._sensors[elem.name] = elem
+        self._added(elem)
 
     def remove(self, elem: Sensor) -> None:
         if elem not in self:
