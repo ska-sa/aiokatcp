@@ -5,13 +5,6 @@ python:
     - 3.5
     - 3.6
     - 3.7
-script:
-    - python -Werror
-        -Wignore::DeprecationWarning:site
-        -Wignore::PendingDeprecationWarning:nose.importer
-        -Wignore::DeprecationWarning:nose.importer
-        -Wignore::DeprecationWarning:nose.suite
-        `which nosetests` --with-coverage --cover-erase --cover-package aiokatcp
-    - flake8 aiokatcp examples
-    - mypy aiokatcp examples
+    - 3.8
+script: .travis/run.sh
 after_success: coveralls
