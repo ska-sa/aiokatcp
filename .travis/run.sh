@@ -24,5 +24,4 @@ python $warn_args `which nosetests` --with-coverage --cover-erase --cover-packag
 if [ "$py38" = "False" ]; then
     flake8 aiokatcp examples
 fi
-mypy aiokatcp examples
-
+mypy
