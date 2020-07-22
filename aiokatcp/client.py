@@ -1,4 +1,5 @@
 # Copyright 2017, 2019 National Research Foundation (Square Kilometre Array)
+,[po
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -132,7 +133,7 @@ class Client(metaclass=ClientMeta):
         self._run_task = loop.create_task(self._run())
         self._run_task.add_done_callback(self._done_callback)
         self._closing = False
-        self._closed_event = asyncio.Event(loop=loop)
+        self._closed_event = asyncio.Event()
         self._connected_callbacks = []       # type: List[Callable[[], None]]
         self._disconnected_callbacks = []    # type: List[Callable[[], None]]
         self._failed_connect_callbacks = []  # type: List[Callable[[Exception], None]]
@@ -140,7 +141,7 @@ class Client(metaclass=ClientMeta):
         self._sensor_monitor = None          # type: Optional[_SensorMonitor]
         self._mid_support = False
         # Used to serialize requests if the server does not support message IDs
-        self._request_lock = asyncio.Lock(loop=loop)
+        self._request_lock = asyncio.Lock()
         self.auto_reconnect = auto_reconnect
         if self.auto_reconnect:
             # If not auto-reconnecting, wait_connected will set the exception
@@ -339,8 +340,8 @@ class Client(metaclass=ClientMeta):
     async def _run_once(self) -> bool:
         """Make a single attempt to connect and run the connection if successful."""
         # Open the connection. Based on asyncio.open_connection.
-        reader = asyncio.StreamReader(limit=self._limit, loop=self.loop)
-        protocol = connection.ConvertCRProtocol(reader, loop=self.loop)
+        reader = asyncio.StreamReader(limit=self._limit)
+        protocol = connection.ConvertCRProtocol(reader)
         try:
             transport, _ = await self.loop.create_connection(
                 lambda: protocol, self.host, self.port)
@@ -370,7 +371,7 @@ class Client(metaclass=ClientMeta):
                     backoff = min(backoff * 2.0, 60.0)
                 # Pick a random value in [0.5 * backoff, backoff]
                 wait = (random.random() * 1.0) * 0.5 * backoff
-                await asyncio.sleep(wait, loop=self.loop)
+                await asyncio.sleep(wait)
         else:
             await self._run_once()
 
@@ -672,7 +673,7 @@ class SensorWatcher(AbstractSensorWatcher):
     }
 
     def __init__(self, client: Client, enum_types: Sequence[Type[enum.Enum]] = ()) -> None:
-        self.synced = asyncio.Event(loop=client.loop)
+        self.synced = asyncio.Event()
         self.logger = client.logger
         self.sensors = sensor.SensorSet()
         # Synthesized enum types for discrete sensors
@@ -830,7 +831,7 @@ class _SensorMonitor:
     async def _set_sampling(self, names: Sequence[str]) -> None:
         """Register sampling strategy with sensors in `names`"""
         coros = [self.client.request('sensor-sampling', name, 'auto') for name in names]
-        results = await asyncio.gather(*coros, loop=self.client.loop, return_exceptions=True)
+        results = await asyncio.gather(*coros, return_exceptions=True)
         for name, result in zip(names, results):
             if isinstance(result, Exception):
                 try:
