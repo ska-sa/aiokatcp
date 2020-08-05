@@ -27,8 +27,10 @@
 
 import asyncio
 import logging
+import re
 from typing import Optional     # noqa: F401
 
+import pytest
 import asynctest
 
 from aiokatcp.core import Message, KatcpSyntaxError
@@ -45,40 +47,40 @@ class TestReadMessage(asynctest.TestCase):
         reader.feed_data(data)
         reader.feed_eof()
         msg = await read_message(reader)
-        self.assertEqual(msg, Message.request('help', 'foo', mid=123))
+        assert msg == Message.request('help', 'foo', mid=123)
         msg = await read_message(reader)
-        self.assertEqual(msg, Message.inform('log', 'info', 'msg'))
+        assert msg == Message.inform('log', 'info', 'msg')
         msg = await read_message(reader)
-        self.assertEqual(msg, Message.reply('help', 'bar', mid=123))
+        assert msg == Message.reply('help', 'bar', mid=123)
         msg = await read_message(reader)
-        self.assertIsNone(msg)
+        assert msg is None
 
     async def test_read_overrun(self) -> None:
         data = b'!foo a_string_that_doesnt_fit_in_the_buffer\n!foo short_string\n'
         reader = asyncio.StreamReader(limit=25, loop=self.loop)
         reader.feed_data(data)
         reader.feed_eof()
-        with self.assertRaises(KatcpSyntaxError):
+        with pytest.raises(KatcpSyntaxError):
             await read_message(reader)
         msg = await read_message(reader)
-        self.assertEqual(msg, Message.reply('foo', 'short_string'))
+        assert msg == Message.reply('foo', 'short_string')
 
     async def test_read_overrun_eof(self) -> None:
         data = b'!foo a_string_that_doesnt_fit_in_the_buffer'
         reader = asyncio.StreamReader(limit=25, loop=self.loop)
         reader.feed_data(data)
         reader.feed_eof()
-        with self.assertRaises(KatcpSyntaxError):
+        with pytest.raises(KatcpSyntaxError):
             await read_message(reader)
         msg = await read_message(reader)
-        self.assertIsNone(msg)
+        assert msg is None
 
     async def test_read_partial(self) -> None:
         data = b'!foo nonewline'
         reader = asyncio.StreamReader(loop=self.loop)
         reader.feed_data(data)
         reader.feed_eof()
-        with self.assertRaises(KatcpSyntaxError):
+        with pytest.raises(KatcpSyntaxError):
             await read_message(reader)
 
 
@@ -140,7 +142,7 @@ class TestConnection(asynctest.TestCase):
         conn.write_message(Message.reply('ok', mid=1))
         await conn.drain()
         line = await self.remote_reader.readline()
-        self.assertEqual(line, b'!ok[1]\n')
+        assert line == b'!ok[1]\n'
 
     async def test_run(self) -> None:
         conn = self.make_connection(True)
@@ -148,7 +150,7 @@ class TestConnection(asynctest.TestCase):
         await self.ok_done.acquire()
         self.owner.handle_message.assert_called_with(conn, Message.request('watchdog', mid=2))
         reply = await self.remote_reader.readline()
-        self.assertEqual(reply, b'!watchdog[2] ok\n')
+        assert reply == b'!watchdog[2] ok\n'
         # Check that it exits when the client disconnects its write end
         self.remote_writer.write_eof()
         # We need to give the packets time to go through the system
@@ -170,10 +172,11 @@ class TestConnection(asynctest.TestCase):
             await conn.wait_closed()
             self.owner.handle_message.assert_called_with(conn, Message.request('watchdog', mid=4))
         # Note: should only be one warning, not two
-        self.assertEqual(1, len(cm.output))
-        self.assertRegex(
-            cm.output[0],
-            r'^WARNING:aiokatcp\.connection:Connection closed .*: Connection lost \[.*\]$')
+        assert 1 == len(cm.output)
+        assert re.fullmatch(
+            r'WARNING:aiokatcp\.connection:Connection closed .*: Connection lost \[.*\]',
+            cm.output[0]
+        )
         # Allow the final watchdog to go through. This just provides test coverage
         # that Connection.write_message handles the writer having already gone away.
         self.ok_wait.release()
@@ -187,8 +190,8 @@ class TestConnection(asynctest.TestCase):
             # Wait for the close to go through
             await conn.wait_closed()
             self.owner.handle_message.assert_not_called()
-        self.assertEqual(len(cm.output), 1)
-        self.assertRegex(cm.output[0], 'Malformed message received.*')
+        assert len(cm.output) == 1
+        assert re.search('Malformed message received.*', cm.output[0])
 
     async def test_close_early(self) -> None:
         conn = self.make_connection(True)
@@ -209,5 +212,5 @@ class TestConnection(asynctest.TestCase):
         self.remote_writer.close()
         with self.assertLogs('aiokatcp.connection', logging.ERROR) as cm:
             await conn.wait_closed()
-        self.assertEqual(len(cm.output), 1)
-        self.assertRegex(cm.output[0], '(?s)Exception in connection handler.*test error')
+        assert len(cm.output) == 1
+        assert re.search('(?s)Exception in connection handler.*test error', cm.output[0])

@@ -32,6 +32,7 @@ in :mod:`aiokatcp.test.test_server`.
 import gc
 import unittest
 
+import pytest
 import asynctest
 
 from aiokatcp.sensor import Sensor, SensorSampler, SensorSet
@@ -40,13 +41,13 @@ from aiokatcp.sensor import Sensor, SensorSampler, SensorSet
 class TestSensorState(unittest.TestCase):
     def test_valid_value(self):
         Status = Sensor.Status
-        self.assertFalse(Status.UNKNOWN.valid_value())
-        self.assertTrue(Status.NOMINAL.valid_value())
-        self.assertTrue(Status.WARN.valid_value())
-        self.assertTrue(Status.ERROR.valid_value())
-        self.assertFalse(Status.FAILURE.valid_value())
-        self.assertFalse(Status.UNREACHABLE.valid_value())
-        self.assertFalse(Status.INACTIVE.valid_value())
+        assert Status.UNKNOWN.valid_value() is False
+        assert Status.NOMINAL.valid_value() is True
+        assert Status.WARN.valid_value() is True
+        assert Status.ERROR.valid_value() is True
+        assert Status.FAILURE.valid_value() is False
+        assert Status.UNREACHABLE.valid_value() is False
+        assert Status.INACTIVE.valid_value() is False
 
 
 class TestSensor(unittest.TestCase):
@@ -55,13 +56,13 @@ class TestSensor(unittest.TestCase):
             return Sensor.Status.WARN if value & 1 else Sensor.Status.ERROR
 
         sensor = Sensor(int, 'sensor', status_func=status_func)
-        self.assertEqual(sensor.status, Sensor.Status.UNKNOWN)
+        assert sensor.status == Sensor.Status.UNKNOWN
         sensor.value = 1
-        self.assertEqual(sensor.status, Sensor.Status.WARN)
+        assert sensor.status == Sensor.Status.WARN
         sensor.value = 2
-        self.assertEqual(sensor.status, Sensor.Status.ERROR)
+        assert sensor.status == Sensor.Status.ERROR
         sensor.set_value(1, Sensor.Status.NOMINAL)
-        self.assertEqual(sensor.status, Sensor.Status.NOMINAL)
+        assert sensor.status == Sensor.Status.NOMINAL
 
 
 class TestSensorSampling(asynctest.TestCase):
@@ -70,7 +71,7 @@ class TestSensorSampling(asynctest.TestCase):
         sampler = SensorSampler.factory(
             sensor, lambda sensor, reading: None,
             self.loop, SensorSampler.Strategy.EVENT)
-        with self.assertWarns(ResourceWarning):
+        with pytest.warns(ResourceWarning):
             del sensor
             del sampler
             # Run gc twice because PyPy sometimes needs this.
@@ -93,7 +94,7 @@ class TestSensorSet(unittest.TestCase):
     def _assert_sensors(self, ss, sensors):
         """Assert that `ss` has the same sensors as `sensors`"""
         ordered = sorted(ss.values(), key=lambda x: x.name)
-        self.assertEqual(ordered, sensors)
+        assert ordered == sensors
 
     def test_construct(self):
         """Test that setUp put things into the right state."""
@@ -118,10 +119,10 @@ class TestSensorSet(unittest.TestCase):
 
     def test_remove(self):
         # Try to remove non-existent name
-        with self.assertRaises(KeyError):
+        with pytest.raises(KeyError):
             self.ss.remove(self.sensors[4])
         # Try to remove one with the same name as an existing one
-        with self.assertRaises(KeyError):
+        with pytest.raises(KeyError):
             self.ss.remove(self.alt_sensors[0])
         self._assert_sensors(self.ss, [self.sensors[0]])
         # Remove one
@@ -158,26 +159,26 @@ class TestSensorSet(unittest.TestCase):
         except KeyError:
             pass
         items.sort(key=lambda x: x[0])
-        self.assertEqual(items, [('name0', self.sensors[0]), ('name1', self.sensors[1])])
+        assert items == [('name0', self.sensors[0]), ('name1', self.sensors[1])]
         self.remove_callback.assert_any_call(self.sensors[0])
         self.remove_callback.assert_any_call(self.sensors[1])
 
     def test_pop_absent(self):
         # Non-existent name
-        with self.assertRaises(KeyError):
+        with pytest.raises(KeyError):
             self.ss.pop('name4')
         # Non-existent with defaults
-        self.assertIsNone(self.ss.pop('name4', None))
-        self.assertEqual(self.ss.pop('name4', 'foo'), 'foo')
+        assert self.ss.pop('name4', None) is None
+        assert self.ss.pop('name4', 'foo') == 'foo'
         # Remove one
         self.remove_callback.assert_not_called()
-        self.assertIs(self.ss.pop('name0'), self.sensors[0])
+        assert self.ss.pop('name0') is self.sensors[0]
         self._assert_sensors(self.ss, [])
         self.remove_callback.assert_called_once_with(self.sensors[0])
 
     def test_delitem(self):
         # Try to remove non-existent name
-        with self.assertRaises(KeyError):
+        with pytest.raises(KeyError):
             del self.ss['name4']
         self._assert_sensors(self.ss, [self.sensors[0]])
         # Remove one
@@ -188,55 +189,54 @@ class TestSensorSet(unittest.TestCase):
 
     def test_getitem(self):
         # Non-existing name
-        with self.assertRaises(KeyError):
+        with pytest.raises(KeyError):
             self.ss['name4']
         # Existing name
-        self.assertIs(self.ss['name0'], self.sensors[0])
+        assert self.ss['name0'] is self.sensors[0]
 
     def test_get(self):
         # Non-existing name
-        self.assertIsNone(self.ss.get('name4'))
-        self.assertIsNone(self.ss.get('name4', None))
-        self.assertEqual(self.ss.get('name4', 'foo'), 'foo')
+        assert self.ss.get('name4') is None
+        assert self.ss.get('name4', None) is None
+        assert self.ss.get('name4', 'foo') == 'foo'
         # Existing name
-        self.assertIs(self.ss.get('name0'), self.sensors[0])
+        assert self.ss.get('name0') is self.sensors[0]
 
     def test_len(self):
-        self.assertEqual(len(self.ss), 1)
+        assert len(self.ss) == 1
         self.ss.add(self.sensors[1])
-        self.assertEqual(len(self.ss), 2)
+        assert len(self.ss) == 2
 
     def test_contains(self):
-        self.assertIn(self.sensors[0], self.ss)
-        self.assertNotIn(self.alt_sensors[0], self.ss)
-        self.assertNotIn(self.sensors[1], self.ss)
+        assert self.sensors[0] in self.ss
+        assert self.alt_sensors[0] not in self.ss
+        assert self.sensors[1] not in self.ss
 
     def test_bool(self):
-        self.assertTrue(self.ss)
+        assert self.ss
         self.ss.clear()
-        self.assertFalse(self.ss)
+        assert not self.ss
 
     def test_keys(self):
         self.ss.add(self.sensors[1])
-        self.assertEqual(sorted(self.ss.keys()), ['name0', 'name1'])
+        assert sorted(self.ss.keys()) == ['name0', 'name1']
 
     def test_values(self):
         self.ss.add(self.sensors[1])
-        self.assertEqual(sorted(self.ss.values(), key=lambda x: x.name),
-                         [self.sensors[0], self.sensors[1]])
+        assert sorted(self.ss.values(), key=lambda x: x.name) == [self.sensors[0], self.sensors[1]]
 
     def test_items(self):
         self.ss.add(self.sensors[1])
-        self.assertEqual(sorted(self.ss.items()), [
+        assert sorted(self.ss.items()) == [
             ('name0', self.sensors[0]),
             ('name1', self.sensors[1])
-        ])
+        ]
 
     def test_iter(self):
-        self.assertEqual(sorted(iter(self.ss)), ['name0'])
+        assert sorted(iter(self.ss)) == ['name0']
 
     def test_copy(self):
-        self.assertEqual(self.ss.copy(), {'name0': self.sensors[0]})
+        assert self.ss.copy() == {'name0': self.sensors[0]}
 
     def test_remove_callbacks(self):
         self.ss.remove_remove_callback(self.remove_callback)

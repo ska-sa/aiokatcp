@@ -35,6 +35,7 @@ import unittest.mock
 from unittest.mock import call
 from typing import Tuple, Type, Pattern, Match, cast
 
+import pytest
 import asynctest
 
 from aiokatcp import (Client, FailReply, InvalidReply, ProtocolError, Message,
@@ -99,11 +100,11 @@ class BaseTestClientAsync(BaseTestClient, asynctest.TestCase):
 
     async def check_received(self, data: bytes) -> None:
         line = await self.remote_reader.readline()
-        self.assertEqual(line, data)
+        assert line == data
 
     async def check_received_regex(self, pattern: Pattern[bytes]) -> Match:
         line = await self.remote_reader.readline()
-        self.assertRegex(line, pattern)
+        assert re.search(pattern, line)
         # cast keeps mypy happy (it can't tell that it will always match after the assert)
         return cast(Match, pattern.match(line))
 
@@ -133,7 +134,7 @@ class TestClient(BaseTestClientAsync):
         await self.check_received(b'?echo[1]\n')
         await self.write(b'!echo[1] ok\n')
         result = await future
-        self.assertEqual(result, ([], []))
+        assert result == ([], [])
         # Again, with arguments. This also tests MID incrementing, non-ASCII
         # characters, and null escaping.
         arg = b'h\xaf\xce\0'
@@ -142,14 +143,14 @@ class TestClient(BaseTestClientAsync):
         await self.check_received(b'?echo[2] 123 ' + arg_esc + b'\n')
         await self.write(b'!echo[2] ok 123 ' + arg_esc + b'\n')
         result = await future
-        self.assertEqual(result, ([b'123', arg], []))
+        assert result == ([b'123', arg], [])
 
     async def test_request_fail(self) -> None:
         await self.wait_connected()
         future = self.loop.create_task(self.client.request('failme'))
         await self.check_received(b'?failme[1]\n')
         await self.write(b'!failme[1] fail Error\\_message\n')
-        with self.assertRaisesRegex(FailReply, '^Error message$'):
+        with pytest.raises(FailReply, match='^Error message$'):
             await future
 
     async def test_request_fail_no_msg(self) -> None:
@@ -157,7 +158,7 @@ class TestClient(BaseTestClientAsync):
         future = self.loop.create_task(self.client.request('failme'))
         await self.check_received(b'?failme[1]\n')
         await self.write(b'!failme[1] fail\n')
-        with self.assertRaisesRegex(FailReply, '^$'):
+        with pytest.raises(FailReply, match='^$'):
             await future
 
     async def test_request_fail_msg_bad_encoding(self) -> None:
@@ -165,7 +166,7 @@ class TestClient(BaseTestClientAsync):
         future = self.loop.create_task(self.client.request('failme'))
         await self.check_received(b'?failme[1]\n')
         await self.write(b'!failme[1] fail \xaf\n')
-        with self.assertRaisesRegex(FailReply, '^\uFFFD$'):
+        with pytest.raises(FailReply, match='^\uFFFD$'):
             await future
 
     async def test_request_invalid(self) -> None:
@@ -173,7 +174,7 @@ class TestClient(BaseTestClientAsync):
         future = self.loop.create_task(self.client.request('invalid-request'))
         await self.check_received(b'?invalid-request[1]\n')
         await self.write(b'!invalid-request[1] invalid Unknown\\_request\n')
-        with self.assertRaisesRegex(InvalidReply, '^Unknown request$'):
+        with pytest.raises(InvalidReply, match='^Unknown request$'):
             await future
 
     async def test_request_no_code(self) -> None:
@@ -181,7 +182,7 @@ class TestClient(BaseTestClientAsync):
         future = self.loop.create_task(self.client.request('invalid-request'))
         await self.check_received(b'?invalid-request[1]\n')
         await self.write(b'!invalid-request[1]\n')
-        with self.assertRaisesRegex(InvalidReply, '^$'):
+        with pytest.raises(InvalidReply, match='^$'):
             await future
 
     async def test_request_with_informs(self) -> None:
@@ -192,10 +193,10 @@ class TestClient(BaseTestClientAsync):
         await self.write(b'#help[1] halt Halt\n')
         await self.write(b'!help[1] ok 2\n')
         result = await future
-        self.assertEqual(result, ([b'2'], [
+        assert result == ([b'2'], [
             Message.inform('help', b'help', b'Show help', mid=1),
             Message.inform('help', b'halt', b'Halt', mid=1)
-        ]))
+        ])
 
     async def test_inform(self) -> None:
         client = cast(DummyClient, self.client)
@@ -205,16 +206,16 @@ class TestClient(BaseTestClientAsync):
             # received the good one from the queue we can finish the test.
             await self.write(b'#exception\n#foo bad notinteger\n#foo \xc3\xa9 123\n')
             inform = await client.foos.get()
-        self.assertRegex(cm.output[0], 'I crashed')
-        self.assertRegex(cm.output[1], 'error in inform')
-        self.assertEqual(inform, ('é', 123))
+        assert re.search('I crashed', cm.output[0])
+        assert re.search('error in inform', cm.output[1])
+        assert inform == ('é', 123)
 
     async def test_unhandled_inform(self) -> None:
         client = cast(DummyClient, self.client)
         await self.wait_connected()
         await self.write(b'#unhandled arg\n')
         msg = await client.unhandled.get()
-        self.assertEqual(msg, Message.inform('unhandled', b'arg'))
+        assert msg == Message.inform('unhandled', b'arg')
 
     async def test_inform_callback(self) -> None:
         def callback(string: str, integer: int) -> None:
@@ -226,9 +227,9 @@ class TestClient(BaseTestClientAsync):
         await self.wait_connected()
         await self.write(b'#bar hello 42\n')
         value = await values.get()
-        self.assertEqual(value, ('hello', 42))
+        assert value == ('hello', 42)
         client.remove_inform_callback('bar', callback)
-        self.assertEqual(client._inform_callbacks, {})
+        assert client._inform_callbacks == {}
 
     async def test_unsolicited_reply(self) -> None:
         await self.wait_connected()
@@ -261,7 +262,7 @@ class TestClient(BaseTestClientAsync):
         client_task = self.loop.create_task(DummyClient.connect(host, port, loop=self.loop))
         (reader, writer) = await self.client_queue.get()
         await asynctest.exhaust_callbacks(self.loop)
-        self.assertFalse(client_task.done())
+        assert not client_task.done()
         writer.write(b'#version-connect katcp-protocol 5.0-IM\n')
         client = await client_task
         assert client.is_connected
@@ -273,35 +274,35 @@ class TestClient(BaseTestClientAsync):
         with self.assertLogs(logging.getLogger('aiokatcp.client')) as cm:
             self.remote_writer.write(b'#version-connect katcp-protocol notvalid\n')
             line = await self.remote_reader.read()
-        self.assertEqual(line, b'')
-        self.assertRegex(cm.output[0], 'Unparsable katcp-protocol')
+        assert line == b''
+        assert re.search('Unparsable katcp-protocol', cm.output[0])
 
     async def test_bad_protocol(self) -> None:
         with self.assertLogs(logging.getLogger('aiokatcp.client')) as cm:
             self.remote_writer.write(b'#version-connect katcp-protocol 4.0-I\n')
             line = await self.remote_reader.read()
-        self.assertEqual(line, b'')
-        self.assertRegex(cm.output[0], r'Unknown protocol version 4\.0')
+        assert line == b''
+        assert re.search(r'Unknown protocol version 4\.0', cm.output[0])
 
     async def test_no_connection(self) -> None:
         # Open a second client, which will not get the #version-connect
         client, reader, writer = \
             await self.make_client(self.server, self.client_queue)
         self.addCleanup(writer.close)
-        with self.assertRaises(BrokenPipeError):
+        with pytest.raises(BrokenPipeError):
             await client.request('help')
 
     async def test_connection_reset(self) -> None:
         await self.wait_connected()
         self.remote_writer.close()
-        with self.assertRaises(ConnectionResetError):
+        with pytest.raises(ConnectionResetError):
             await self.client.request('help')
 
     async def test_disconnected(self) -> None:
         await self.wait_connected()
         await self.write(b'#disconnect Server\\_exiting\n')
         await self.client.wait_disconnected()
-        with self.assertRaises(BrokenPipeError):
+        with pytest.raises(BrokenPipeError):
             await self.client.request('help')
 
     async def test_bad_address(self) -> None:
@@ -314,7 +315,7 @@ class TestClient(BaseTestClientAsync):
             with self.assertLogs(logging.getLogger('aiokatcp.client')) as cm:
                 task = self.loop.create_task(client.wait_connected())
                 await asynctest.exhaust_callbacks(self.loop)
-        self.assertRegex(cm.output[0], 'Failed to connect to invalid.invalid:1: ')
+        assert re.search('Failed to connect to invalid.invalid:1: ', cm.output[0])
         task.cancel()
 
 
@@ -357,12 +358,12 @@ class TestSensorMonitor(BaseTestClientAsync):
             b'#sensor-list[1] device-status Device\\_status \\@ discrete ok degraded fail\n'
             b'!sensor-list[1] ok 1\n')
         await self.check_received(b'?sensor-sampling[2] device-status auto\n')
-        self.assertEqual(self.watcher.mock_calls, [
+        assert self.watcher.mock_calls == [
             call.batch_start(),
             call.sensor_added('device-status', 'Device status', '', 'discrete',
                               b'ok', b'degraded', b'fail'),
             call.batch_stop()
-        ])
+        ]
         self.watcher.reset_mock()
 
     async def sensor_sampling(self) -> None:
@@ -372,13 +373,13 @@ class TestSensorMonitor(BaseTestClientAsync):
             b'!sensor-sampling[2] ok device-status auto\n'
             b'#wakeup\n')
         await self.wakeup()
-        self.assertEqual(self.watcher.mock_calls, [
+        assert self.watcher.mock_calls == [
             call.batch_start(),
             call.sensor_updated('device-status', b'ok', Sensor.Status.NOMINAL,
                                 123456789.0),
             call.batch_stop(),
             call.state_updated(SyncState.SYNCED)
-        ])
+        ]
         self.watcher.reset_mock()
 
     async def test_init(self) -> None:
@@ -401,12 +402,12 @@ class TestSensorMonitor(BaseTestClientAsync):
             b'#sensor-list[3] temp Temperature F float\n'
             b'!sensor-list[3] ok 1\n')
         await self.check_received(b'?sensor-sampling[4] temp auto\n')
-        self.assertEqual(self.watcher.mock_calls, [
+        assert self.watcher.mock_calls == [
             call.batch_start(),
             call.sensor_added('temp', 'Temperature', 'F', 'float'),
             call.sensor_removed('device-status'),
             call.batch_stop()
-        ])
+        ]
         self.watcher.reset_mock()
 
         await self.write(
@@ -414,12 +415,12 @@ class TestSensorMonitor(BaseTestClientAsync):
             b'!sensor-sampling[4] ok temp auto\n'
             b'#wakeup\n')
         await self.wakeup()
-        self.assertEqual(self.watcher.mock_calls, [
+        assert self.watcher.mock_calls == [
             call.batch_start(),
             call.sensor_updated('temp', b'451.0', Sensor.Status.WARN, 123456790.0),
             call.batch_stop(),
             call.state_updated(SyncState.SYNCED)
-        ])
+        ]
         self.watcher.reset_mock()
 
     async def test_replace_sensor(self):
@@ -430,11 +431,11 @@ class TestSensorMonitor(BaseTestClientAsync):
             b'#sensor-list[3] device-status A\\_different\\_status \\@ int\n'
             b'!sensor-list[3] ok 1\n')
         await self.check_received(b'?sensor-sampling[4] device-status auto\n')
-        self.assertEqual(self.watcher.mock_calls, [
+        assert self.watcher.mock_calls == [
             call.batch_start(),
             call.sensor_added('device-status', 'A different status', '', 'int'),
             call.batch_stop()
-        ])
+        ]
         self.watcher.reset_mock()
 
         await self.write(
@@ -442,12 +443,12 @@ class TestSensorMonitor(BaseTestClientAsync):
             b'!sensor-sampling[4] ok device-status auto\n'
             b'#wakeup\n')
         await self.wakeup()
-        self.assertEqual(self.watcher.mock_calls, [
+        assert self.watcher.mock_calls == [
             call.batch_start(),
             call.sensor_updated('device-status', b'123', Sensor.Status.NOMINAL, 123456791.0),
             call.batch_stop(),
             call.state_updated(SyncState.SYNCED)
-        ])
+        ]
         self.watcher.reset_mock()
 
     async def test_sensor_vanished(self):
@@ -460,13 +461,13 @@ class TestSensorMonitor(BaseTestClientAsync):
         await self.check_received(b'?sensor-list[3]\n')
         await self.write(b'!sensor-list[3] ok 0\n#wakeup\n')
         await self.wakeup()
-        self.assertEqual(self.watcher.mock_calls, [
+        assert self.watcher.mock_calls == [
             call.state_updated(SyncState.SYNCING),
             call.batch_start(),
             call.sensor_removed('device-status'),
             call.batch_stop(),
             call.state_updated(SyncState.SYNCED)
-        ])
+        ]
         self.watcher.reset_mock()
 
     async def test_sensor_vanished2(self):
@@ -486,14 +487,14 @@ class TestSensorMonitor(BaseTestClientAsync):
         await self.check_received(b'?sensor-list[3]\n')
         await self.write(b'!sensor-list[3] ok 0\n#wakeup\n')
         await self.wakeup()
-        self.assertEqual(self.watcher.mock_calls, [
+        assert self.watcher.mock_calls == [
             call.state_updated(SyncState.SYNCED),
             call.state_updated(SyncState.SYNCING),
             call.batch_start(),
             call.sensor_removed('device-status'),
             call.batch_stop(),
             call.state_updated(SyncState.SYNCED)
-        ])
+        ]
         self.watcher.reset_mock()
 
     async def test_remove_sensor_watcher(self):
@@ -508,9 +509,9 @@ class TestSensorMonitor(BaseTestClientAsync):
         await self.test_init()
         self.client.close()
         await self.client.wait_closed()
-        self.assertEqual(self.watcher.mock_calls, [
+        assert self.watcher.mock_calls == [
             call.state_updated(SyncState.CLOSED)
-        ])
+        ]
 
     async def test_disconnect(self):
         """When the connection drops, the state must change appropriately"""
@@ -531,7 +532,7 @@ class TestSensorMonitor(BaseTestClientAsync):
             b'!sensor-sampling[4] ok device-status auto\n'
             b'#wakeup\n')
         await self.wakeup()
-        self.assertEqual(self.watcher.mock_calls, [
+        assert self.watcher.mock_calls == [
             call.batch_start(),
             # No sensor_added because the sensor was already known
             call.batch_stop(),
@@ -539,7 +540,7 @@ class TestSensorMonitor(BaseTestClientAsync):
             call.sensor_updated('device-status', b'ok', Sensor.Status.NOMINAL, 123456789.0),
             call.batch_stop(),
             call.state_updated(SyncState.SYNCED)
-        ])
+        ]
         self.watcher.reset_mock()
 
 
@@ -561,58 +562,57 @@ class TestSensorWatcher(asynctest.TestCase):
         self.watcher = DummySensorWatcher(client, enum_types=[DummyEnum])
 
     def test_construct(self):
-        self.assertEqual(len(self.watcher.sensors), 0)
-        self.assertFalse(self.watcher.synced.is_set())
+        assert len(self.watcher.sensors) == 0
+        assert not self.watcher.synced.is_set()
 
     def test_sensor_added(self):
         self.watcher.batch_start()
         self.watcher.sensor_added('foo', 'A sensor', 'F', 'float')
         self.watcher.batch_stop()
-        self.assertEqual(len(self.watcher.sensors), 1)
+        assert len(self.watcher.sensors) == 1
         sensor = self.watcher.sensors['test_foo']
-        self.assertEqual(sensor.name, 'test_foo')
-        self.assertEqual(sensor.description, 'A sensor')
-        self.assertEqual(sensor.units, 'F')
-        self.assertEqual(sensor.stype, float)
-        self.assertEqual(sensor.status, Sensor.Status.UNKNOWN)
+        assert sensor.name == 'test_foo'
+        assert sensor.description == 'A sensor'
+        assert sensor.units == 'F'
+        assert sensor.stype == float
+        assert sensor.status == Sensor.Status.UNKNOWN
 
     def test_sensor_added_discrete(self):
         self.watcher.batch_start()
         self.watcher.sensor_added('disc', 'Discrete sensor', '', 'discrete', b'abc', b'def-xyz')
         self.watcher.sensor_added('disc2', 'Discrete sensor 2', '', 'discrete', b'abc', b'def-xyz')
         self.watcher.batch_stop()
-        self.assertEqual(len(self.watcher.sensors), 2)
+        assert len(self.watcher.sensors) == 2
         sensor = self.watcher.sensors['test_disc']
-        self.assertEqual(sensor.name, 'test_disc')
-        self.assertEqual(sensor.description, 'Discrete sensor')
-        self.assertEqual(sensor.units, '')
-        self.assertEqual(sensor.type_name, 'discrete')
-        self.assertEqual(sensor.status, Sensor.Status.UNKNOWN)
+        assert sensor.name == 'test_disc'
+        assert sensor.description == 'Discrete sensor'
+        assert sensor.units == ''
+        assert sensor.type_name == 'discrete'
+        assert sensor.status == Sensor.Status.UNKNOWN
         members = [encode(member) for member in sensor.stype.__members__.values()]
-        self.assertEqual(members, [b'abc', b'def-xyz'])
-        self.assertIs(self.watcher.sensors['test_disc'].stype,
-                      self.watcher.sensors['test_disc2'].stype,
-                      'Enum cache did not work')
+        assert members == [b'abc', b'def-xyz']
+        assert (self.watcher.sensors['test_disc'].stype
+                is self.watcher.sensors['test_disc2'].stype), 'Enum cache did not work'
 
     def test_sensor_added_known_discrete(self):
         self.watcher.batch_start()
         self.watcher.sensor_added('disc', 'Discrete sensor', '', 'discrete',
                                   b'thing-one', b'thing-two')
         self.watcher.batch_stop()
-        self.assertEqual(len(self.watcher.sensors), 1)
+        assert len(self.watcher.sensors) == 1
         sensor = self.watcher.sensors['test_disc']
-        self.assertEqual(sensor.name, 'test_disc')
-        self.assertEqual(sensor.description, 'Discrete sensor')
-        self.assertEqual(sensor.units, '')
-        self.assertEqual(sensor.type_name, 'discrete')
-        self.assertIs(sensor.stype, DummyEnum)
-        self.assertEqual(sensor.status, Sensor.Status.UNKNOWN)
+        assert sensor.name == 'test_disc'
+        assert sensor.description == 'Discrete sensor'
+        assert sensor.units == ''
+        assert sensor.type_name == 'discrete'
+        assert sensor.stype is DummyEnum
+        assert sensor.status == Sensor.Status.UNKNOWN
 
     def test_sensor_added_bad_type(self):
         self.watcher.batch_start()
         self.watcher.sensor_added('foo', 'A sensor', 'F', 'blah')
         self.watcher.batch_stop()
-        self.assertEqual(len(self.watcher.sensors), 0)
+        assert len(self.watcher.sensors) == 0
         self.watcher.logger.warning.assert_called_once_with(
             'Type %s is not recognised, skipping sensor %s', 'blah', 'foo')
 
@@ -622,7 +622,7 @@ class TestSensorWatcher(asynctest.TestCase):
         self.watcher.batch_start()
         self.watcher.sensor_removed('foo')
         self.watcher.batch_stop()
-        self.assertEqual(len(self.watcher.sensors), 0)
+        assert len(self.watcher.sensors) == 0
 
     def test_sensor_updated(self):
         self.test_sensor_added()
@@ -631,9 +631,9 @@ class TestSensorWatcher(asynctest.TestCase):
         self.watcher.sensor_updated('foo', b'12.5', Sensor.Status.WARN, 1234567890.0)
         self.watcher.batch_stop()
         sensor = self.watcher.sensors['test_foo']
-        self.assertEqual(sensor.value, 12.5)
-        self.assertEqual(sensor.status, Sensor.Status.WARN)
-        self.assertEqual(sensor.timestamp, 1234567890.0)
+        assert sensor.value == 12.5
+        assert sensor.status == Sensor.Status.WARN
+        assert sensor.timestamp == 1234567890.0
 
     def test_sensor_updated_bad_value(self):
         self.test_sensor_added()
@@ -658,19 +658,19 @@ class TestSensorWatcher(asynctest.TestCase):
         self.test_sensor_added()
 
         self.watcher.state_updated(SyncState.SYNCING)
-        self.assertFalse(self.watcher.synced.is_set())
-        self.assertEqual(len(self.watcher.sensors), 1)
-        self.assertEqual(self.watcher.sensors['test_foo'].status, Sensor.Status.UNKNOWN)
+        assert not self.watcher.synced.is_set()
+        assert len(self.watcher.sensors) == 1
+        assert self.watcher.sensors['test_foo'].status == Sensor.Status.UNKNOWN
 
         self.watcher.state_updated(SyncState.SYNCED)
-        self.assertTrue(self.watcher.synced.is_set())
-        self.assertEqual(len(self.watcher.sensors), 1)
-        self.assertEqual(self.watcher.sensors['test_foo'].status, Sensor.Status.UNKNOWN)
+        assert self.watcher.synced.is_set()
+        assert len(self.watcher.sensors) == 1
+        assert self.watcher.sensors['test_foo'].status == Sensor.Status.UNKNOWN
 
         self.watcher.state_updated(SyncState.DISCONNECTED)
-        self.assertFalse(self.watcher.synced.is_set())
+        assert not self.watcher.synced.is_set()
         # Disconnecting should set all sensors to UNREACHABLE
-        self.assertEqual(self.watcher.sensors['test_foo'].status, Sensor.Status.UNREACHABLE)
+        assert self.watcher.sensors['test_foo'].status == Sensor.Status.UNREACHABLE
 
 
 @timelimit
@@ -685,8 +685,8 @@ class TestClientNoReconnect(TestClient):
     async def test_unparsable_protocol(self) -> None:
         self.remote_writer.write(b'#version-connect katcp-protocol notvalid\n')
         line = await self.remote_reader.read()
-        self.assertEqual(line, b'')
-        with self.assertRaises(ProtocolError):
+        assert line == b''
+        with pytest.raises(ProtocolError):
             await self.client.wait_connected()
 
     async def test_bad_protocol(self) -> None:
@@ -694,17 +694,17 @@ class TestClientNoReconnect(TestClient):
         wait_task = self.loop.create_task(self.client.wait_connected())
         self.remote_writer.write(b'#version-connect katcp-protocol 4.0-I\n')
         line = await self.remote_reader.read()
-        self.assertEqual(line, b'')
-        with self.assertRaises(ProtocolError):
+        assert line == b''
+        with pytest.raises(ProtocolError):
             await wait_task
 
     async def test_disconnected(self) -> None:
         await self.wait_connected()
         await self.write(b'#disconnect Server\\_exiting\n')
         await self.client.wait_disconnected()
-        with self.assertRaises(BrokenPipeError):
+        with pytest.raises(BrokenPipeError):
             await self.client.request('help')
-        with self.assertRaises(ConnectionResetError):
+        with pytest.raises(ConnectionResetError):
             await self.client.wait_connected()
 
     async def test_connect_failed(self) -> None:
@@ -713,9 +713,9 @@ class TestClientNoReconnect(TestClient):
             DummyClient.connect(host, port, auto_reconnect=False, loop=self.loop))
         (reader, writer) = await self.client_queue.get()
         await asynctest.exhaust_callbacks(self.loop)
-        self.assertFalse(client_task.done())
+        assert not client_task.done()
         writer.close()
-        with self.assertRaises(ConnectionAbortedError):
+        with pytest.raises(ConnectionAbortedError):
             await client_task
 
 
@@ -736,7 +736,7 @@ class TestClientNoMidSupport(BaseTestClientAsync):
         await self.write(b'#echo an\\_inform\n')
         await self.write(b'!echo ok\n')
         result = await future
-        self.assertEqual(result, ([], [Message.inform('echo', b'an inform')]))
+        assert result == ([], [Message.inform('echo', b'an inform')])
 
     async def test_concurrent(self):
         self.remote_writer.write(b'#version-connect katcp-protocol 5.0-M\n')
@@ -748,9 +748,9 @@ class TestClientNoMidSupport(BaseTestClientAsync):
             await self.write(b'#echo value ' + match.group(1) + b'\n')
             await self.write(b'!echo ok ' + match.group(1) + b'\n')
         result1 = await future1
-        self.assertEqual(result1, ([b'1'], [Message.inform('echo', b'value', b'1')]))
+        assert result1 == ([b'1'], [Message.inform('echo', b'value', b'1')])
         result2 = await future2
-        self.assertEqual(result2, ([b'2'], [Message.inform('echo', b'value', b'2')]))
+        assert result2 == ([b'2'], [Message.inform('echo', b'value', b'2')])
 
 
 class TestUnclosedClient(BaseTestClient, unittest.TestCase):
@@ -764,7 +764,7 @@ class TestUnclosedClient(BaseTestClient, unittest.TestCase):
         await server.wait_closed()
 
     def test(self) -> None:
-        with self.assertWarnsRegex(ResourceWarning, 'unclosed Client'):
+        with pytest.warns(ResourceWarning, match='unclosed Client'):
             self.loop = asyncio.new_event_loop()
             self.loop.run_until_complete(self.body())
             self.loop.close()

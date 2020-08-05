@@ -35,6 +35,7 @@ import logging
 from typing import Tuple, Iterable, Union, Pattern, Type
 from typing import List   # noqa: F401
 
+import pytest
 import asynctest
 
 import aiokatcp
@@ -160,9 +161,9 @@ class DeviceServerTestMixin(asynctest.TestCase):
         for expected in lines:
             actual = await self._readline()
             if isinstance(expected, bytes):
-                self.assertEqual(ascii(actual), ascii(expected))
+                assert ascii(actual) == ascii(expected)
             else:
-                self.assertRegex(actual, expected)
+                assert expected.search(actual)
 
     async def get_version_info(self, prefix: bytes = b'#version-connect') -> None:
         await self._check_reply([
@@ -182,7 +183,7 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
 
     async def test_start_twice(self) -> None:
         """Calling start twice raises :exc:`RuntimeError`"""
-        with self.assertRaises(RuntimeError):
+        with pytest.raises(RuntimeError):
             await self.server.start()
 
     async def test_carriage_return(self) -> None:
@@ -418,23 +419,23 @@ class TestDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
                        br'test_server\.py:\d+:\\_bar\n')])
 
     async def test_on_stop(self) -> None:
-        self.assertEqual(self.server.on_stop_called, 0)
+        assert self.server.on_stop_called == 0
         self.server.halt()
         await self.server.join()
-        self.assertEqual(self.server.on_stop_called, 1)
+        assert self.server.on_stop_called == 1
         # on_stop should not be called when already stopped
         await self.server.stop()
-        self.assertEqual(self.server.on_stop_called, 1)
+        assert self.server.on_stop_called == 1
 
     async def test_slow_client(self) -> None:
         self.server.max_backlog = 32768
         # We need to be sure to push in lots of data, because some of it will
         # be absorbed by TCP socket buffers, receive buffers etc.
         big_str = b'x' * 200000
-        self.assertEqual(len(self.server._connections), 1)
+        assert len(self.server._connections) == 1
         for i in range(100):
             self.server.mass_inform('big', big_str)
-        self.assertEqual(len(self.server._connections), 0)
+        assert len(self.server._connections) == 0
 
 
 class TestDeviceServerClocked(DeviceServerTestMixin, asynctest.ClockedTestCase):
@@ -721,27 +722,25 @@ class TestBadDeviceServer(DeviceServerTestMixin, asynctest.TestCase):
 class TestDeviceServerMeta(unittest.TestCase):
     """Test that the metaclass picks up invalid constructions"""
     def test_missing_help(self) -> None:
-        with self.assertRaises(TypeError):
+        with pytest.raises(TypeError):
             class MyBadServer(DummyServer):
                 def request_no_help(self):
                     pass
 
     def test_too_few_parameters(self) -> None:
-        with self.assertRaises(TypeError):
+        with pytest.raises(TypeError):
             class MyBadServer(DummyServer):
                 def request_too_few(self):
                     """Not enough parameters"""
 
     def test_missing_version(self) -> None:
-        with self.assertRaises(TypeError) as cm:
+        with pytest.raises(TypeError, match='MyBadServer does not define VERSION'):
             class MyBadServer(DeviceServer):
                 BUILD_INFO = 'build-info'
             MyBadServer('127.0.0.1', 0)
-        self.assertEqual(str(cm.exception), 'MyBadServer does not define VERSION')
 
     def test_missing_build_state(self) -> None:
-        with self.assertRaises(TypeError) as cm:
+        with pytest.raises(TypeError, match='MyBadServer does not define BUILD_STATE'):
             class MyBadServer(DeviceServer):
                 VERSION = 'version'
             MyBadServer('127.0.0.1', 0)
-        self.assertEqual(str(cm.exception), 'MyBadServer does not define BUILD_STATE')
