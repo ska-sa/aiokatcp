@@ -13,10 +13,5 @@ fi
 
 set -x
 pytest $warn_args --cov=aiokatcp
-# The pinned version of flake8 doesn't work with Python 3.8
-# (and it can't be upgraded until https://github.com/PyCQA/pyflakes/issues/445
-# is fixed).
-if [ "$py38" = "False" ]; then
-    flake8 aiokatcp examples
-fi
+flake8
 mypy

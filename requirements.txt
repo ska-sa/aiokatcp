@@ -13,7 +13,7 @@ coverage==4.5.4           # via coveralls, pytest-cov
 coveralls==1.8.2          # via -r requirements.in
 decorator==4.4.1          # via -r requirements.in
 docopt==0.6.2             # via coveralls
-flake8==3.6.0             # via -r requirements.in
+flake8==3.8.3             # via -r requirements.in
 idna==2.8                 # via requests
 iniconfig==1.0.1          # via pytest
 katversion==0.9           # via -r requirements.in
@@ -24,8 +24,8 @@ mypy==0.750               # via -r requirements.in
 packaging==20.4           # via pytest
 pluggy==0.13.1            # via pytest
 py==1.9.0                 # via pytest
-pycodestyle==2.4.0        # via flake8
-pyflakes==2.0.0           # via flake8
+pycodestyle==2.6.0        # via flake8
+pyflakes==2.2.0           # via flake8
 pyparsing==2.4.7          # via packaging
 pytest-cov==2.10.0        # via -r requirements.in
 pytest==6.0.1             # via -r requirements.in, pytest-cov
@@ -35,6 +35,3 @@ toml==0.10.1              # via pytest
 typed-ast==1.4.0          # via mypy
 typing-extensions==3.7.4.1  # via mypy
 urllib3==1.25.7           # via requests
-
-# The following packages are considered to be unsafe in a requirements file:
-# setuptools
