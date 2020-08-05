@@ -33,7 +33,7 @@ import asynctest
 
 from aiokatcp.core import Message, KatcpSyntaxError
 from aiokatcp.connection import read_message, Connection
-from .test_utils import timelimit
+from test_utils import timelimit
 
 
 class TestReadMessage(asynctest.TestCase):

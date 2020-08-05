@@ -35,12 +35,11 @@ import unittest.mock
 from unittest.mock import call
 from typing import Tuple, Type, Pattern, Match, cast
 
-from nose.tools import nottest, istest
 import asynctest
 
 from aiokatcp import (Client, FailReply, InvalidReply, ProtocolError, Message,
                       Sensor, SensorWatcher, AbstractSensorWatcher, SyncState, encode)
-from .test_utils import timelimit
+from test_utils import timelimit
 
 
 class DummyClient(Client):
@@ -60,7 +59,6 @@ class DummyClient(Client):
         self.unhandled.put_nowait(msg)
 
 
-@nottest
 class BaseTestClient(unittest.TestCase):
     async def make_server(self, loop: asyncio.AbstractEventLoop) \
             -> Tuple[asyncio.AbstractServer, asyncio.Queue]:
@@ -84,7 +82,6 @@ class BaseTestClient(unittest.TestCase):
 
 
 @timelimit
-@nottest
 class BaseTestClientAsync(BaseTestClient, asynctest.TestCase):
     async def make_client(
             self,
@@ -122,7 +119,6 @@ class BaseTestClientAsync(BaseTestClient, asynctest.TestCase):
 
 
 @timelimit
-@istest
 class TestClient(BaseTestClientAsync):
     @timelimit(1)
     async def setUp(self) -> None:
@@ -323,7 +319,6 @@ class TestClient(BaseTestClientAsync):
 
 
 @timelimit
-@istest
 class TestSensorMonitor(BaseTestClientAsync):
     """Test the sensor monitoring interface.
 
@@ -679,7 +674,6 @@ class TestSensorWatcher(asynctest.TestCase):
 
 
 @timelimit
-@istest
 class TestClientNoReconnect(TestClient):
     @timelimit(1)
     async def setUp(self) -> None:
@@ -726,7 +720,6 @@ class TestClientNoReconnect(TestClient):
 
 
 @timelimit
-@istest
 class TestClientNoMidSupport(BaseTestClientAsync):
     @timelimit(1)
     async def setUp(self) -> None:
@@ -760,7 +753,6 @@ class TestClientNoMidSupport(BaseTestClientAsync):
         self.assertEqual(result2, ([b'2'], [Message.inform('echo', b'value', b'2')]))
 
 
-@istest
 class TestUnclosedClient(BaseTestClient, unittest.TestCase):
     async def body(self) -> None:
         server, client_queue = await self.make_server(self.loop)

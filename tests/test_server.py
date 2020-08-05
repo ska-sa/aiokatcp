@@ -42,7 +42,7 @@ from aiokatcp.core import Message, Address
 from aiokatcp.connection import FailReply
 from aiokatcp.server import DeviceServer, RequestContext
 from aiokatcp.sensor import Sensor, SensorSampler
-from .test_utils import timelimit
+from test_utils import timelimit
 
 
 class Foo(enum.Enum):

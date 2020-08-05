@@ -8,16 +8,11 @@ if [ "$py38" = "True" ]; then
     # DeprecationWarnings.
     warn_args=""
 else
-    warn_args="
-        -Werror
-        -Wignore::DeprecationWarning:site
-        -Wignore::PendingDeprecationWarning:nose.importer
-        -Wignore::DeprecationWarning:nose.importer
-        -Wignore::DeprecationWarning:nose.suite"
+    warn_args="-Werror"
 fi
 
 set -x
-python $warn_args `which nosetests` --with-coverage --cover-erase --cover-package aiokatcp
+pytest $warn_args --cov=aiokatcp
 # The pinned version of flake8 doesn't work with Python 3.8
 # (and it can't be upgraded until https://github.com/PyCQA/pyflakes/issues/445
 # is fixed).
