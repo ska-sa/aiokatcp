@@ -1,4 +1,4 @@
-# Copyright 2017 National Research Foundation (Square Kilometre Array)
+# Copyright 2017, 2020 National Research Foundation (Square Kilometre Array)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -29,8 +29,6 @@ import enum
 import json
 import ipaddress
 from fractions import Fraction
-import unittest
-import unittest.mock
 from typing import Union
 
 import pytest
@@ -60,68 +58,72 @@ class OverrideEnum(enum.Enum):
         self.katcp_value = value
 
 
-class TestAddress(unittest.TestCase):
-    def setUp(self):
-        self.v4_no_port = Address(ipaddress.ip_address('127.0.0.1'))
-        self.v4_port = Address(ipaddress.ip_address('127.0.0.1'), 7148)
-        self.v6_no_port = Address(ipaddress.ip_address('::1'))
-        self.v6_port = Address(ipaddress.ip_address('::1'), 7148)
-        self.v6_port_alt = Address(ipaddress.ip_address('00:00::1'), 7148)
+class TestAddress:
+    ADDRESSES = {
+        'v4_no_port': Address(ipaddress.ip_address('127.0.0.1')),
+        'v4_port': Address(ipaddress.ip_address('127.0.0.1'), 7148),
+        'v6_no_port': Address(ipaddress.ip_address('::1')),
+        'v6_port': Address(ipaddress.ip_address('::1'), 7148),
+        'v6_port_alt': Address(ipaddress.ip_address('00:00::1'), 7148)
+    }
+
+    @pytest.fixture(params=ADDRESSES.keys())
+    def address(self, request) -> Address:
+        return self.ADDRESSES[request.param]
 
     def test_getters(self) -> None:
-        assert self.v4_no_port.host == ipaddress.ip_address('127.0.0.1')
-        assert self.v4_no_port.port is None
-        assert self.v4_port.port == 7148
+        assert self.ADDRESSES['v4_no_port'].host == ipaddress.ip_address('127.0.0.1')
+        assert self.ADDRESSES['v4_no_port'].port is None
+        assert self.ADDRESSES['v4_port'].port == 7148
+
+    def test_self_equal(self, address: Address) -> None:
+        assert address == address
 
     def test_eq(self) -> None:
-        for addr in [self.v4_no_port, self.v4_port, self.v6_no_port, self.v6_port]:
-            assert addr == addr
-        assert self.v6_port == self.v6_port_alt
-        assert not (self.v4_no_port == self.v4_port)
-        assert not (self.v4_port == self.v6_port)
-        assert not (self.v4_no_port == '127.0.0.1')
+        assert self.ADDRESSES['v6_port'] == self.ADDRESSES['v6_port_alt']
+        assert not (self.ADDRESSES['v4_no_port'] == self.ADDRESSES['v4_port'])
+        assert not (self.ADDRESSES['v4_port'] == self.ADDRESSES['v6_port'])
+        assert not (self.ADDRESSES['v4_no_port'] == '127.0.0.1')
 
     def test_not_eq(self) -> None:
-        assert not (self.v6_port != self.v6_port_alt)
-        assert self.v4_no_port != self.v4_port
-        assert self.v4_no_port != self.v6_no_port
-        assert self.v4_no_port != '127.0.0.1'
+        assert not (self.ADDRESSES['v6_port'] != self.ADDRESSES['v6_port_alt'])
+        assert self.ADDRESSES['v4_no_port'] != self.ADDRESSES['v4_port']
+        assert self.ADDRESSES['v4_no_port'] != self.ADDRESSES['v6_no_port']
+        assert self.ADDRESSES['v4_no_port'] != '127.0.0.1'
 
     def test_str(self) -> None:
-        assert str(self.v4_no_port) == '127.0.0.1'
-        assert str(self.v4_port) == '127.0.0.1:7148'
-        assert str(self.v6_no_port) == '[::1]'
-        assert str(self.v6_port) == '[::1]:7148'
+        assert str(self.ADDRESSES['v4_no_port']) == '127.0.0.1'
+        assert str(self.ADDRESSES['v4_port']) == '127.0.0.1:7148'
+        assert str(self.ADDRESSES['v6_no_port']) == '[::1]'
+        assert str(self.ADDRESSES['v6_port']) == '[::1]:7148'
 
     def test_bytes(self) -> None:
-        assert bytes(self.v4_no_port) == b'127.0.0.1'
-        assert bytes(self.v4_port) == b'127.0.0.1:7148'
-        assert bytes(self.v6_no_port) == b'[::1]'
-        assert bytes(self.v6_port) == b'[::1]:7148'
+        assert bytes(self.ADDRESSES['v4_no_port']) == b'127.0.0.1'
+        assert bytes(self.ADDRESSES['v4_port']) == b'127.0.0.1:7148'
+        assert bytes(self.ADDRESSES['v6_no_port']) == b'[::1]'
+        assert bytes(self.ADDRESSES['v6_port']) == b'[::1]:7148'
 
     def test_repr(self) -> None:
-        assert repr(self.v4_no_port) == "Address(IPv4Address('127.0.0.1'))"
-        assert repr(self.v4_port) == "Address(IPv4Address('127.0.0.1'), 7148)"
-        assert repr(self.v6_no_port) == "Address(IPv6Address('::1'))"
-        assert repr(self.v6_port) == "Address(IPv6Address('::1'), 7148)"
+        assert repr(self.ADDRESSES['v4_no_port']) == "Address(IPv4Address('127.0.0.1'))"
+        assert repr(self.ADDRESSES['v4_port']) == "Address(IPv4Address('127.0.0.1'), 7148)"
+        assert repr(self.ADDRESSES['v6_no_port']) == "Address(IPv6Address('::1'))"
+        assert repr(self.ADDRESSES['v6_port']) == "Address(IPv6Address('::1'), 7148)"
 
     def test_hash(self) -> None:
-        assert hash(self.v6_port) == hash(self.v6_port_alt)
-        assert hash(self.v4_port) != hash(self.v4_no_port)
-        assert hash(self.v4_port) != hash(self.v6_port)
+        assert hash(self.ADDRESSES['v6_port']) == hash(self.ADDRESSES['v6_port_alt'])
+        assert hash(self.ADDRESSES['v4_port']) != hash(self.ADDRESSES['v4_no_port'])
+        assert hash(self.ADDRESSES['v4_port']) != hash(self.ADDRESSES['v6_port'])
 
-    def test_parse(self) -> None:
-        for addr in [self.v4_no_port, self.v4_port, self.v6_no_port, self.v6_port]:
-            assert Address.parse(bytes(addr)) == addr
+    def test_parse_round_trip(self, address: Address) -> None:
+        assert Address.parse(bytes(address)) == address
+
+    @pytest.mark.parametrize('value', [b'', b'[127.0.0.1]', b'::1'])
+    def test_parse_bad(self, value) -> None:
         with pytest.raises(ValueError):
-            Address.parse(b'')
-        with pytest.raises(ValueError):
-            Address.parse(b'[127.0.0.1]')
-        with pytest.raises(ValueError):
-            Address.parse(b'::1')
+            Address.parse(value)
 
 
-class TestEncodeDecode(unittest.TestCase):
+class TestEncodeDecode:
     VALUES = [
         (str, 'café', b'caf\xc3\xa9'),
         (bytes, b'caf\xc3\xa9', b'caf\xc3\xa9'),
@@ -156,25 +158,25 @@ class TestEncodeDecode(unittest.TestCase):
         (Union[int, float], b'123')
     ]
 
-    def test_encode(self) -> None:
-        for _, value, raw in self.VALUES:
-            assert encode(value) == raw
+    @pytest.mark.parametrize('type_, value, raw', VALUES)
+    def test_encode(self, type_, value, raw) -> None:
+        assert encode(value) == raw
 
-    def test_decode(self) -> None:
-        for type_, value, raw in self.VALUES:
-            assert decode(type_, raw) == value
+    @pytest.mark.parametrize('type_, value, raw', VALUES)
+    def test_decode(self, type_, value, raw) -> None:
+        assert decode(type_, raw) == value
 
     def test_unknown_class(self) -> None:
         with pytest.raises(TypeError):
             decode(dict, b'{"test": "it"}')
 
-    def test_bad_raw(self) -> None:
-        for type_, value in self.BAD_VALUES:
-            with pytest.raises(ValueError):
-                decode(type_, value)
+    @pytest.mark.parametrize('type_, value', BAD_VALUES)
+    def test_bad_raw(self, type_, value) -> None:
+        with pytest.raises(ValueError):
+            decode(type_, value)
 
-    @unittest.mock.patch('aiokatcp.core._types', [])   # type: ignore
-    def test_register_type(self) -> None:
+    def test_register_type(self, mocker) -> None:
+        mocker.patch('aiokatcp.core._types', [])
         register_type(
             dict, 'string',
             lambda value: json.dumps(value, sort_keys=True).encode('utf-8'),
@@ -194,8 +196,8 @@ class TestEncodeDecode(unittest.TestCase):
                 lambda value: json.dumps(value, sort_keys=True).encode('utf-8'),
                 lambda cls, value: cls(json.loads(value.decode('utf-8'))))
 
-    def test_default(self) -> None:
-        expected = [
+    @pytest.mark.parametrize(
+        'type_, default', [
             (int, 0),
             (float, 0.0),
             (str, ''),
@@ -205,11 +207,12 @@ class TestEncodeDecode(unittest.TestCase):
             (MyEnum, MyEnum.BATMAN),
             (OverrideEnum, OverrideEnum.BATMAN)
         ]
-        for type_, default in expected:
-            assert get_type(type_).default(type_) == default
+    )
+    def test_default(self, type_, default) -> None:
+        assert get_type(type_).default(type_) == default
 
 
-class TestMessage(unittest.TestCase):
+class TestMessage:
     def test_init_basic(self) -> None:
         msg = Message(Message.Type.REQUEST,
                       'hello', 'world', b'binary\xff\x00', 123, 234.5, True, False)
@@ -225,19 +228,15 @@ class TestMessage(unittest.TestCase):
         assert msg.arguments == [b'world']
         assert msg.mid == 345
 
-    def test_init_bad_name(self) -> None:
+    @pytest.mark.parametrize('name', ['underscores_bad', '', '1numberfirst'])
+    def test_init_bad_name(self, name) -> None:
         with pytest.raises(ValueError):
-            Message(Message.Type.REPLY, 'underscores_bad', 'world', mid=345)
-        with pytest.raises(ValueError):
-            Message(Message.Type.REPLY, '', 'world', mid=345)
-        with pytest.raises(ValueError):
-            Message(Message.Type.REPLY, '1numberfirst', 'world', mid=345)
+            Message(Message.Type.REPLY, name, 'world', mid=345)
 
-    def test_init_bad_mid(self) -> None:
+    @pytest.mark.parametrize('mid', [0, 0x1000000000])
+    def test_init_bad_mid(self, mid) -> None:
         with pytest.raises(ValueError):
-            Message(Message.Type.REPLY, 'hello', 'world', mid=0)
-        with pytest.raises(ValueError):
-            Message(Message.Type.REPLY, 'hello', 'world', mid=0x1000000000)
+            Message(Message.Type.REPLY, 'hello', 'world', mid=mid)
 
     def test_request(self) -> None:
         msg = Message.request('hello', 'world')
@@ -309,49 +308,26 @@ class TestMessage(unittest.TestCase):
         msg = Message.parse(b'?test[1] message\n')
         assert msg == Message.request('test', b'message', mid=1)
 
-    def test_parse_empty(self) -> None:
+    @pytest.mark.parametrize(
+        'msg', [
+            pytest.param(b'', id='Empty message'),
+            pytest.param(b' !ok\n', id='Leading whitespace'),
+            pytest.param(b'?bad_name message', id='Underscore in name'),
+            pytest.param(b'? message', id='Empty name'),
+            pytest.param(b'!ok[1000000000000]\n', id='MID out of range'),
+            pytest.param(b'!ok[0]\n', id='MID is zero'),
+            pytest.param(b'!ok[10\n', id='MID not terminated'),
+            pytest.param(b'!ok[a]\n', id='MID not an integer'),
+            pytest.param(b'%ok\n', id='Bad type'),
+            pytest.param(b'!ok \\q\n', id='Bad escape'),
+            pytest.param(b'!ok q\\ other\n', id='Bad space escape'),
+            pytest.param(b'!ok \x1b\n', id='Unescaped control sequence'),
+            pytest.param(b'!ok', id='No newline')
+        ]
+    )
+    def test_parse_syntax_error(self, msg: bytes) -> None:
         with pytest.raises(KatcpSyntaxError):
-            Message.parse(b'')
-
-    def test_parse_leading_whitespace(self) -> None:
-        with pytest.raises(KatcpSyntaxError):
-            Message.parse(b' !ok\n')
-
-    def test_parse_bad_name(self) -> None:
-        with pytest.raises(KatcpSyntaxError):
-            Message.parse(b'?bad_name message\n')
-        with pytest.raises(KatcpSyntaxError):
-            Message.parse(b'? emptyname\n')
-
-    def test_parse_out_of_range_mid(self) -> None:
-        with pytest.raises(KatcpSyntaxError):
-            Message.parse(b'!ok[1000000000000]\n')
-
-    def test_parse_bad_mid(self) -> None:
-        with pytest.raises(KatcpSyntaxError):
-            Message.parse(b'!ok[10\n')
-        with pytest.raises(KatcpSyntaxError):
-            Message.parse(b'!ok[0]\n')
-        with pytest.raises(KatcpSyntaxError):
-            Message.parse(b'!ok[a]\n')
-
-    def test_parse_bad_type(self) -> None:
-        with pytest.raises(KatcpSyntaxError):
-            Message.parse(b'%ok\n')
-
-    def test_parse_bad_escape(self) -> None:
-        with pytest.raises(KatcpSyntaxError):
-            Message.parse(b'!ok \\q\n')
-        with pytest.raises(KatcpSyntaxError):
-            Message.parse(b'!ok q\\ other\n')
-
-    def test_parse_unescaped(self) -> None:
-        with pytest.raises(KatcpSyntaxError):
-            Message.parse(b'!ok \x1b\n')
-
-    def test_parse_no_newline(self) -> None:
-        with pytest.raises(KatcpSyntaxError):
-            Message.parse(b'!ok')
+            Message.parse(msg)
 
     def test_compare(self) -> None:
         a = Message.request('info', 'yes')
