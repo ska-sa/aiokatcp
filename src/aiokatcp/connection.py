@@ -178,8 +178,10 @@ class Connection:
                 try:
                     await self.writer.drain()
                 except ConnectionError as error:
-                    self.logger.warning('Connection closed while draining: %s', error)
-                    self._close_writer()
+                    # The writer could have been closed during the await
+                    if self.writer is not None:
+                        self.logger.warning('Connection closed while draining: %s', error)
+                        self._close_writer()
 
     async def _run(self) -> None:
         while True:
