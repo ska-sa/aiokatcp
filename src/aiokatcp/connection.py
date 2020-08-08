@@ -151,7 +151,7 @@ class Connection:
         try:
             # Normally this would be checked by the internals of
             # self.writer.drain and bubble out to self.drain, but there is no
-            # guaranteed that self.drain will be called in the near future
+            # guarantee that self.drain will be called in the near future
             # (see Github issue #11).
             if self.writer.transport.is_closing():
                 raise ConnectionResetError('Connection lost')
