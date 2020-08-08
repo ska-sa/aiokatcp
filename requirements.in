@@ -1,5 +1,6 @@
 katversion
 asynctest
+async-solipsism
 async-timeout
 coveralls
 decorator
