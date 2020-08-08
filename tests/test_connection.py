@@ -109,7 +109,7 @@ def connection_queue() -> 'asyncio.Queue[Tuple[asyncio.StreamReader, asyncio.Str
 async def server(connection_queue):
     server = await asyncio.start_server(
         lambda reader, writer: connection_queue.put_nowait((reader, writer)),
-        '::1', 0
+        '::1', 7777
     )
     yield server
     server.close()
@@ -118,7 +118,7 @@ async def server(connection_queue):
 
 @pytest.fixture
 async def client_reader_writer(server):
-    reader, writer = await asyncio.open_connection('::1', 0)
+    reader, writer = await asyncio.open_connection('::1', 7777)
     yield reader, writer
     writer.close()
     if sys.version_info >= (3, 7):
