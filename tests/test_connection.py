@@ -37,7 +37,6 @@ import asynctest
 
 from aiokatcp.core import Message, KatcpSyntaxError
 from aiokatcp.connection import read_message, Connection
-from test_utils import timelimit
 
 
 pytestmark = [pytest.mark.asyncio]
@@ -177,40 +176,12 @@ async def server_connection(owner, server_reader, server_writer):
     await conn.wait_closed()
 
 
-async def old_setup(self) -> None:
-    self.writer = None       # type: Optional[asyncio.StreamWriter]
-    self.reader = None       # type: Optional[asyncio.StreamReader]
-    #: If non-None, _ok_reply waits on it before sending the reply
-    self.ok_wait = None      # type: Optional[asyncio.Semaphore]
-    #: Released by _ok_reply once the reply is sent
-    self.ok_done = asyncio.Semaphore(0)
-    #: Set ready once the connection has been established
-    self._ready = asyncio.Event()
-    self.server = await asyncio.start_server(
-        self._client_connected_cb, '127.0.0.1', 0)
-    host, port = self.server.sockets[0].getsockname()    # type: ignore
-    self.owner = asynctest.MagicMock()
-    self.owner.loop = asyncio.get_event_loop()
-    self.owner.handle_message = asynctest.CoroutineMock(side_effect=self._ok_handler)
-    self.remote_reader, self.remote_writer = await asyncio.open_connection(
-        host, port, loop=self.loop)
-    # Ensure the server side of the connection is ready
-    await self._ready.wait()
-
-
-async def old_teardown() -> None:
-    self.server.close()
-    await self.server.wait_closed()
-    self.remote_writer.close()
-    if self.writer:
-        self.writer.close()
-
-
 async def _ok_reply(conn, msg):
     # Give test code virtual time to run between request and reply.
     await asyncio.sleep(0.5)
     conn.write_message(Message.reply_to_request(msg, 'ok'))
     await conn.drain()
+
 
 async def _ok_handler(conn, msg):
     asyncio.get_event_loop().create_task(_ok_reply(conn, msg))
