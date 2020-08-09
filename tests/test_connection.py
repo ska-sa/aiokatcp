@@ -116,22 +116,29 @@ async def server(connection_queue):
     await server.wait_closed()
 
 
+async def _close_writer(writer):
+    writer.close()
+    if sys.version_info >= (3, 7):
+        try:
+            await writer.wait_closed()
+        except ConnectionError:
+            # If the stream closed due to an exception, wait_closed
+            # will raise that exception.
+            pass
+
+
 @pytest.fixture
 async def client_reader_writer(server):
     reader, writer = await asyncio.open_connection('::1', 7777)
     yield reader, writer
-    writer.close()
-    if sys.version_info >= (3, 7):
-        await writer.wait_closed()
+    await _close_writer(writer)
 
 
 @pytest.fixture
 async def server_reader_writer(client_reader_writer, connection_queue):
     reader, writer = await connection_queue.get()
     yield reader, writer
-    writer.close()
-    if sys.version_info >= (3, 7):
-        await writer.wait_closed()
+    await _close_writer(writer)
 
 
 @pytest.fixture
