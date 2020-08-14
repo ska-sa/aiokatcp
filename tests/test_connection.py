@@ -44,7 +44,9 @@ pytestmark = [pytest.mark.asyncio]
 
 @pytest.fixture
 def event_loop():
-    return async_solipsism.EventLoop()
+    loop = async_solipsism.EventLoop()
+    yield loop
+    loop.close()
 
 
 class TestReadMessage:
