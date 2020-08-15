@@ -29,11 +29,11 @@ import asyncio
 import logging
 import re
 import sys
+from unittest import mock
 from typing import Optional, Tuple     # noqa: F401
 
 import pytest
 import async_solipsism
-import asynctest
 
 from aiokatcp.core import Message, KatcpSyntaxError
 from aiokatcp.connection import read_message, Connection
@@ -95,9 +95,9 @@ class TestReadMessage:
 
 @pytest.fixture
 def owner(event_loop):
-    owner = asynctest.MagicMock()
+    owner = mock.MagicMock()
     owner.loop = asyncio.get_event_loop()
-    owner.handle_message = asynctest.CoroutineMock(side_effect=_ok_handler)
+    owner.handle_message = mock.MagicMock(side_effect=_ok_handler)
     return owner
 
 

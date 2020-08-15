@@ -6,7 +6,6 @@
 #
 async-solipsism==0.2      # via -r requirements.in
 async-timeout==3.0.1      # via -r requirements.in
-asynctest==0.13.0         # via -r requirements.in
 attrs==19.3.0             # via pytest
 certifi==2019.11.28       # via requests
 chardet==3.0.4            # via requests

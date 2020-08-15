@@ -29,7 +29,7 @@
 
 from setuptools import setup, find_packages
 
-tests_require = ['asynctest', 'async-solipsism', 'pytest', 'pytest-asyncio', 'pytest-mock']
+tests_require = ['async-solipsism', 'pytest', 'pytest-asyncio', 'pytest-mock']
 docs_require = ['sphinx', 'sphinx-autodoc-typehints', 'sphinxcontrib-asyncio', 'sphinx-rtd-theme']
 
 setup(
