@@ -63,10 +63,10 @@ class DummyServer(DeviceServer):
     VERSION = 'dummy-1.0'
     BUILD_STATE = 'dummy-build-1.0.0'
 
-    def __init__(self, *, loop=None):
-        super().__init__('::1', 7777, loop=loop)
-        self.event = asyncio.Event(loop=self.loop)
-        self.wait_reached = asyncio.Event(loop=self.loop)
+    def __init__(self):
+        super().__init__('::1', 7777)
+        self.event = asyncio.Event()
+        self.wait_reached = asyncio.Event()
         sensor = Sensor(int, 'counter-queries', 'number of ?counter queries',
                         default=0,
                         initial_status=Sensor.Status.NOMINAL)

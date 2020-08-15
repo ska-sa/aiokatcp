@@ -59,8 +59,8 @@ class DummyClient(Client):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.foos = asyncio.Queue(loop=self.loop)
-        self.unhandled = asyncio.Queue(loop=self.loop)
+        self.foos = asyncio.Queue()
+        self.unhandled = asyncio.Queue()
 
     def inform_foo(self, string: str, integer: int) -> None:
         self.foos.put_nowait((string, integer))
