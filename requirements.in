@@ -1,8 +1,11 @@
 katversion
-asynctest
+async-solipsism
 async-timeout
-coverage
 coveralls
 decorator
 flake8
 mypy
+pytest
+pytest-asyncio
+pytest-cov
+pytest-mock

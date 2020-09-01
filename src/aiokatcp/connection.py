@@ -151,7 +151,7 @@ class Connection:
         try:
             # Normally this would be checked by the internals of
             # self.writer.drain and bubble out to self.drain, but there is no
-            # guaranteed that self.drain will be called in the near future
+            # guarantee that self.drain will be called in the near future
             # (see Github issue #11).
             if self.writer.transport.is_closing():
                 raise ConnectionResetError('Connection lost')
@@ -178,8 +178,10 @@ class Connection:
                 try:
                     await self.writer.drain()
                 except ConnectionError as error:
-                    self.logger.warning('Connection closed while draining: %s', error)
-                    self._close_writer()
+                    # The writer could have been closed during the await
+                    if self.writer is not None:
+                        self.logger.warning('Connection closed while draining: %s', error)
+                        self._close_writer()
 
     async def _run(self) -> None:
         while True:

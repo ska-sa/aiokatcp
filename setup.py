@@ -29,13 +29,14 @@
 
 from setuptools import setup, find_packages
 
-tests_require = ['asynctest', 'nose']
+tests_require = ['async-solipsism', 'pytest', 'pytest-asyncio', 'pytest-mock']
 docs_require = ['sphinx', 'sphinx-autodoc-typehints', 'sphinxcontrib-asyncio', 'sphinx-rtd-theme']
 
 setup(
     name='aiokatcp',
     use_katversion=True,
-    packages=find_packages(),
+    packages=find_packages('src'),
+    package_dir={'': 'src'},
     package_data={'aiokatcp': ['py.typed']},
     author='Bruce Merry',
     author_email='bmerry@ska.ac.za',
@@ -66,6 +67,6 @@ setup(
             'katcpcmd = aiokatcp.tools.katcpcmd:main'
         ]
     },
-    python_requires='>=3.5',
+    python_requires='>=3.6',
     zip_safe=False   # For py.typed
 )
