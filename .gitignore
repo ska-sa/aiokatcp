@@ -2,7 +2,8 @@
 /dist
 /build
 /.coverage
+/.eggs
 /.mypy_cache
-/aiokatcp.egg-info
+src/aiokatcp.egg-info
 *.pyc
 __pycache__
