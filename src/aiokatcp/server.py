@@ -272,7 +272,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             raise TypeError('{.__name__} does not define BUILD_STATE'.format(self.__class__))
         self._connections = set()  # type: Set[ClientConnection]
         self._pending = set()      # type: Set[asyncio.Task]
-        self._pending_space = asyncio.Semaphore(value=max_pending, loop=loop)
+        self._pending_space = asyncio.Semaphore(value=max_pending)
         if loop is None:
             loop = asyncio.get_event_loop()
         self.loop = loop
@@ -280,8 +280,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
         self.max_backlog = 2 * limit if max_backlog is None else max_backlog
         self._log_level = core.LogLevel.WARN
         self._server = None        # type: Optional[asyncio.events.AbstractServer]
-        self._server_lock = asyncio.Lock(loop=loop)
-        self._stopped = asyncio.Event(loop=loop)
+        self._server_lock = asyncio.Lock()
+        self._stopped = asyncio.Event()
         self._host = host
         self._port = port
         self._stopping = False
@@ -304,9 +304,9 @@ class DeviceServer(metaclass=DeviceServerMeta):
         """
         def factory():
             # Based on asyncio.start_server, but using ConvertCRProtocol
-            reader = asyncio.StreamReader(limit=self._limit, loop=self.loop)
+            reader = asyncio.StreamReader(limit=self._limit)
             protocol = connection.ConvertCRProtocol(
-                reader, self._client_connected_cb, loop=self.loop)
+                reader, self._client_connected_cb)
             return protocol
 
         async with self._server_lock:
@@ -348,7 +348,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
                     for task in self._pending:
                         if cancel and not task.done():
                             task.cancel()
-                    await asyncio.wait(list(self._pending), loop=self.loop)
+                    await asyncio.wait(list(self._pending))
                 msg = core.Message.inform('disconnect', 'server shutting down')
                 for client in list(self._connections):
                     client.write_message(msg)

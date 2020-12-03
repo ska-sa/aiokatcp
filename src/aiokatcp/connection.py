@@ -128,13 +128,13 @@ class Connection:
         self.writer = writer  # type: Optional[asyncio.StreamWriter]
         host, port, *_ = writer.get_extra_info('peername')
         self.address = core.Address(ipaddress.ip_address(host), port)
-        self._drain_lock = asyncio.Lock(loop=owner.loop)
+        self._drain_lock = asyncio.Lock()
         self.is_server = is_server
         self.logger = ConnectionLoggerAdapter(logger, dict(address=self.address))
         self._task = self.owner.loop.create_task(self._run())
         self._task.add_done_callback(self._done_callback)
         self._closing = False
-        self._closed_event = asyncio.Event(loop=owner.loop)
+        self._closed_event = asyncio.Event()
 
     def _close_writer(self):
         if self.writer is not None:
