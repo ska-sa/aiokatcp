@@ -35,9 +35,11 @@ from typing import (Generic, TypeVar, Type, List, Tuple, Mapping, Iterable,
                     Iterator, Optional, Any, Union, Callable, cast, overload)
 # Imports only used for type comments, otherwise unused
 from typing import Set, Dict     # noqa: F401
+import uvloop
 
 from . import core
 
+asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 _T = TypeVar('_T')
 

@@ -37,11 +37,14 @@ from typing import (Set, Callable, Awaitable, Sequence, Iterable,
                     Optional, List, Any, TypeVar, cast)
 # Only used in type comments, so flake8 complains
 from typing import Dict    # noqa: F401
+import uvloop
+
 
 import aiokatcp
 from . import core, connection, sensor
 from .connection import FailReply, InvalidReply
 
+asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 logger = logging.getLogger(__name__)
 _RequestReply = Awaitable[Optional[Sequence]]
