@@ -39,10 +39,11 @@ from collections import OrderedDict
 from typing import Any, List, Iterable, Callable, Tuple, Sequence, Type, Set, Generator
 # Only used in type comments, so flake8 complains
 from typing import Dict, Optional, Union   # noqa: F401
+import uvloop
 
 from . import core, connection, sensor
 from .connection import FailReply, InvalidReply
-
+asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 logger = logging.getLogger(__name__)
 _InformHandler = Callable[['Client', core.Message], None]
