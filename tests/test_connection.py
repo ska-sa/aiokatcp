@@ -223,7 +223,7 @@ async def test_disconnected(owner, server_connection, client_writer, caplog) -> 
         await conn.wait_closed()
     owner.handle_message.assert_called_with(conn, Message.request('watchdog', mid=4))
     # Note: should only be one warning, not two
-    #assert 1 == len(caplog.records)
+    # assert 1 == len(caplog.records)
     assert re.fullmatch(
         r'Connection closed .*: Connection lost \[.*\]',
         caplog.records[0].message
