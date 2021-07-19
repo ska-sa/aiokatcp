@@ -1,0 +1,41 @@
+name: Unit tests
+on: [push, pull_request]
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-20.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.6", "3.7", "3.8", "3.9"]
+        include:
+          - python-version: "3.9"
+            coverage: "yes"
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-cache-${{ matrix.python-version }}-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-cache-${{ matrix.python-version }}-
+            ${{ runner.os }}-pip-cache-
+      - uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -U pip setuptools wheel
+      - run: pip install -r requirements.txt
+      - run: pip install --no-deps -e .
+        if: ${{ matrix.coverage == 'yes' }}
+      - run: pip install --no-deps .
+        if: ${{ matrix.coverage != 'yes' }}
+      - run: pip check
+      - run: pytest -Werror --cov=aiokatcp --cov-branch
+      - run: flake8
+      - run: mypy
+      - run: coveralls --service=github
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        if: ${{ matrix.coverage == 'yes' }}
