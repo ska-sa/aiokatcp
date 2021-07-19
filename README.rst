@@ -1,8 +1,8 @@
 aiokatcp
 ========
 
-.. image:: https://travis-ci.org/ska-sa/aiokatcp.svg?branch=master
-   :target: https://travis-ci.org/ska-sa/aiokatcp
+.. image:: https://github.com/ska-sa/aiokatcp/actions/workflows/test.yml/badge.svg
+   :target: https://github.com/ska-sa/aiokatcp/actions/workflows/test.yml
 .. image:: https://coveralls.io/repos/github/ska-sa/aiokatcp/badge.svg
    :target: https://coveralls.io/github/ska-sa/aiokatcp
 .. image:: https://readthedocs.org/projects/aiokatcp/badge/?version=latest
