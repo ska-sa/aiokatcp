@@ -148,7 +148,7 @@ class Now(enum.Enum):
     NOW = 0
 
 
-TimestampOrNow = Union[Timestamp, Now]     # type: Type[Any]
+TimestampOrNow = Union[Timestamp, Now]
 
 
 class LogLevel(enum.IntEnum):
@@ -336,9 +336,9 @@ def _union_args(cls: Any) -> Optional[Tuple[Type]]:
         return None
     try:
         # Python 3.5.3 onwards
-        args = cls.__args__
+        args = cls.__args__  # type: ignore
     except AttributeError:
-        args = cls.__union_params__
+        args = cls.__union_params__  # type: ignore
     return args
 
 

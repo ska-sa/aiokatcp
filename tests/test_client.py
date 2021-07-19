@@ -352,6 +352,7 @@ async def test_bad_address(event_loop, caplog) -> None:
         task.cancel()
     finally:
         client.close()
+        await client.wait_closed()
 
 
 class SensorWatcherChannel(Channel):
