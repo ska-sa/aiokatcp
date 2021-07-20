@@ -1,6 +1,16 @@
 Changelog
 =========
 
+.. rubric:: Version 1.0.0
+
+- Drop support for Python 3.5, and test on versions up to 3.9.
+- Remove explicit ``loop`` arguments.
+- Fix a race condition that could cause lost connections to be logged twice.
+- Switch testing from nosetests to pytest.
+- Switch CI from Travis CI to Github Actions.
+- Use a :file:`pyproject.toml` to specify build-time dependencies.
+- Upgrade Sphinx used for readthedocs to the latest version.
+
 .. rubric:: Version 0.8.0
 
 - Add :meth:`.SensorSet.add_add_callback`, :meth:`SensorSet.remove_add_callback` and
