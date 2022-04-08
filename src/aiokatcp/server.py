@@ -190,6 +190,10 @@ class DeviceServerMeta(type):
         return result
 
 
+def _dummy_observer(sensor, reading):
+    pass
+
+
 class DeviceServer(metaclass=DeviceServerMeta):
     """Server that handles katcp.
 
@@ -395,7 +399,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         version = 'aiokatcp-{}'.format(aiokatcp.__version__)
         api_version = 'aiokatcp-{}'.format(aiokatcp.minor_version())
         ctx.informs([
-            ('katcp-protocol', '5.0-MI'),
+            ('katcp-protocol', '5.1-MIB'),
             ('katcp-library', api_version, version),
             ('katcp-device', self.VERSION, self.BUILD_STATE),
         ], send_reply=send_reply)
@@ -641,7 +645,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         ::
 
             ?version-list
-            #version-list katcp-protocol 5.0-MI
+            #version-list katcp-protocol 5.1-MIB
             #version-list katcp-library katcp-python-0.4 katcp-python-0.4.1-py2
             #version-list katcp-device foodevice-1.0 foodevice-1.0.0rc1
             !version-list ok 3
@@ -807,6 +811,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         ----------
         name
             Name of the sensor whose sampling strategy to query or configure.
+            When configuring it may be a comma-separated list of names.
         strategy
             Type of strategy to use to report the sensor value. The
             differential strategy type may only be used with integer or float
@@ -848,19 +853,37 @@ class DeviceServer(metaclass=DeviceServerMeta):
             !sensor-sampling ok cpu.power.on period 500
 
         """
-        try:
-            s = self.sensors[name]
-        except KeyError:
-            raise FailReply('Unknown sensor {!r}'.format(name))
         if strategy is None:
-            sampler = ctx.conn.get_sampler(s)
+            names = [name]  # comma-separation not supported with queries
         else:
+            names = name.split(',')
+        sensors = []
+        for sensor_name in names:
             try:
-                observer = ctx.conn.sensor_update
-                sampler = sensor.SensorSampler.factory(s, observer, self.loop, strategy, *args)
-            except (TypeError, ValueError) as error:
-                raise FailReply(str(error)) from error
-            ctx.conn.set_sampler(s, sampler)
+                sensors.append(self.sensors[sensor_name])
+            except KeyError:
+                raise FailReply('Unknown sensor {!r}'.format(sensor_name))
+        if strategy is None:
+            sampler = ctx.conn.get_sampler(sensors[0])
+        else:
+            observer = ctx.conn.sensor_update
+            # Create samplers with dummy observers purely for validation
+            # (so that the whole request is atomic).
+            for s in sensors:
+                try:
+                    sampler = sensor.SensorSampler.factory(
+                        s, _dummy_observer, self.loop, strategy, *args)
+                except (TypeError, ValueError) as error:
+                    raise FailReply(str(error)) from error
+                if sampler is not None:
+                    sampler.close()
+            # Now create them for real
+            for s in sensors:
+                try:
+                    sampler = sensor.SensorSampler.factory(s, observer, self.loop, strategy, *args)
+                except (TypeError, ValueError) as error:
+                    raise FailReply(str(error)) from error
+                ctx.conn.set_sampler(s, sampler)
         if sampler is not None:
             params = sampler.parameters()
         else:

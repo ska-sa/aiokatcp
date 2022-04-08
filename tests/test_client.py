@@ -105,7 +105,7 @@ class Channel:
         self.writer = writer
 
     async def wait_connected(self) -> None:
-        self.writer.write(b'#version-connect katcp-protocol 5.0-IM\n')
+        self.writer.write(b'#version-connect katcp-protocol 5.1-IMB\n')
         await self.client.wait_connected()
         # Make sure that wait_connected works when already connected
         await self.client.wait_connected()
@@ -297,7 +297,7 @@ async def test_connect(server, client_queue, event_loop) -> None:
     (reader, writer) = await client_queue.get()
     await asyncio.sleep(1)
     assert not client_task.done()
-    writer.write(b'#version-connect katcp-protocol 5.0-IM\n')
+    writer.write(b'#version-connect katcp-protocol 5.1-IMB\n')
     client = await client_task
     assert client.is_connected
     client.close()
@@ -739,7 +739,7 @@ class TestClientNoReconnect:
 
 class TestClientNoMidSupport:
     async def test_single(self, channel, event_loop) -> None:
-        channel.writer.write(b'#version-connect katcp-protocol 5.0-M\n')
+        channel.writer.write(b'#version-connect katcp-protocol 5.1-M\n')
         await channel.client.wait_connected()
         future = event_loop.create_task(channel.client.request('echo'))
         assert await channel.reader.readline() == b'?echo\n'
@@ -749,7 +749,7 @@ class TestClientNoMidSupport:
         assert result == ([], [Message.inform('echo', b'an inform')])
 
     async def test_concurrent(self, channel, event_loop) -> None:
-        channel.writer.write(b'#version-connect katcp-protocol 5.0-M\n')
+        channel.writer.write(b'#version-connect katcp-protocol 5.1-M\n')
         await channel.client.wait_connected()
         future1 = event_loop.create_task(channel.client.request('echo', 1))
         future2 = event_loop.create_task(channel.client.request('echo', 2))
