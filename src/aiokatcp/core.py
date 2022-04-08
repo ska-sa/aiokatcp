@@ -258,7 +258,8 @@ def _encode_enum(value: enum.Enum) -> bytes:
 
 
 def _decode_enum(cls: Type[_E], raw: bytes) -> _E:
-    if hasattr(next(iter(cls)), 'katcp_value'):
+    # ignore to work around https://github.com/python/mypy/issues/12553
+    if hasattr(next(iter(cls)), 'katcp_value'):  # type: ignore
         for member in cls:
             if getattr(member, 'katcp_value') == raw:
                 return member
@@ -278,7 +279,8 @@ def _default_generic(cls: Type[_T]) -> _T:
 
 
 def _default_enum(cls: Type[_E]) -> _E:
-    return next(iter(cls))
+    # ignore to work around https://github.com/python/mypy/issues/12553
+    return next(iter(cls))  # type: ignore
 
 
 # mypy doesn't allow an abstract class to be passed to Type[], hence the

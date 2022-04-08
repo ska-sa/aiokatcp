@@ -96,7 +96,7 @@ class TestReadMessage:
 @pytest.fixture
 def owner(event_loop):
     owner = mock.MagicMock()
-    owner.loop = asyncio.get_event_loop()
+    owner.loop = event_loop
     owner.handle_message = mock.MagicMock(side_effect=_ok_handler)
     return owner
 

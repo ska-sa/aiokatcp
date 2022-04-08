@@ -26,15 +26,16 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import inspect
-import asyncio
+import asyncio.base_events
 import functools
 import logging
+import socket
 import traceback
 import io
 import re
 import time
 from typing import (Set, Callable, Awaitable, Sequence, Iterable,
-                    Optional, List, Any, TypeVar, cast)
+                    Optional, List, Tuple, Any, TypeVar, cast)
 # Only used in type comments, so flake8 complains
 from typing import Dict    # noqa: F401
 
@@ -279,7 +280,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         self._limit = limit
         self.max_backlog = 2 * limit if max_backlog is None else max_backlog
         self._log_level = core.LogLevel.WARN
-        self._server = None        # type: Optional[asyncio.events.AbstractServer]
+        self._server = None        # type: Optional[asyncio.base_events.Server]
         self._server_lock = asyncio.Lock()
         self._stopped = asyncio.Event()
         self._host = host
@@ -377,9 +378,23 @@ class DeviceServer(metaclass=DeviceServerMeta):
         await self._stopped.wait()
 
     @property
-    def server(self) -> Optional[asyncio.AbstractServer]:
+    def server(self) -> Optional[asyncio.base_events.Server]:
         """Return the underlying TCP server"""
         return self._server
+
+    @property
+    def sockets(self) -> Tuple[socket.socket, ...]:
+        """Sockets associated with the underlying server.
+
+        If :meth:`start` has not yet been called, this will be empty.
+        """
+        if self._server is None:
+            return ()
+        sockets = self._server.sockets
+        if isinstance(sockets, tuple):  # Python 3.8+
+            return sockets
+        else:
+            return tuple(sockets)
 
     def send_version_info(self, ctx: RequestContext, *, send_reply=True) -> None:
         """Send version information informs to the client.
