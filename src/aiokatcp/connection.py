@@ -29,7 +29,6 @@ import logging
 import asyncio
 import re
 import ipaddress
-import socket
 import time
 import inspect
 import functools
