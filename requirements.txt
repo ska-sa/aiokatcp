@@ -32,7 +32,7 @@ iniconfig==1.1.1
     # via pytest
 mccabe==0.6.1
     # via flake8
-mypy==0.910
+mypy==0.942
     # via -r requirements.in
 mypy-extensions==0.4.3
     # via mypy
@@ -64,9 +64,10 @@ requests==2.26.0
     # via coveralls
 toml==0.10.2
     # via
-    #   mypy
     #   pytest
     #   pytest-cov
+tomli==2.0.1
+    # via mypy
 types-decorator==0.1.5
     # via -r requirements.in
 typing-extensions==3.10.0.0
