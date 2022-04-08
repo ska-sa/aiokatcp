@@ -25,7 +25,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import asyncio
+import asyncio.base_events
 import re
 import logging
 import gc
@@ -79,7 +79,7 @@ def client_queue() -> _ClientQueue:
 
 
 @pytest.fixture
-async def server(client_queue) -> AsyncGenerator[asyncio.AbstractServer, None]:
+async def server(client_queue) -> AsyncGenerator[asyncio.base_events.Server, None]:
     """Start a server listening on [::1]:7777."""
     def callback(reader, writer):
         client_queue.put_nowait((reader, writer))
@@ -123,12 +123,12 @@ class Channel:
     @classmethod
     async def create(
             cls,
-            server: asyncio.AbstractServer,
+            server: asyncio.base_events.Server,
             client_queue: _ClientQueue,
             client_cls: Type[Client] = DummyClient,
             auto_reconnect=True) \
             -> 'Channel':
-        host, port = server.sockets[0].getsockname()[:2]    # type: ignore
+        host, port = server.sockets[0].getsockname()[:2]
         client = client_cls(host, port, auto_reconnect=auto_reconnect)
         (reader, writer) = await client_queue.get()
         return cls(client, reader, writer)
