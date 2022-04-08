@@ -148,9 +148,9 @@ async def server(request) -> AsyncGenerator[DummyServer, None]:
 
 
 @pytest.fixture
-async def reader_writer_factory(server) \
+async def reader_writer_factory(server: DummyServer) \
         -> AsyncGenerator[Callable[[], Awaitable[_StreamPair]], None]:
-    host, port = server.server.sockets[0].getsockname()[:2]
+    host, port = server.sockets[0].getsockname()[:2]
     writers = []
 
     async def factory() -> _StreamPair:
@@ -216,6 +216,11 @@ async def test_start_twice(server: DummyServer) -> None:
     """Calling start twice raises :exc:`RuntimeError`"""
     with pytest.raises(RuntimeError):
         await server.start()
+
+
+async def test_sockets_not_started() -> None:
+    """An unstarted server must return an empty socket tuple."""
+    assert DummyServer().sockets == ()
 
 
 async def test_carriage_return(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:

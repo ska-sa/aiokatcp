@@ -1,6 +1,13 @@
 Changelog
 =========
 
+.. rubric:: Development version
+
+- Change type annotation of :attr:`.Server.server` from
+  :class:`asyncio.AbstractServer` to the more specific
+  :class:`asyncio.Server`.
+- Add :attr:`.Server.sockets` to simplify querying the sockets of a server.
+
 .. rubric:: Version 1.0.0
 
 - Drop support for Python 3.5, and test on versions up to 3.9.

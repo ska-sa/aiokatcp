@@ -382,6 +382,20 @@ class DeviceServer(metaclass=DeviceServerMeta):
         """Return the underlying TCP server"""
         return self._server
 
+    @property
+    def sockets(self) -> Tuple[socket.socket, ...]:
+        """Sockets associated with the underlying server.
+
+        If :meth:`start` has not yet been called, this will be empty.
+        """
+        if self._server is None:
+            return ()
+        sockets = self._server.sockets
+        if isinstance(sockets, tuple):  # Python 3.8+
+            return sockets
+        else:
+            return tuple(sockets)
+
     def send_version_info(self, ctx: RequestContext, *, send_reply=True) -> None:
         """Send version information informs to the client.
 
