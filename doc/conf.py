@@ -180,6 +180,7 @@ texinfo_documents = [
 
 from sphinx.ext.napoleon.docstring import NumpyDocstring
 
+
 def parse_informs_section(self, section):
     return self._format_fields('Informs', self._consume_fields())
 

@@ -29,11 +29,11 @@
 
 """Command-line request tool"""
 
+import argparse
 import asyncio
+import contextlib
 import logging
 import signal
-import argparse
-import contextlib
 
 import async_timeout
 

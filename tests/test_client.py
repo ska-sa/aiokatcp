@@ -26,21 +26,22 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import asyncio.base_events
-import re
-import logging
-import gc
 import enum
+import gc
+import logging
+import re
 import unittest
 import unittest.mock
+from typing import AsyncGenerator, Tuple, Type, Union, cast
 from unittest.mock import call
-from typing import Tuple, Type, Union, AsyncGenerator, cast
 
-import pytest
 import async_solipsism
+import pytest
 
-from aiokatcp import (Client, FailReply, InvalidReply, ProtocolError, Message,
-                      Sensor, SensorWatcher, AbstractSensorWatcher, SyncState, encode)
-
+from aiokatcp import (
+    AbstractSensorWatcher, Client, FailReply, InvalidReply, Message,
+    ProtocolError, Sensor, SensorWatcher, SyncState, encode
+)
 
 _ClientQueue = Union['asyncio.Queue[Tuple[asyncio.StreamReader, asyncio.StreamWriter]]']
 

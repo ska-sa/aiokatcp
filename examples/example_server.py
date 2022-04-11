@@ -28,8 +28,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import asyncio
-import logging
 import enum
+import logging
 import signal
 from typing import Tuple
 

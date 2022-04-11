@@ -27,7 +27,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 tests_require = ['async-solipsism', 'pytest', 'pytest-asyncio', 'pytest-mock']
 docs_require = ['sphinx', 'sphinx-autodoc-typehints', 'sphinxcontrib-asyncio', 'sphinx-rtd-theme']

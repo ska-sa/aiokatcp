@@ -25,22 +25,23 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import enum
-import re
 import asyncio
+import enum
 import ipaddress
 import logging
-from typing import List, Tuple, Iterable, Union, Pattern, Callable, Awaitable, AsyncGenerator
+import re
+from typing import (
+    AsyncGenerator, Awaitable, Callable, Iterable, List, Pattern, Tuple, Union
+)
 
-import pytest
 import async_solipsism
+import pytest
 
 import aiokatcp
-from aiokatcp.core import Address
 from aiokatcp.connection import FailReply
-from aiokatcp.server import DeviceServer, RequestContext
+from aiokatcp.core import Address
 from aiokatcp.sensor import Sensor, SensorSampler
-
+from aiokatcp.server import DeviceServer, RequestContext
 
 _StreamPair = Tuple[asyncio.StreamReader, asyncio.StreamWriter]
 
