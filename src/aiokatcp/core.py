@@ -107,7 +107,7 @@ class Address:
         text = raw.decode('utf-8')
         match = cls._IPV6_RE.match(text)
         if match:
-            host = ipaddress.IPv6Address(match.group('host'))  # type: _IPAddress
+            host: _IPAddress = ipaddress.IPv6Address(match.group('host'))
         else:
             match = cls._IPV4_RE.match(text)
             if match:
@@ -188,7 +188,7 @@ class TypeInfo(Generic[_T_contra]):
         self.default = default
 
 
-_types = []     # type: List[TypeInfo]
+_types: List[TypeInfo] = []
 
 
 def register_type(type_: Type[_T], name: str,
@@ -370,7 +370,7 @@ def decode(cls: Any, value: bytes) -> Any:
     """
     union_args = _union_args(cls)
     if union_args is not None:
-        values = []     # type: List[Any]
+        values: List[Any] = []
         for type_ in union_args:
             try:
                 values.append(decode(type_, value))

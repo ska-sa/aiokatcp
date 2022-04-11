@@ -52,7 +52,7 @@ class _PendingRequest:
     def __init__(self, name: str, mid: Optional[int], loop: asyncio.AbstractEventLoop) -> None:
         self.name = name
         self.mid = mid
-        self.informs = []      # type: List[core.Message]
+        self.informs: List[core.Message] = []
         self.reply = loop.create_future()
 
 
@@ -120,24 +120,24 @@ class Client(metaclass=ClientMeta):
                  loop: asyncio.AbstractEventLoop = None) -> None:
         if loop is None:
             loop = asyncio.get_event_loop()
-        self._connection = None         # type: Optional[connection.Connection]
+        self._connection: Optional[connection.Connection] = None
         self.is_connected = False
         self.host = host
         self.port = port
         self.loop = loop
-        self.logger = logger     # type: Union[logging.Logger, connection.ConnectionLoggerAdapter]
+        self.logger: Union[logging.Logger, connection.ConnectionLoggerAdapter] = logger
         self._limit = limit
-        self._pending = {}              # type: Dict[Optional[int], _PendingRequest]
+        self._pending: Dict[Optional[int], _PendingRequest] = {}
         self._next_mid = 1
         self._run_task = loop.create_task(self._run())
         self._run_task.add_done_callback(self._done_callback)
         self._closing = False
         self._closed_event = asyncio.Event()
-        self._connected_callbacks = []       # type: List[Callable[[], None]]
-        self._disconnected_callbacks = []    # type: List[Callable[[], None]]
-        self._failed_connect_callbacks = []  # type: List[Callable[[Exception], None]]
-        self._inform_callbacks = {}      # type: Dict[str, List[Callable[[core.Message], None]]]
-        self._sensor_monitor = None          # type: Optional[_SensorMonitor]
+        self._connected_callbacks: List[Callable[[], None]] = []
+        self._disconnected_callbacks: List[Callable[[], None]] = []
+        self._failed_connect_callbacks: List[Callable[[Exception], None]] = []
+        self._inform_callbacks: Dict[str, List[Callable[[core.Message], None]]] = {}
+        self._sensor_monitor: Optional[_SensorMonitor] = None
         self._mid_support = False
         # Used to serialize requests if the server does not support message IDs
         self._request_lock = asyncio.Lock()
@@ -145,7 +145,7 @@ class Client(metaclass=ClientMeta):
         if self.auto_reconnect:
             # If not auto-reconnecting, wait_connected will set the exception
             self.add_failed_connect_callback(self._warn_failed_connect)
-        self.last_exc = None                 # type: Optional[Exception]
+        self.last_exc: Optional[Exception] = None
 
     def __del__(self) -> None:
         if hasattr(self, '_closed_event') and not self._closed_event.is_set():
@@ -434,7 +434,7 @@ class Client(metaclass=ClientMeta):
             future = self.loop.create_future()
             callback = functools.partial(_make_done, future)
             if self.auto_reconnect:
-                failed_callback = None   # type: Optional[Callable[[Exception], None]]
+                failed_callback: Optional[Callable[[Exception], None]] = None
             else:
                 failed_callback = functools.partial(self._set_last_exc, future)
                 self.add_failed_connect_callback(failed_callback)
@@ -676,7 +676,7 @@ class SensorWatcher(AbstractSensorWatcher):
         self.logger = client.logger
         self.sensors = sensor.SensorSet()
         # Synthesized enum types for discrete sensors
-        self._enum_cache = {}              # type: Dict[Tuple[bytes, ...], Type[enum.Enum]]
+        self._enum_cache: Dict[Tuple[bytes, ...], Type[enum.Enum]] = {}
         for enum_type in enum_types:
             key = tuple(core.encode(value) for value in enum_type.__members__.values())
             self._enum_cache[key] = enum_type
@@ -713,8 +713,7 @@ class SensorWatcher(AbstractSensorWatcher):
                                 type_name, name)
             return
         stype = self.make_type(type_name, args)
-        s = sensor.Sensor(stype, self.rewrite_name(name),
-                          description, units)   # type: sensor.Sensor
+        s: sensor.Sensor = sensor.Sensor(stype, self.rewrite_name(name), description, units)
         self.sensors.add(s)
 
     def sensor_removed(self, name: str) -> None:
@@ -765,14 +764,14 @@ class _SensorMonitor:
         client.add_disconnected_callback(self._disconnected)
         client.add_inform_callback('interface-changed', self._interface_changed)
         client.add_inform_callback('sensor-status', self._sensor_status)
-        self._update_task = None           # type: Optional[asyncio.Task]
+        self._update_task: Optional[asyncio.Task] = None
         # Sensors we have seen: maps name to arguments
-        self._sensors = {}                 # type: Dict[str, Tuple[bytes, ...]]
+        self._sensors: Dict[str, Tuple[bytes, ...]] = {}
         # Sensors whose sampling strategy has been set
-        self._sampling_set = set()         # type: Set[str]
+        self._sampling_set: Set[str] = set()
         self._in_batch = False
         # Really an OrderedSet, but no such type exists
-        self._watchers = OrderedDict()     # type: Dict[AbstractSensorWatcher, None]
+        self._watchers: Dict[AbstractSensorWatcher, None] = OrderedDict()
 
     def add_watcher(self, watcher: AbstractSensorWatcher) -> None:
         self._watchers[watcher] = None
@@ -843,8 +842,8 @@ class _SensorMonitor:
     async def _update(self) -> None:
         """Refresh the sensor list and subscriptions."""
         reply, informs = await self.client.request('sensor-list')
-        sampling = []       # type: List[str]
-        seen = set()        # type: Set[str]
+        sampling: List[str] = []
+        seen: Set[str] = set()
         with self._batch():
             # Enumerate all sensors and add new or changed ones
             for inform in informs:
