@@ -28,7 +28,6 @@
 import asyncio
 import logging
 import re
-import sys
 from unittest import mock
 from typing import Optional, Tuple     # noqa: F401
 

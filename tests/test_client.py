@@ -30,7 +30,6 @@ import re
 import logging
 import gc
 import enum
-import sys
 import unittest
 import unittest.mock
 from unittest.mock import call
