@@ -32,8 +32,7 @@ import logging
 import numbers
 import re
 from typing import (
-    Any, Callable, Generic, List, Match, Optional, Tuple, Type, TypeVar,
-    Union
+    Any, Callable, Generic, List, Match, Optional, Tuple, Type, TypeVar, Union
 )
 
 _T = TypeVar('_T')
@@ -576,11 +575,10 @@ class Message:
     def __ne__(self, other):
         return not self == other
 
-    # Mutable, so not safely hashable.
-    # The type: ignore should be removed after
-    # https://github.com/python/mypy/issues/4266
-    # is fixed.
-    __hash__ = None      # type: ignore
+    # Mutable, so not safely hashable. Python automatically sets __hash__ to
+    # None when __eq__ is provided, so we don't need to do it explicitly, and
+    # mypy complains if we do (https://github.com/python/mypy/issues/4266).
+    # __hash__ = None
 
     def reply_ok(self) -> bool:
         """Return True if this is a reply and its first argument is 'ok'."""
