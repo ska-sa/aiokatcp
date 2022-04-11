@@ -43,7 +43,6 @@ from aiokatcp import (Client, FailReply, InvalidReply, ProtocolError, Message,
 
 
 _ClientQueue = Union['asyncio.Queue[Tuple[asyncio.StreamReader, asyncio.StreamWriter]]']
-pytestmark = [pytest.mark.asyncio]
 
 
 @pytest.fixture
