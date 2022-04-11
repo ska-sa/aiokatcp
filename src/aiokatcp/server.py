@@ -879,10 +879,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
                     sampler.close()
             # Now create them for real
             for s in sensors:
-                try:
-                    sampler = sensor.SensorSampler.factory(s, observer, self.loop, strategy, *args)
-                except (TypeError, ValueError) as error:
-                    raise FailReply(str(error)) from error
+                sampler = sensor.SensorSampler.factory(s, observer, self.loop, strategy, *args)
                 ctx.conn.set_sampler(s, sampler)
         if sampler is not None:
             params = sampler.parameters()
