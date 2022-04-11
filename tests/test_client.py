@@ -114,11 +114,10 @@ class Channel:
         self.client.close()
         self.writer.close()
         await self.client.wait_closed()
-        if sys.version_info >= (3, 7):
-            try:
-                await self.writer.wait_closed()
-            except ConnectionError:
-                pass
+        try:
+            await self.writer.wait_closed()
+        except ConnectionError:
+            pass
 
     @classmethod
     async def create(

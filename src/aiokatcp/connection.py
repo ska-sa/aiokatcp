@@ -269,7 +269,7 @@ def wrap_handler(name: str, handler: Callable, fixed: int) -> Callable:
         if parameter.name == '_msg':
             raise ValueError('Parameter cannot be named _msg')
     if len(pos) < fixed:
-        raise TypeError('Handler must accept at least {} positional argument(s)'.format(fixed))
+        raise TypeError(f'Handler must accept at least {fixed} positional argument(s)')
 
     # Exclude transferring __annotations__ from the wrapped function,
     # because the decorator does not preserve signature.
@@ -281,7 +281,7 @@ def wrap_handler(name: str, handler: Callable, fixed: int) -> Callable:
         for argument in msg.arguments:
             if len(args) >= len(pos):
                 if var_pos is None:
-                    raise FailReply('too many arguments for {}'.format(name))
+                    raise FailReply(f'too many arguments for {name}')
                 else:
                     hint = var_pos.annotation
             else:

@@ -119,13 +119,12 @@ async def server(connection_queue):
 
 async def _close_writer(writer):
     writer.close()
-    if sys.version_info >= (3, 7):
-        try:
-            await writer.wait_closed()
-        except ConnectionError:
-            # If the stream closed due to an exception, wait_closed
-            # will raise that exception.
-            pass
+    try:
+        await writer.wait_closed()
+    except ConnectionError:
+        # If the stream closed due to an exception, wait_closed
+        # will raise that exception.
+        pass
 
 
 @pytest.fixture

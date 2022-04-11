@@ -93,13 +93,13 @@ def remove_callback():
 
 @pytest.fixture
 def sensors():
-    return [Sensor(int, 'name{}'.format(i)) for i in range(5)]
+    return [Sensor(int, f'name{i}') for i in range(5)]
 
 
 @pytest.fixture
 def alt_sensors():
     # A different set of sensors with the same names
-    return [Sensor(float, 'name{}'.format(i)) for i in range(5)]
+    return [Sensor(float, f'name{i}') for i in range(5)]
 
 
 @pytest.fixture

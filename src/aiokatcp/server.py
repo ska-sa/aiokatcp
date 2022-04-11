@@ -121,7 +121,7 @@ class RequestContext:
             If the request has already been replied to.
         """
         if self._replied:
-            raise RuntimeError('request ?{} has already been replied to'.format(self.req.name))
+            raise RuntimeError(f'request ?{self.req.name} has already been replied to')
         msg = core.Message.reply_to_request(self.req, *args)
         self.conn.write_message(msg)
         self._replied = True
@@ -140,7 +140,7 @@ class RequestContext:
             If the request has already been replied to.
         """
         if self._replied:
-            raise RuntimeError('request ?{} has already been replied to'.format(self.req.name))
+            raise RuntimeError(f'request ?{self.req.name} has already been replied to')
         msg = core.Message.inform_reply(self.req, *args)
         self.conn.write_message(msg)
 
@@ -158,7 +158,7 @@ class RequestContext:
             If the request has already been replied to.
         """
         if self._replied:
-            raise RuntimeError('request ?{} has already been replied to'.format(self.req.name))
+            raise RuntimeError(f'request ?{self.req.name} has already been replied to')
         msgs = [core.Message.inform_reply(self.req, *inform) for inform in informs]
         if send_reply:
             msgs.append(core.Message.reply_to_request(self.req, core.Message.OK, len(msgs)))
@@ -186,7 +186,7 @@ class DeviceServerMeta(type):
             if key.startswith('request_') and inspect.isfunction(value):
                 request_name = key[8:].replace('_', '-')
                 if value.__doc__ is None:
-                    raise TypeError('{} must have a docstring'.format(key))
+                    raise TypeError(f'{key} must have a docstring')
                 request_handlers[request_name] = mcs._wrap_request(request_name, value)
         return result
 
@@ -272,9 +272,9 @@ class DeviceServer(metaclass=DeviceServerMeta):
                  loop: asyncio.AbstractEventLoop = None) -> None:
         super().__init__()
         if not self.VERSION:
-            raise TypeError('{.__name__} does not define VERSION'.format(self.__class__))
+            raise TypeError(f'{self.__class__.__name__} does not define VERSION')
         if not self.BUILD_STATE:
-            raise TypeError('{.__name__} does not define BUILD_STATE'.format(self.__class__))
+            raise TypeError(f'{self.__class__.__name__} does not define BUILD_STATE')
         self._connections = set()  # type: Set[ClientConnection]
         self._pending = set()      # type: Set[asyncio.Task]
         self._pending_space = asyncio.Semaphore(value=max_pending)
@@ -411,8 +411,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
         num_informs
             Number of informs sent
         """
-        version = 'aiokatcp-{}'.format(aiokatcp.__version__)
-        api_version = 'aiokatcp-{}'.format(aiokatcp.minor_version())
+        version = f'aiokatcp-{aiokatcp.__version__}'
+        api_version = f'aiokatcp-{aiokatcp.minor_version()}'
         ctx.informs([
             ('katcp-protocol', '5.1-MIB'),
             ('katcp-library', api_version, version),
@@ -494,7 +494,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
 
         Subclasses may override this to do dynamic handling.
         """
-        raise InvalidReply('unknown request {}'.format(req.name))
+        raise InvalidReply(f'unknown request {req.name}')
 
     async def _handle_request(self, ctx: RequestContext) -> None:
         """Task for handling an incoming request.
@@ -593,7 +593,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             try:
                 handler = self._request_handlers[name]
             except KeyError as error:
-                raise FailReply('request {} is not known'.format(name)) from error
+                raise FailReply(f'request {name} is not known') from error
             informs = [(name, cast(str, handler.__doc__))]
         ctx.informs(informs)
 
@@ -694,7 +694,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         elif name not in self.sensors:
             # Do not change the wording: katcp.inspecting_client does a string
             # check for "Unknown sensor".
-            raise FailReply('Unknown sensor {!r}'.format(name))
+            raise FailReply(f'Unknown sensor {name!r}')
         else:
             matched = [self.sensors[name]]
         return sorted(matched, key=lambda sensor: sensor.name)
@@ -877,7 +877,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             try:
                 sensors.append(self.sensors[sensor_name])
             except KeyError:
-                raise FailReply('Unknown sensor {!r}'.format(sensor_name))
+                raise FailReply(f'Unknown sensor {sensor_name!r}')
         if strategy is None:
             sampler = ctx.conn.get_sampler(sensors[0])
         else:
