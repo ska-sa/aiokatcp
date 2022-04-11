@@ -199,7 +199,7 @@ async def get_version_info(reader: asyncio.StreamReader,
     await check_reply(
         reader,
         [
-            prefix + b' katcp-protocol 5.0-MI\n',
+            prefix + b' katcp-protocol 5.1-MIB\n',
             prefix + ' katcp-library aiokatcp-{} aiokatcp-{}\n'.format(
                 aiokatcp.minor_version(), aiokatcp.__version__).encode('ascii'),
             prefix + b' katcp-device dummy-1.0 dummy-build-1.0.0\n'
@@ -733,6 +733,50 @@ async def test_sensor_sampling_auto_override(
         b'#sensor-status 123456792.0 1 auto-override nominal 1\n',
         b'#sensor-status 123456792.0 1 auto-override nominal 1\n',
         b'!watchdog ok\n'])
+
+
+async def test_sensor_sampling_bulk(
+        mock_time, server: DummyServer,
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    writer.write(b'?sensor-sampling float-sensor,counter-queries event\n')
+    await check_reply(reader, [
+        b'#sensor-status 123456789.0 1 float-sensor unknown 0.0\n',
+        b'#sensor-status 123456789.0 1 counter-queries nominal 0\n',
+        b'!sensor-sampling ok float-sensor,counter-queries event\n'])
+    # Check that the strategy has been set
+    writer.write(b'?sensor-sampling float-sensor\n')
+    writer.write(b'?sensor-sampling counter-queries\n')
+    await check_reply(reader, [
+        b'!sensor-sampling ok float-sensor event\n',
+        b'!sensor-sampling ok counter-queries event\n'
+    ])
+
+
+async def test_sensor_sampling_bulk_missing_sensor(
+        server: DummyServer,
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    writer.write(b'?sensor-sampling float-sensor,missing event\n')
+    await check_reply(reader, [
+        rb"!sensor-sampling fail Unknown\_sensor\_'missing'" + b'\n'])
+    # Check that the strategy has not been set on the first sensor
+    writer.write(b'?sensor-sampling float-sensor\n')
+    await check_reply(reader, [
+        b'!sensor-sampling ok float-sensor none\n'
+    ])
+
+
+async def test_sensor_sampling_bulk_invalid_strategy(
+        server: DummyServer,
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    writer.write(b'?sensor-sampling float-sensor,foo differential 1\n')
+    await check_reply(reader, [
+        rb'!sensor-sampling fail differential\_strategies\_only\_valid\_for\_integer'
+        rb'\_and\_float\_sensors' + b'\n'])
+    # Check that the strategy has not been set on the first sensor
+    writer.write(b'?sensor-sampling float-sensor\n')
+    await check_reply(reader, [
+        b'!sensor-sampling ok float-sensor none\n'
+    ])
 
 
 @pytest.mark.server_cls.with_args(BadServer)
