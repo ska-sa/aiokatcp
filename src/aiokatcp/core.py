@@ -26,17 +26,15 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import enum
-import re
 import io
-import logging
 import ipaddress
+import logging
 import numbers
+import re
 from typing import (
-    Match, Any, Callable, Union, Type, Tuple,
-    Generic, TypeVar, Optional)
-# Only used in type comments, so flake8 complains
-from typing import Dict, List   # noqa: F401
-
+    Any, Callable, Generic, List, Match, Optional, Tuple, Type, TypeVar,
+    Union
+)
 
 _T = TypeVar('_T')
 _T_contra = TypeVar('_T_contra', contravariant=True)

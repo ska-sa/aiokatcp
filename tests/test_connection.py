@@ -28,14 +28,14 @@
 import asyncio
 import logging
 import re
+from typing import Optional, Tuple  # noqa: F401
 from unittest import mock
-from typing import Optional, Tuple     # noqa: F401
 
-import pytest
 import async_solipsism
+import pytest
 
-from aiokatcp.core import Message, KatcpSyntaxError
-from aiokatcp.connection import read_message, Connection
+from aiokatcp.connection import Connection, read_message
+from aiokatcp.core import KatcpSyntaxError, Message
 
 
 @pytest.fixture

@@ -25,20 +25,19 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import logging
 import asyncio
-import re
-import ipaddress
-import time
-import inspect
 import functools
+import inspect
+import ipaddress
+import logging
+import re
+import time
 import types
-from typing import Any, Optional, Iterable, Callable, cast
+from typing import Any, Callable, Iterable, Optional, cast
 
 import decorator
 
 from . import core
-
 
 logger = logging.getLogger(__name__)
 DEFAULT_LIMIT = 16 * 1024**2

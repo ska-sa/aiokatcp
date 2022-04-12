@@ -36,15 +36,16 @@ else:
     __version__ = _katversion.get_version(__path__[0])   # type: ignore  # mypy issue 1422
 # END VERSION CHECK
 
-from .core import (                                              # noqa: F401
-    Message, KatcpSyntaxError, Address, Timestamp, TimestampOrNow, Now,
-    encode, decode, register_type, get_type, TypeInfo)
-from .connection import Connection, FailReply, InvalidReply      # noqa: F401
-from .server import DeviceServer, RequestContext                 # noqa: F401
-from .client import (                                            # noqa: F401
-    Client, ProtocolError, AbstractSensorWatcher, SensorWatcher,
-    SyncState)
-from .sensor import Reading, Sensor, SensorSampler, SensorSet    # noqa: F401
+from .client import (  # noqa: F401
+    AbstractSensorWatcher, Client, ProtocolError, SensorWatcher, SyncState
+)
+from .connection import Connection, FailReply, InvalidReply  # noqa: F401
+from .core import (  # noqa: F401
+    Address, KatcpSyntaxError, Message, Now, Timestamp, TimestampOrNow,
+    TypeInfo, decode, encode, get_type, register_type
+)
+from .sensor import Reading, Sensor, SensorSampler, SensorSet  # noqa: F401
+from .server import DeviceServer, RequestContext  # noqa: F401
 
 
 def minor_version():

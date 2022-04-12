@@ -25,19 +25,18 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import enum
-import time
 import abc
 import asyncio
+import enum
+import time
 import warnings
-from typing import (Generic, TypeVar, Type, List, Tuple, Mapping, Iterable,
-                    KeysView, ValuesView, ItemsView,
-                    Iterator, Optional, Any, Union, Callable, cast, overload)
-# Imports only used for type comments, otherwise unused
-from typing import Set, Dict     # noqa: F401
+from typing import (
+    Any, Callable, Dict, Generic, ItemsView, Iterable, Iterator, KeysView,
+    List, Mapping, Optional, Set, Tuple, Type, TypeVar, Union, ValuesView,
+    cast, overload
+)
 
 from . import core
-
 
 _T = TypeVar('_T')
 

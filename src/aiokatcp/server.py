@@ -25,24 +25,24 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import inspect
 import asyncio.base_events
 import functools
-import logging
-import socket
-import traceback
+import inspect
 import io
+import logging
 import re
+import socket
 import time
-from typing import (Set, Callable, Awaitable, Sequence, Iterable,
-                    Optional, List, Tuple, Any, TypeVar, cast)
-# Only used in type comments, so flake8 complains
-from typing import Dict    # noqa: F401
+import traceback
+from typing import (
+    Any, Awaitable, Callable, Dict, Iterable, List, Optional, Sequence, Set,
+    Tuple, TypeVar, cast
+)
 
 import aiokatcp
-from . import core, connection, sensor
-from .connection import FailReply, InvalidReply
 
+from . import connection, core, sensor
+from .connection import FailReply, InvalidReply
 
 logger = logging.getLogger(__name__)
 _RequestReply = Awaitable[Optional[Sequence]]

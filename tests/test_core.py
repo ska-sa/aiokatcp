@@ -26,16 +26,17 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import enum
-import json
 import ipaddress
+import json
 from fractions import Fraction
 from typing import Union
 
 import pytest
 
 from aiokatcp.core import (
-    Message, KatcpSyntaxError, Address, Timestamp, TimestampOrNow, Now,
-    encode, decode, register_type, get_type)
+    Address, KatcpSyntaxError, Message, Now, Timestamp, TimestampOrNow, decode,
+    encode, get_type, register_type
+)
 
 
 class MyEnum(enum.Enum):

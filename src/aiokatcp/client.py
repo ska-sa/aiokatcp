@@ -26,23 +26,23 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import asyncio
-import logging
-import re
-import warnings
-import inspect
-import random
-import functools
-import enum
-import time
 import contextlib
+import enum
+import functools
+import inspect
+import logging
+import random
+import re
+import time
+import warnings
 from collections import OrderedDict
-from typing import Any, List, Iterable, Callable, Tuple, Sequence, Type, Set, Generator
-# Only used in type comments, so flake8 complains
-from typing import Dict, Optional, Union   # noqa: F401
+from typing import (
+    Any, Callable, Dict, Generator, Iterable, List, Optional, Sequence, Set,
+    Tuple, Type, Union
+)
 
-from . import core, connection, sensor
+from . import connection, core, sensor
 from .connection import FailReply, InvalidReply
-
 
 logger = logging.getLogger(__name__)
 _InformHandler = Callable[['Client', core.Message], None]
