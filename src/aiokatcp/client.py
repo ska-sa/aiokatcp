@@ -37,9 +37,11 @@ import time
 import warnings
 from collections import OrderedDict
 from typing import (
-    Any, Callable, Dict, Generator, Iterable, List, Optional, Protocol,
-    Sequence, Set, Tuple, Type, Union, cast
+    Any, Callable, Dict, Generator, Iterable, List, Optional, Sequence, Set,
+    Tuple, Type, Union, cast
 )
+
+from typing_extensions import Protocol
 
 from . import connection, core, sensor
 from .connection import FailReply, InvalidReply
