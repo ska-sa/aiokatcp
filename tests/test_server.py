@@ -43,7 +43,6 @@ from aiokatcp.sensor import Sensor, SensorSampler
 
 
 _StreamPair = Tuple[asyncio.StreamReader, asyncio.StreamWriter]
-pytestmark = [pytest.mark.asyncio]
 
 
 @pytest.fixture

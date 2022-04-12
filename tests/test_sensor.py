@@ -67,7 +67,6 @@ def test_sensor_status_func():
     assert sensor.status == Sensor.Status.NOMINAL
 
 
-@pytest.mark.asyncio
 async def test_unclosed_sampler(event_loop):
     sensor = Sensor(int, 'sensor')
     sampler = SensorSampler.factory(

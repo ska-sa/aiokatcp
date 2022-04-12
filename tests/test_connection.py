@@ -38,9 +38,6 @@ from aiokatcp.core import Message, KatcpSyntaxError
 from aiokatcp.connection import read_message, Connection
 
 
-pytestmark = [pytest.mark.asyncio]
-
-
 @pytest.fixture
 def event_loop():
     loop = async_solipsism.EventLoop()
