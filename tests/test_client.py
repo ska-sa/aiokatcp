@@ -30,7 +30,6 @@ import re
 import logging
 import gc
 import enum
-import sys
 import unittest
 import unittest.mock
 from unittest.mock import call
@@ -114,11 +113,10 @@ class Channel:
         self.client.close()
         self.writer.close()
         await self.client.wait_closed()
-        if sys.version_info >= (3, 7):
-            try:
-                await self.writer.wait_closed()
-            except ConnectionError:
-                pass
+        try:
+            await self.writer.wait_closed()
+        except ConnectionError:
+            pass
 
     @classmethod
     async def create(

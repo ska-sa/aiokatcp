@@ -92,7 +92,7 @@ def main() -> int:
     args = parser.parse_args()
     host_port = args.endpoint.rsplit(':', 1)
     if len(host_port) != 2:
-        parser.error('missing port number in {}'.format(host_port))
+        parser.error(f'missing port number in {host_port}')
 
     loop = asyncio.get_event_loop()
     with contextlib.closing(loop):

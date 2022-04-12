@@ -149,7 +149,7 @@ class Client(metaclass=ClientMeta):
 
     def __del__(self) -> None:
         if hasattr(self, '_closed_event') and not self._closed_event.is_set():
-            warnings.warn('unclosed Client {!r}'.format(self), ResourceWarning)
+            warnings.warn(f'unclosed Client {self!r}', ResourceWarning)
             if not self.loop.is_closed():
                 self.loop.call_soon_threadsafe(self.close)
 
@@ -225,14 +225,14 @@ class Client(metaclass=ClientMeta):
             match = re.match(r'^(\d+)\.(\d+)(?:-(.+))?$', version)
             error = None
             if not match:
-                error = 'Unparsable katcp-protocol {!r}'.format(version)
+                error = f'Unparsable katcp-protocol {version!r}'
             else:
                 major = int(match.group(1))
                 minor = int(match.group(2))
                 self.logger.debug('Protocol version %d.%d', major, minor)
                 flags = match.group(3)
                 if major != 5:
-                    error = 'Unknown protocol version {}.{}'.format(major, minor)
+                    error = f'Unknown protocol version {major}.{minor}'
             if error is None:
                 self._mid_support = (flags is not None and 'I' in flags)
                 # Safety in case a race condition causes the connection to
@@ -698,7 +698,7 @@ class SensorWatcher(AbstractSensorWatcher):
                 # We need unique Python identifiers for each value, but simply
                 # normalising names in some way doesn't guarantee that.
                 # Instead, we use arbitrary numbering.
-                enums = [('ENUM{}'.format(i), value) for i, value in enumerate(values)]
+                enums = [(f'ENUM{i}', value) for i, value in enumerate(values)]
                 # Type checking disabled due to https://github.com/python/mypy/issues/4184
                 stype = enum.Enum('discrete', enums, type=DiscreteMixin)  # type: ignore
                 self._enum_cache[values] = stype
@@ -848,8 +848,8 @@ class _SensorMonitor:
         with self._batch():
             # Enumerate all sensors and add new or changed ones
             for inform in informs:
-                name, description, units, type_name = [
-                    core.decode(str, inform.arguments[i]) for i in range(4)]
+                name, description, units, type_name = (
+                    core.decode(str, inform.arguments[i]) for i in range(4))
                 seen.add(name)
                 params = tuple(inform.arguments[1:])
                 # Check if it already exists with the same parameters

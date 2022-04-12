@@ -26,7 +26,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import enum
-import sys
 import re
 import asyncio
 import ipaddress
@@ -93,7 +92,7 @@ class DummyServer(DeviceServer):
     async def request_bytes_arg(self, ctx: RequestContext, some_bytes) -> bytes:
         """An argument with no annotation"""
         if not isinstance(some_bytes, bytes):
-            raise FailReply('expected bytes, got {}'.format(type(some_bytes)))
+            raise FailReply(f'expected bytes, got {type(some_bytes)}')
         return some_bytes
 
     async def request_double(self, ctx: RequestContext, number: float, scale: float = 2) -> float:
@@ -162,12 +161,11 @@ async def reader_writer_factory(server: DummyServer) \
     yield factory
     for writer in writers:
         writer.close()
-    if sys.version_info >= (3, 7):
-        for writer in writers:
-            try:
-                await writer.wait_closed()
-            except ConnectionError:
-                pass
+    for writer in writers:
+        try:
+            await writer.wait_closed()
+        except ConnectionError:
+            pass
 
 
 @pytest.fixture

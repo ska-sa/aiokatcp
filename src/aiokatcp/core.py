@@ -78,7 +78,7 @@ class Address:
         else:
             prefix = '[' + str(self._host) + ']'
         if self._port is not None:
-            return '{}:{}'.format(prefix, self._port)
+            return f'{prefix}:{self._port}'
         else:
             return prefix
 
@@ -88,9 +88,9 @@ class Address:
 
     def __repr__(self) -> str:
         if self._port is None:
-            return 'Address({!r})'.format(self._host)
+            return f'Address({self._host!r})'
         else:
-            return 'Address({!r}, {!r})'.format(self._host, self._port)
+            return f'Address({self._host!r}, {self._port!r})'
 
     @classmethod
     def parse(cls, raw: bytes) -> 'Address':
@@ -115,7 +115,7 @@ class Address:
             if match:
                 host = ipaddress.IPv4Address(match.group('host'))
             else:
-                raise ValueError("could not parse '{}' as an address".format(text))
+                raise ValueError(f"could not parse '{text}' as an address")
         port = match.group('port')
         if port is not None:
             return cls(host, int(port))
@@ -220,7 +220,7 @@ def register_type(type_: Type[_T], name: str,
         default = _default_generic
     for info in _types:
         if info.type_ == type_:
-            raise ValueError('{} is already registered'.format(type_))
+            raise ValueError(f'{type_} is already registered')
     _types.append(TypeInfo(type_, name, encode, decode, default))
 
 
@@ -238,7 +238,7 @@ def get_type(type_: Type[_T]) -> TypeInfo[_T]:
     for info in reversed(_types):
         if issubclass(type_, info.type_):
             return info
-    raise TypeError('{} is not registered'.format(type_))
+    raise TypeError(f'{type_} is not registered')
 
 
 def _decode_bool(cls: type, raw: bytes) -> bool:
@@ -247,7 +247,7 @@ def _decode_bool(cls: type, raw: bytes) -> bool:
     elif raw == b'0':
         return cls(False)
     else:
-        raise ValueError('boolean must be 0 or 1, not {!r}'.format(raw))
+        raise ValueError(f'boolean must be 0 or 1, not {raw!r}')
 
 
 def _encode_enum(value: enum.Enum) -> bytes:
@@ -271,7 +271,7 @@ def _decode_enum(cls: Type[_E], raw: bytes) -> _E:
                 return cls[name]
         except KeyError:
             pass
-    raise ValueError('{!r} is not a valid value for {}'.format(raw, cls.__name__))
+    raise ValueError(f'{raw!r} is not a valid value for {cls.__name__}')
 
 
 def _default_generic(cls: Type[_T]) -> _T:
@@ -384,7 +384,7 @@ def decode(cls: Any, value: bytes) -> Any:
             raise ValueError('None of the types in {} could decode {!r}'.format(
                 cls, value))
         else:
-            raise ValueError('{!r} is ambiguous for {}'.format(value, cls))
+            raise ValueError(f'{value!r} is ambiguous for {cls}')
     else:
         return get_type(cls).decode(cls, value)
 
@@ -445,12 +445,12 @@ class Message:
                  mid: int = None) -> None:
         self.mtype = mtype
         if not self._NAME_RE.match(name):
-            raise ValueError('name {} is invalid'.format(name))
+            raise ValueError(f'name {name} is invalid')
         self.name = name
         self.arguments = [encode(arg) for arg in arguments]
         if mid is not None:
             if not 1 <= mid <= 2**31 - 1:
-                raise ValueError('message ID {} is outside of range 1 to 2**31-1'.format(mid))
+                raise ValueError(f'message ID {mid} is outside of range 1 to 2**31-1')
         self.mid = mid
 
     @classmethod
@@ -484,7 +484,7 @@ class Message:
         try:
             return cls._ESCAPE_LOOKUP[char]
         except KeyError:
-            raise KatcpSyntaxError('invalid escape character {!r}'.format(char))
+            raise KatcpSyntaxError(f'invalid escape character {char!r}')
 
     @classmethod
     def escape_argument(cls, arg: bytes) -> bytes:
@@ -501,7 +501,7 @@ class Message:
             raise KatcpSyntaxError('argument ends with backslash')
         match = cls._SPECIAL_RE.search(arg)
         if match:
-            raise KatcpSyntaxError('unescaped special {!r}'.format(match.group()))
+            raise KatcpSyntaxError(f'unescaped special {match.group()!r}')
         return cls._UN_ESCAPE_RE.sub(cls._unescape_match, arg)
 
     @classmethod
@@ -564,8 +564,8 @@ class Message:
 
     def __repr__(self) -> str:
         return ('Message(Message.Type.{self.mtype.name}, {self.name!r}').format(self=self) \
-                + ''.join(', {!r}'.format(arg) for arg in self.arguments) \
-                + ', mid={!r})'.format(self.mid)
+                + ''.join(f', {arg!r}' for arg in self.arguments) \
+                + f', mid={self.mid!r})'
 
     def __eq__(self, other):
         if not isinstance(other, Message):
