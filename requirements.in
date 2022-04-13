@@ -2,11 +2,9 @@ async-solipsism
 async-timeout
 coveralls
 decorator
-flake8
-mypy
+pre-commit
 pytest
 pytest-asyncio
 pytest-cov
 pytest-mock
-types-decorator
 typing-extensions

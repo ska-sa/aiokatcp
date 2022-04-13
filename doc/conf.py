@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-#
 # aiokatcp documentation build configuration file, created by
 # sphinx-quickstart on Sun Sep 24 20:42:31 2017.
 #
