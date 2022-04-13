@@ -1,7 +1,7 @@
 Changelog
 =========
 
-.. rubric:: Development version
+.. rubric:: Version 1.1.0
 
 - Increment server protocol version to 5.1.
 - Implement bulk sensor sampling feature of katcp 5.1.
