@@ -51,7 +51,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = 'aiokatcp'
-copyright = '2017, SKA South Africa'
+copyright = '2017, 2022, SKA South Africa'
 author = 'Bruce Merry'
 
 # The version info for the project you're documenting, acts as replacement for
