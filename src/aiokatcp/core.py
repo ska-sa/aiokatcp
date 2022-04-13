@@ -333,11 +333,7 @@ def _union_args(cls: Any) -> Optional[Tuple[Type]]:
     """
     if not isinstance(cls, type(Union[int, float])):
         return None
-    try:
-        # Python 3.5.3 onwards
-        args = cls.__args__  # type: ignore
-    except AttributeError:
-        args = cls.__union_params__  # type: ignore
+    args = cls.__args__  # type: ignore
     return args
 
 
