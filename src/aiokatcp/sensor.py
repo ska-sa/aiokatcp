@@ -125,13 +125,13 @@ class Sensor(Generic[_T]):
         self.stype = sensor_type
         type_info = core.get_type(sensor_type)
         self.type_name = type_info.name
-        self._observers = set()           # type: Set[Callable[[Sensor[_T], Reading[_T]], None]]
+        self._observers: Set[Callable[[Sensor[_T], Reading[_T]], None]] = set()
         self.name = name
         self.description = description
         self.units = units
         self.status_func = status_func
         if default is None:
-            value = type_info.default(sensor_type)   # type: _T
+            value: _T = type_info.default(sensor_type)
         else:
             value = default
         self._reading = Reading(time.time(), initial_status, value)
@@ -231,22 +231,22 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
                  longest: core.Timestamp = None,
                  *, always_update: bool = False, is_auto: bool = False) -> None:
         if longest is not None:
-            self.longest = float(longest)  # type: Optional[float]
+            self.longest: Optional[float] = float(longest)
             if self.longest <= 0:
                 raise ValueError('period must be positive')
         else:
             self.longest = None
         self.shortest = float(shortest)
-        self.sensor = sensor            # type: Optional[Sensor[_T]]
-        self.observer = observer        # type: Optional[Callable[[Sensor[_T], Reading[_T]], None]]
+        self.sensor: Optional[Sensor[_T]] = sensor
+        self.observer: Optional[Callable[[Sensor[_T], Reading[_T]], None]] = observer
         self.difference = difference
         self.always_update = always_update
         self.is_auto = is_auto
         self.loop = loop
-        self._callback_handle = None    # type: Optional[asyncio.Handle]
+        self._callback_handle: Optional[asyncio.Handle] = None
         self._last_time = 0.0
-        self._last_value = None         # type: Optional[_T]
-        self._last_status = None        # type: Optional[Sensor.Status]
+        self._last_value: Optional[_T] = None
+        self._last_status: Optional[Sensor.Status] = None
         self._changed = False
         self.sensor.attach(self._receive_update)
         self._send_update(loop.time(), sensor.reading)
@@ -331,7 +331,8 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
     def factory(cls, sensor: Sensor[_T], observer: Callable[[Sensor[_T], Reading[_T]], None],
                 loop: asyncio.AbstractEventLoop,
                 strategy: 'SensorSampler.Strategy', *args: bytes) -> Optional['SensorSampler[_T]']:
-        classes_types = {
+        classes_types: Dict[SensorSampler.Strategy,
+                            Tuple[Optional[Type[SensorSampler]], List[Type]]] = {
             cls.Strategy.NONE: (None, []),
             cls.Strategy.AUTO: (_SensorSamplerEventAlways, []),
             cls.Strategy.PERIOD: (_SensorSamplerPeriod, [core.Timestamp]),
@@ -340,7 +341,7 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
             cls.Strategy.EVENT_RATE: (_SensorSamplerEventRate, [core.Timestamp, core.Timestamp]),
             cls.Strategy.DIFFERENTIAL_RATE:
                 (_SensorSamplerDifferentialRate, [sensor.stype, core.Timestamp, core.Timestamp])
-        }   # type: Dict[SensorSampler.Strategy, Tuple[Optional[Type[SensorSampler]], List[Type]]]
+        }
 
         if strategy == cls.Strategy.AUTO:
             strategy = sensor.auto_strategy
@@ -451,9 +452,9 @@ class SensorSet(Mapping[str, Sensor]):
         NO_DEFAULT = 0
 
     def __init__(self) -> None:
-        self._sensors = {}             # type: Dict[str, Sensor]
-        self._add_callbacks = []       # type: List[Callable[[Sensor], None]]
-        self._remove_callbacks = []    # type: List[Callable[[Sensor], None]]
+        self._sensors: Dict[str, Sensor] = {}
+        self._add_callbacks: List[Callable[[Sensor], None]] = []
+        self._remove_callbacks: List[Callable[[Sensor], None]] = []
 
     def _removed(self, s: Sensor) -> None:
         """Call all the remove callbacks."""

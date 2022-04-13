@@ -120,7 +120,7 @@ class Connection:
                  is_server: bool) -> None:
         self.owner = owner
         self.reader = reader
-        self.writer = writer  # type: Optional[asyncio.StreamWriter]
+        self.writer: Optional[asyncio.StreamWriter] = writer
         host, port, *_ = writer.get_extra_info('peername')
         self.address = core.Address(ipaddress.ip_address(host), port)
         self._drain_lock = asyncio.Lock()

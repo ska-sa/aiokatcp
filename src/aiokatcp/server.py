@@ -57,7 +57,7 @@ class ClientConnection(connection.Connection):
                  reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         super().__init__(owner, reader, writer, True)
         #: Maps sensors to their samplers, for sensors that are being sampled
-        self._samplers = {}     # type: Dict[sensor.Sensor, sensor.SensorSampler]
+        self._samplers: Dict[sensor.Sensor, sensor.SensorSampler] = {}
 
     def close(self) -> None:
         for sampler in self._samplers.values():
@@ -223,7 +223,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         If not specified it defaults to twice `limit`.
     """
 
-    _request_handlers = {}   # type: Dict[str, _RequestHandler]
+    _request_handlers: Dict[str, _RequestHandler] = {}
 
     VERSION = None           # type: str
     BUILD_STATE = None       # type: str
@@ -275,8 +275,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
             raise TypeError(f'{self.__class__.__name__} does not define VERSION')
         if not self.BUILD_STATE:
             raise TypeError(f'{self.__class__.__name__} does not define BUILD_STATE')
-        self._connections = set()  # type: Set[ClientConnection]
-        self._pending = set()      # type: Set[asyncio.Task]
+        self._connections: Set[ClientConnection] = set()
+        self._pending: Set[asyncio.Task] = set()
         self._pending_space = asyncio.Semaphore(value=max_pending)
         if loop is None:
             loop = asyncio.get_event_loop()
@@ -284,7 +284,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         self._limit = limit
         self.max_backlog = 2 * limit if max_backlog is None else max_backlog
         self._log_level = core.LogLevel.WARN
-        self._server = None        # type: Optional[asyncio.base_events.Server]
+        self._server: Optional[asyncio.base_events.Server] = None
         self._server_lock = asyncio.Lock()
         self._stopped = asyncio.Event()
         self._host = host
@@ -684,7 +684,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             which does not exist.
         """
         if name is None:
-            matched = self.sensors.values()   # type: Iterable[sensor.Sensor]
+            matched: Iterable[sensor.Sensor] = self.sensors.values()
         elif name.startswith('/') and name.endswith('/') and len(name) > 1:
             try:
                 name_re = re.compile(name[1:-1])
