@@ -33,8 +33,7 @@ jobs:
         if: ${{ matrix.coverage != 'yes' }}
       - run: pip check
       - run: pytest -Werror --cov=aiokatcp --cov-branch
-      - run: flake8
-      - run: mypy
+      - run: pre-commit run --all-files
       - run: coveralls --service=github
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

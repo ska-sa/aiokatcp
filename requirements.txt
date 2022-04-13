@@ -12,6 +12,8 @@ attrs==21.4.0
     # via pytest
 certifi==2021.10.8
     # via requests
+cfgv==3.3.1
+    # via pre-commit
 charset-normalizer==2.0.12
     # via requests
 coverage[toml]==6.3.2
@@ -22,35 +24,36 @@ coveralls==3.3.1
     # via -r requirements.in
 decorator==5.1.1
     # via -r requirements.in
+distlib==0.3.4
+    # via virtualenv
 docopt==0.6.2
     # via coveralls
-flake8==4.0.1
-    # via -r requirements.in
+filelock==3.6.0
+    # via virtualenv
+identify==2.4.12
+    # via pre-commit
 idna==3.3
     # via requests
 importlib-metadata==4.2.0
     # via
-    #   flake8
     #   pluggy
+    #   pre-commit
     #   pytest
+    #   virtualenv
 iniconfig==1.1.1
     # via pytest
-mccabe==0.6.1
-    # via flake8
-mypy==0.942
-    # via -r requirements.in
-mypy-extensions==0.4.3
-    # via mypy
+nodeenv==1.6.0
+    # via pre-commit
 packaging==21.3
     # via pytest
+platformdirs==2.5.1
+    # via virtualenv
 pluggy==1.0.0
     # via pytest
+pre-commit==2.18.1
+    # via -r requirements.in
 py==1.11.0
     # via pytest
-pycodestyle==2.8.0
-    # via flake8
-pyflakes==2.4.0
-    # via flake8
 pyparsing==3.0.8
     # via packaging
 pytest==7.1.1
@@ -65,25 +68,27 @@ pytest-cov==3.0.0
     # via -r requirements.in
 pytest-mock==3.7.0
     # via -r requirements.in
+pyyaml==6.0
+    # via pre-commit
 requests==2.27.1
     # via coveralls
+six==1.16.0
+    # via virtualenv
+toml==0.10.2
+    # via pre-commit
 tomli==2.0.1
     # via
     #   coverage
-    #   mypy
     #   pytest
-typed-ast==1.5.2
-    # via mypy
-types-decorator==5.1.4
-    # via -r requirements.in
 typing-extensions==4.1.1
     # via
     #   -r requirements.in
     #   async-timeout
     #   importlib-metadata
-    #   mypy
     #   pytest-asyncio
 urllib3==1.26.9
     # via requests
+virtualenv==20.14.1
+    # via pre-commit
 zipp==3.8.0
     # via importlib-metadata
