@@ -33,15 +33,19 @@ import logging
 import re
 import time
 import types
-from typing import Any, Callable, Iterable, Optional, cast
+from typing import Callable, Iterable, Optional, TypeVar, cast
 
 import decorator
+from typing_extensions import Protocol
 
 from . import core
 
 logger = logging.getLogger(__name__)
 DEFAULT_LIMIT = 16 * 1024**2
 _BLANK_RE = re.compile(br'^[ \t]*[\r\n]?$')
+# typing.Protocol requires a contravariant typevar
+_C_contra = TypeVar('_C_contra', bound='Connection', contravariant=True)
+_C = TypeVar('_C', bound='Connection')
 
 
 class ConvertCRProtocol(asyncio.StreamReaderProtocol):
@@ -114,8 +118,14 @@ class ConnectionLoggerAdapter(logging.LoggerAdapter):
         return '{} [{}]'.format(msg, self.extra['address']), kwargs
 
 
+class _ConnectionOwner(Protocol[_C_contra]):
+    loop: asyncio.AbstractEventLoop
+
+    async def handle_message(self, conn: _C_contra, msg: core.Message) -> None: ...
+
+
 class Connection:
-    def __init__(self, owner: Any,
+    def __init__(self: _C, owner: _ConnectionOwner[_C],
                  reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
                  is_server: bool) -> None:
         self.owner = owner
@@ -178,7 +188,7 @@ class Connection:
                         self.logger.warning('Connection closed while draining: %s', error)
                         self._close_writer()
 
-    async def _run(self) -> None:
+    async def _run(self: _C) -> None:
         while True:
             # If the output buffer gets too full, pause processing requests
             await self.drain()
