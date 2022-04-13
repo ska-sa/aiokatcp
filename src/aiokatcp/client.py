@@ -38,14 +38,27 @@ import warnings
 from collections import OrderedDict
 from typing import (
     Any, Callable, Dict, Generator, Iterable, List, Optional, Sequence, Set,
-    Tuple, Type, Union
+    Tuple, Type, Union, cast
 )
+
+from typing_extensions import Protocol
 
 from . import connection, core, sensor
 from .connection import FailReply, InvalidReply
 
 logger = logging.getLogger(__name__)
-_InformHandler = Callable[['Client', core.Message], None]
+
+
+class _Handler(Protocol):
+    _aiokatcp_orig_handler: Callable[..., None]
+
+
+class _InformHandler(_Handler):
+    def __call__(self, _client: 'Client', _msg: core.Message) -> None: ...
+
+
+class _InformCallback(_Handler):
+    def __call__(self, _msg: core.Message) -> None: ...
 
 
 class _PendingRequest:
@@ -59,7 +72,7 @@ class _PendingRequest:
 class ClientMeta(type):
     @classmethod
     def _wrap_inform(mcs, name: str, value: Callable[..., None]) -> _InformHandler:
-        return connection.wrap_handler(name, value, 1)
+        return cast(_InformHandler, connection.wrap_handler(name, value, 1))
 
     def __new__(mcs, name, bases, namespace, **kwds):
         namespace.setdefault('_inform_handlers', {})
@@ -114,6 +127,9 @@ class Client(metaclass=ClientMeta):
         An exception object associated with the last connection attempt. It is
         always ``None`` if :attr:`is_connected` is True.
     """
+
+    _inform_handlers: Dict[str, _InformHandler]  # Initialised by metaclass
+
     def __init__(self, host: str, port: int, *,
                  auto_reconnect: bool = True,
                  limit: int = connection.DEFAULT_LIMIT,
@@ -136,7 +152,7 @@ class Client(metaclass=ClientMeta):
         self._connected_callbacks: List[Callable[[], None]] = []
         self._disconnected_callbacks: List[Callable[[], None]] = []
         self._failed_connect_callbacks: List[Callable[[Exception], None]] = []
-        self._inform_callbacks: Dict[str, List[Callable[[core.Message], None]]] = {}
+        self._inform_callbacks: Dict[str, List[_InformCallback]] = {}
         self._sensor_monitor: Optional[_SensorMonitor] = None
         self._mid_support = False
         # Used to serialize requests if the server does not support message IDs
@@ -192,7 +208,7 @@ class Client(metaclass=ClientMeta):
     def handle_inform(self, msg: core.Message) -> None:
         self.logger.debug('Received %s', bytes(msg))
         # TODO: provide dispatch mechanism for informs
-        handler = self._inform_handlers.get(               # type: ignore
+        handler = self._inform_handlers.get(
             msg.name, self.__class__.unhandled_inform)
         try:
             handler(self, msg)
@@ -293,14 +309,14 @@ class Client(metaclass=ClientMeta):
         on the arguments of the callback. Callbacks are called in the order
         registered, after any handlers defined by methods in the class.
         """
-        wrapper = connection.wrap_handler(name, callback, 0)
+        wrapper = cast(_InformCallback, connection.wrap_handler(name, callback, 0))
         self._inform_callbacks.setdefault(name, []).append(wrapper)
 
     def remove_inform_callback(self, name: str, callback: Callable[..., None]) -> None:
         """Remove a callback registered with :meth:`add_inform_callback`."""
         cbs = self._inform_callbacks.get(name, [])
         for i in range(len(cbs)):
-            if cbs[i]._aiokatcp_orig_handler == callback:     # type: ignore
+            if cbs[i]._aiokatcp_orig_handler == callback:
                 del cbs[i]
                 if not cbs:
                     del self._inform_callbacks[name]
@@ -699,7 +715,7 @@ class SensorWatcher(AbstractSensorWatcher):
                 # normalising names in some way doesn't guarantee that.
                 # Instead, we use arbitrary numbering.
                 enums = [(f'ENUM{i}', value) for i, value in enumerate(values)]
-                # Type checking disabled due to https://github.com/python/mypy/issues/4184
+                # Type checking disabled due to https://github.com/python/mypy/issues/5317
                 stype = enum.Enum('discrete', enums, type=DiscreteMixin)  # type: ignore
                 self._enum_cache[values] = stype
                 return stype

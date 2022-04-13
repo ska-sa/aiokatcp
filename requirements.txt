@@ -78,6 +78,7 @@ types-decorator==5.1.4
     # via -r requirements.in
 typing-extensions==4.1.1
     # via
+    #   -r requirements.in
     #   async-timeout
     #   importlib-metadata
     #   mypy

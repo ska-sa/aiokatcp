@@ -56,7 +56,11 @@ setup(
         'Topic :: Scientific/Engineering :: Astronomy'
     ],
     tests_require=tests_require,
-    install_requires=['decorator>=4.1', 'async-timeout'],
+    install_requires=[
+        'async-timeout',
+        'decorator>=4.1',
+        'typing-extensions'
+    ],
     setup_requires=['katversion'],
     extras_require={
         'test': tests_require,

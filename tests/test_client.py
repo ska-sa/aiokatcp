@@ -724,7 +724,7 @@ class TestClientNoReconnect:
             await channel.client.wait_connected()
 
     async def test_connect_failed(self, server, client_queue, event_loop) -> None:
-        host, port = server.sockets[0].getsockname()[:2]    # type: ignore
+        host, port = server.sockets[0].getsockname()[:2]
         client_task = event_loop.create_task(
             DummyClient.connect(host, port, auto_reconnect=False))
         (reader, writer) = await client_queue.get()
