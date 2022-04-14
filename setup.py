@@ -1,6 +1,4 @@
-#!/usr/bin/env python3
-
-# Copyright 2017 National Research Foundation (Square Kilometre Array)
+# Copyright 2017, 2022 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -27,50 +25,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from setuptools import find_packages, setup
+from setuptools import setup
 
-tests_require = ['async-solipsism', 'pytest', 'pytest-asyncio', 'pytest-mock']
-docs_require = ['sphinx', 'sphinx-autodoc-typehints', 'sphinxcontrib-asyncio', 'sphinx-rtd-theme']
-
-setup(
-    name='aiokatcp',
-    use_katversion=True,
-    packages=find_packages('src'),
-    package_dir={'': 'src'},
-    package_data={'aiokatcp': ['py.typed']},
-    author='Bruce Merry',
-    author_email='bmerry@ska.ac.za',
-    description='Asynchronous I/O implementation of the katcp protocol',
-    url='https://github.com/ska-sa/aiokatcp',
-    license='BSD',
-    platforms=['OS Independent'],
-    keywords='asyncio katcp',
-    classifiers=[
-        'Development Status :: 5 - Production/Stable',
-        'Intended Audience :: Developers',
-        'Framework :: AsyncIO',
-        'License :: OSI Approved :: BSD License',
-        'Operating System :: OS Independent',
-        'Programming Language :: Python :: 3',
-        'Topic :: Software Development :: Libraries :: Python Modules',
-        'Topic :: Scientific/Engineering :: Astronomy'
-    ],
-    tests_require=tests_require,
-    install_requires=[
-        'async-timeout',
-        'decorator>=4.1',
-        'typing-extensions'
-    ],
-    setup_requires=['katversion'],
-    extras_require={
-        'test': tests_require,
-        'doc': docs_require
-    },
-    entry_points={
-        'console_scripts': [
-            'katcpcmd = aiokatcp.tools.katcpcmd:main'
-        ]
-    },
-    python_requires='>=3.7',
-    zip_safe=False   # For py.typed
-)
+setup(use_katversion=True)

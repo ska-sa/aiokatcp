@@ -1,12 +1,17 @@
 Changelog
 =========
 
-.. rubric:: Development version
+.. rubric:: Version 1.1.0
 
+- Increment server protocol version to 5.1.
+- Implement bulk sensor sampling feature of katcp 5.1.
+- Bump minimum Python version to 3.7, and run test suite against 3.10.
 - Change type annotation of :attr:`.Server.server` from
   :class:`asyncio.AbstractServer` to the more specific
   :class:`asyncio.Server`.
 - Add :attr:`.Server.sockets` to simplify querying the sockets of a server.
+- Lots of internal code modernisation (f-strings, PEP 526 type annotations,
+  isort, and so on).
 
 .. rubric:: Version 1.0.0
 

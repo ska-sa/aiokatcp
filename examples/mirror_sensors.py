@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright 2019 National Research Foundation (Square Kilometre Array)
+# Copyright 2019 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
