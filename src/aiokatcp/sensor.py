@@ -382,29 +382,19 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
                 observer: Optional[Callable[[Sensor[_T], Reading[_T]], None]],
                 loop: asyncio.AbstractEventLoop,
                 strategy: 'SensorSampler.Strategy', *args: bytes) -> Optional['SensorSampler[_T]']:
-        classes_types: Dict[SensorSampler.Strategy,
-                            Tuple[Optional[Type[SensorSampler]], List[Type]]] = {
-            cls.Strategy.NONE: (None, []),
-            cls.Strategy.AUTO: (_SensorSamplerEventAlways, []),
-            cls.Strategy.PERIOD: (_SensorSamplerPeriod, [core.Timestamp]),
-            cls.Strategy.EVENT: (_SensorSamplerEvent, []),
-            cls.Strategy.DIFFERENTIAL: (_SensorSamplerDifferential, [sensor.stype]),
-            cls.Strategy.EVENT_RATE: (_SensorSamplerEventRate, [core.Timestamp, core.Timestamp]),
-            cls.Strategy.DIFFERENTIAL_RATE:
-                (_SensorSamplerDifferentialRate, [sensor.stype, core.Timestamp, core.Timestamp])
-        }
-
         if strategy == cls.Strategy.AUTO:
             strategy = sensor.auto_strategy
             decoded_args = sensor.auto_strategy_parameters
-            out_cls = classes_types[strategy][0]
+            out_cls = _SAMPLER_CLASSES_TYPES[strategy][0]
             is_auto = True
         else:
+            out_cls, types = _SAMPLER_CLASSES_TYPES[strategy]
             if strategy in (cls.Strategy.DIFFERENTIAL, cls.Strategy.DIFFERENTIAL_RATE):
                 if sensor.stype not in (int, float):
                     raise TypeError(
                         'differential strategies only valid for integer and float sensors')
-            out_cls, types = classes_types[strategy]
+                types = list(types)
+                types[0] = sensor.stype
             if len(types) != len(args):
                 raise ValueError('expected {} strategy arguments, found {}'.format(
                     len(types), len(args)))
@@ -489,6 +479,20 @@ class _SensorSamplerDifferentialRate(SensorSampler[_T]):
                 self.difference,
                 core.Timestamp(self.shortest),
                 core.Timestamp(self.longest))
+
+
+# float is used as a placeholder for the sensor value type
+_SAMPLER_CLASSES_TYPES: Dict[SensorSampler.Strategy,
+                             Tuple[Optional[Type[SensorSampler]], List[Type]]] = {
+    SensorSampler.Strategy.NONE: (None, []),
+    SensorSampler.Strategy.AUTO: (_SensorSamplerEventAlways, []),
+    SensorSampler.Strategy.PERIOD: (_SensorSamplerPeriod, [core.Timestamp]),
+    SensorSampler.Strategy.EVENT: (_SensorSamplerEvent, []),
+    SensorSampler.Strategy.DIFFERENTIAL: (_SensorSamplerDifferential, [float]),
+    SensorSampler.Strategy.EVENT_RATE: (_SensorSamplerEventRate, [core.Timestamp, core.Timestamp]),
+    SensorSampler.Strategy.DIFFERENTIAL_RATE:
+        (_SensorSamplerDifferentialRate, [float, core.Timestamp, core.Timestamp])
+}
 
 
 class SensorSet(Mapping[str, Sensor]):
