@@ -53,7 +53,8 @@ class Reading(Generic[_T]):
     value
         Sensor value at `timestamp`
     """
-    # Note: can't use slots in 3.5 due to https://bugs.python.org/issue28790
+
+    __slots__ = ('timestamp', 'status', 'value')
 
     def __init__(self, timestamp: float, status: 'Sensor.Status', value: _T) -> None:
         self.timestamp = timestamp
