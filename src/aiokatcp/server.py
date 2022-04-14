@@ -80,7 +80,7 @@ class ClientConnection(connection.Connection):
         """Retrieve the sampler for a sensor"""
         return self._samplers.get(s)
 
-    def sensor_update(self, s: sensor.Sensor, reading: sensor.Reading):
+    def sensor_update(self, s: sensor.Sensor, reading: sensor.Reading) -> None:
         """Report a new sensor value. This is used as the callback for the sampler."""
         msg = core.Message.inform(
             'sensor-status', reading.timestamp, 1, s.name, reading.status, reading.value)
@@ -192,10 +192,6 @@ class DeviceServerMeta(type):
                     raise TypeError(f'{key} must have a docstring')
                 request_handlers[request_name] = mcs._wrap_request(request_name, value)
         return result
-
-
-def _dummy_observer(sensor, reading):
-    pass
 
 
 class DeviceServer(metaclass=DeviceServerMeta):
@@ -902,35 +898,46 @@ class DeviceServer(metaclass=DeviceServerMeta):
                 # to appear as if this function was atomic with respect to the
                 # state at the time this function was entered. Thus, if a sensor
                 # is later removed, we still send a value for it once.
+
                 observer = ctx.conn.sensor_update
                 removed_sensors: Set[sensor.Sensor] = set()
                 removed_sensor_callback = removed_sensors.add
                 self.sensors.add_remove_callback(removed_sensor_callback)
+                samplers = []
                 try:
-                    # Create samplers with dummy observers purely for validation
-                    # (so that the whole request is atomic).
+                    # Create samplers with empty observer. This will do nothing
+                    # so can easily be rolled back if one of them has invalid
+                    # arguments.
                     for i, s in enumerate(sensors):
                         try:
                             sampler = sensor.SensorSampler.factory(
-                                s, _dummy_observer, self.loop, strategy, *args)
+                                s, None, self.loop, strategy, *args)
                         except (TypeError, ValueError) as error:
                             raise FailReply(str(error)) from error
-                        if sampler is not None:
-                            sampler.close()
+                        samplers.append(sampler)
                         if i % _BULK_SENSOR_BATCH == _BULK_SENSOR_BATCH - 1:
                             await asyncio.sleep(0)
-                    # Now create them for real
+                    # Now commit to the change.
                     for i, s in enumerate(sensors):
-                        sampler = sensor.SensorSampler.factory(
-                            s, observer, self.loop, strategy, *args)
+                        sampler = samplers[i]
+                        if sampler is not None:
+                            # As a side effect, this reports the current sensor value.
+                            sampler.observer = observer
                         if s in removed_sensors:
                             if sampler is not None:
                                 sampler.close()
                         else:
                             ctx.conn.set_sampler(s, sampler)
+                        samplers[i] = None  # ctx.conn now has responsibility for closing
                         if i % _BULK_SENSOR_BATCH == _BULK_SENSOR_BATCH - 1:
                             await asyncio.sleep(0)
+                            # Ensure the send buffer doesn't get unreasonably full
+                            await ctx.conn.drain()
+                    samplers.clear()  # Speed up the cleanup in finally handler
                 finally:
+                    for sampler in samplers:
+                        if sampler is not None:
+                            sampler.close()
                     self.sensors.remove_remove_callback(removed_sensor_callback)
             if sampler is not None:
                 params = sampler.parameters()
