@@ -108,6 +108,22 @@ class DummyServer(DeviceServer):
         """Request that always raises an exception"""
         raise RuntimeError("help I fell over")
 
+    async def request_add_bulk_sensors(self, ctx: RequestContext) -> None:
+        """Add some sensors for a bulk sensor sampling test."""
+        for i in range(100):
+            self.sensors.add(Sensor(int, f'bulk{i}', 'bulk test sensor',
+                                    default=123, initial_status=Sensor.Status.NOMINAL))
+
+    async def request_remove_bulk_sensors(self, ctx: RequestContext) -> None:
+        """Remove the sensors added by ?add-bulk-sensors."""
+        # Adjust number of sleeps as necessary for the
+        # test_sensor_sampling_bulk_remove_midway test.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        for i in range(100):
+            name = f'bulk{i}'
+            self.sensors.pop(name, None)
+
     async def on_stop(self) -> None:
         self.on_stop_called += 1
 
@@ -230,8 +246,9 @@ async def test_help(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) 
     writer.write(b'?help[1]\n')
     commands = sorted([
         'increment-counter', 'echo', 'bytes-arg', 'double', 'wait', 'crash',
+        'add-bulk-sensors', 'remove-bulk-sensors',
         'client-list', 'log-level', 'sensor-list', 'sensor-sampling',
-        'sensor-value', 'halt', 'help', 'watchdog', 'version-list'
+        'sensor-value', 'halt', 'help', 'watchdog', 'version-list',
     ])
     expected: List[Union[bytes, Pattern[bytes]]] = [
         re.compile(br'^#help\[1\] ' + cmd.encode('ascii') + b' [^ ]+$\n')
@@ -775,6 +792,39 @@ async def test_sensor_sampling_bulk_invalid_strategy(
     await check_reply(reader, [
         b'!sensor-sampling ok float-sensor none\n'
     ])
+
+
+async def test_sensor_sampling_bulk_duplicate_names(
+        server: DummyServer,
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    writer.write(b'?sensor-sampling float-sensor,float-sensor auto\n')
+    await check_reply(reader, [
+        rb'!sensor-sampling fail Duplicate\_sensor\_name' + b'\n'])
+
+
+async def test_sensor_sampling_bulk_remove_midway(
+        mock_time, monkeypatch, server: DummyServer,
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    """Remove a sensor while the subscription process is in action."""
+    # This test is slightly fragile as it depends on the order of tasks
+    # being scheduled by asyncio. If it starts failing, the number of
+    # sleeps in remove-bulk-sensors might need to be adjusted.
+    monkeypatch.setattr('aiokatcp.server._BULK_SENSOR_BATCH', 2)
+    writer.write(b'?add-bulk-sensors\n')
+    writer.write(b'?sensor-sampling bulk1,bulk2,bulk3,bulk4,bulk5 auto\n')
+    writer.write(b'?remove-bulk-sensors\n')
+    await check_reply(reader, [
+        b'!add-bulk-sensors ok\n',
+        b'#sensor-status 123456789.0 1 bulk1 nominal 123\n',
+        b'#sensor-status 123456789.0 1 bulk2 nominal 123\n',
+        b'!remove-bulk-sensors ok\n',
+        b'#sensor-status 123456789.0 1 bulk3 nominal 123\n',
+        b'#sensor-status 123456789.0 1 bulk4 nominal 123\n',
+        b'#sensor-status 123456789.0 1 bulk5 nominal 123\n',
+        b'!sensor-sampling ok bulk1,bulk2,bulk3,bulk4,bulk5 auto\n'])
+    # ensure that bulk3-bulk5 didn't end up subscribed despite removal
+    # of the sensors.
+    assert next(iter(server._connections))._samplers == {}
 
 
 @pytest.mark.server_cls.with_args(BadServer)

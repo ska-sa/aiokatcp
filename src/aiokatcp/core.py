@@ -32,7 +32,8 @@ import logging
 import numbers
 import re
 from typing import (
-    Any, Callable, Generic, List, Match, Optional, Tuple, Type, TypeVar, Union
+    Any, Callable, Dict, Generic, List, Match, Optional, Tuple, Type, TypeVar,
+    Union
 )
 
 _T = TypeVar('_T')
@@ -188,6 +189,7 @@ class TypeInfo(Generic[_T_contra]):
 
 
 _types: List[TypeInfo] = []
+_types_cache: Dict[type, TypeInfo] = {}  # Cache for get_type
 
 
 def register_type(type_: Type[_T], name: str,
@@ -213,11 +215,13 @@ def register_type(type_: Type[_T], name: str,
         Function to generate a default value of this type (used by the sensor
         framework). It is given the actual derived class as the first argument.
     """
+    global _types_cache
     if default is None:
         default = _default_generic
     for info in _types:
         if info.type_ == type_:
             raise ValueError(f'{type_} is already registered')
+    _types_cache = {}
     _types.append(TypeInfo(type_, name, encode, decode, default))
 
 
@@ -232,9 +236,13 @@ def get_type(type_: Type[_T]) -> TypeInfo[_T]:
     TypeError
         if none of the registrations match `type_`
     """
-    for info in reversed(_types):
-        if issubclass(type_, info.type_):
-            return info
+    try:
+        return _types_cache[type_]
+    except KeyError:
+        for info in reversed(_types):
+            if issubclass(type_, info.type_):
+                _types_cache[type_] = info
+                return info
     raise TypeError(f'{type_} is not registered')
 
 
