@@ -45,6 +45,7 @@ from . import connection, core, sensor
 from .connection import FailReply, InvalidReply
 
 logger = logging.getLogger(__name__)
+_BULK_SENSOR_BATCH = 50
 _RequestReply = Awaitable[Optional[Sequence]]
 _RequestHandler = Callable[['DeviceServer', 'RequestContext', core.Message], _RequestReply]
 _T = TypeVar('_T')
@@ -58,6 +59,8 @@ class ClientConnection(connection.Connection):
         super().__init__(owner, reader, writer, True)
         #: Maps sensors to their samplers, for sensors that are being sampled
         self._samplers: Dict[sensor.Sensor, sensor.SensorSampler] = {}
+        #: Protects against concurrent request_sensor_sampling (but not sensor removal)
+        self.samplers_lock = asyncio.Lock()
 
     def close(self) -> None:
         for sampler in self._samplers.values():
@@ -868,39 +871,72 @@ class DeviceServer(metaclass=DeviceServerMeta):
             !sensor-sampling ok cpu.power.on period 500
 
         """
-        if strategy is None:
-            names = [name]  # comma-separation not supported with queries
-        else:
-            names = name.split(',')
-        sensors = []
-        for sensor_name in names:
-            try:
-                sensors.append(self.sensors[sensor_name])
-            except KeyError:
-                raise FailReply(f'Unknown sensor {sensor_name!r}')
-        if strategy is None:
-            sampler = ctx.conn.get_sampler(sensors[0])
-        else:
-            observer = ctx.conn.sensor_update
-            # Create samplers with dummy observers purely for validation
-            # (so that the whole request is atomic).
-            for s in sensors:
+        async with ctx.conn.samplers_lock:
+            if strategy is None:
+                names = [name]  # comma-separation not supported with queries
+            else:
+                names = name.split(',')
+                if len(set(names)) != len(names):
+                    raise FailReply('Duplicate sensor name')
+            sensors = []
+            for sensor_name in names:
                 try:
-                    sampler = sensor.SensorSampler.factory(
-                        s, _dummy_observer, self.loop, strategy, *args)
-                except (TypeError, ValueError) as error:
-                    raise FailReply(str(error)) from error
-                if sampler is not None:
-                    sampler.close()
-            # Now create them for real
-            for s in sensors:
-                sampler = sensor.SensorSampler.factory(s, observer, self.loop, strategy, *args)
-                ctx.conn.set_sampler(s, sampler)
-        if sampler is not None:
-            params = sampler.parameters()
-        else:
-            params = (sensor.SensorSampler.Strategy.NONE,)
-        return (name,) + params
+                    sensors.append(self.sensors[sensor_name])
+                except KeyError:
+                    raise FailReply(f'Unknown sensor {sensor_name!r}')
+            if strategy is None:
+                sampler = ctx.conn.get_sampler(sensors[0])
+            else:
+                # Subscribing to a large number of sensors is expensive, so we need
+                # to allow the event loop to make progress while this happens.
+                # That in turn opens up race conditions:
+                # 1. There could be another sensor-sampling request. That's
+                #    protected by ctx.conn.samplers_lock.
+                # 2. A sensor could be removed. We use a callback to detect when
+                #    this has happened and immediately close the sampler.
+                # 3. This request could be cancelled by the server being stopped.
+                #    We don't try to be too clever here, since we don't care too
+                #    much about appearing atomic in this case, but we have to
+                #    gracefully unwind.
+                # Apart from the server shutdown case, the responses are designed
+                # to appear as if this function was atomic with respect to the
+                # state at the time this function was entered. Thus, if a sensor
+                # is later removed, we still send a value for it once.
+                observer = ctx.conn.sensor_update
+                removed_sensors: Set[sensor.Sensor] = set()
+                removed_sensor_callback = removed_sensors.add
+                self.sensors.add_remove_callback(removed_sensor_callback)
+                try:
+                    # Create samplers with dummy observers purely for validation
+                    # (so that the whole request is atomic).
+                    for i, s in enumerate(sensors):
+                        try:
+                            sampler = sensor.SensorSampler.factory(
+                                s, _dummy_observer, self.loop, strategy, *args)
+                        except (TypeError, ValueError) as error:
+                            raise FailReply(str(error)) from error
+                        if sampler is not None:
+                            sampler.close()
+                        if i % _BULK_SENSOR_BATCH == _BULK_SENSOR_BATCH - 1:
+                            await asyncio.sleep(0)
+                    # Now create them for real
+                    for i, s in enumerate(sensors):
+                        sampler = sensor.SensorSampler.factory(
+                            s, observer, self.loop, strategy, *args)
+                        if s in removed_sensors:
+                            if sampler is not None:
+                                sampler.close()
+                        else:
+                            ctx.conn.set_sampler(s, sampler)
+                        if i % _BULK_SENSOR_BATCH == _BULK_SENSOR_BATCH - 1:
+                            await asyncio.sleep(0)
+                finally:
+                    self.sensors.remove_remove_callback(removed_sensor_callback)
+            if sampler is not None:
+                params = sampler.parameters()
+            else:
+                params = (sensor.SensorSampler.Strategy.NONE,)
+            return (name,) + params
 
     async def request_client_list(self, ctx: RequestContext) -> None:
         """Request the list of connected clients.
