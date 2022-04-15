@@ -288,7 +288,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
         self._stopped = asyncio.Event()
         self._host = host
         self._port = port
-        self._stopping = False
+        self._stop_task: Optional[asyncio.Task] = None
+        self._service_tasks: List[asyncio.Task] = []
         self.sensors = sensor.SensorSet()
         self.sensors.add_remove_callback(
             functools.partial(self._remove_sensor_callback, self._connections))
@@ -318,21 +319,55 @@ class DeviceServer(metaclass=DeviceServerMeta):
                 raise RuntimeError('Server is already running')
             self._stopped.clear()
             self._server = await self.loop.create_server(factory, self._host, self._port)
-            self._stopping = False
+            self._stop_task = None
 
     async def on_stop(self) -> None:
         """Extension point for subclasses to run shutdown code.
 
         This is called after the TCP server has been shut down and all
-        in-flight requests have been completed or cancelled. Subclasses
-        should override this function rather than :meth:`stop` to run
-        late shutdown code because this is called *before* the flag is
-        set to wake up :meth:`join`.
+        in-flight requests have been completed or cancelled, but before
+        service tasks are cancelled. Subclasses should override this function
+        rather than :meth:`stop` to run late shutdown code because this is
+        called *before* the flag is set to wake up :meth:`join`.
 
         It is only called if the server was running when :meth:`stop` was
         called.
         """
         pass
+
+    async def _stop_impl(self, cancel: bool = True) -> None:
+        try:
+            async with self._server_lock:
+                self._stop_task = asyncio.current_task()
+                if self._server is not None:
+                    self._server.close()
+                    await self._server.wait_closed()
+                    self._server = None
+                    if self._pending:
+                        for task in self._pending:
+                            if cancel and not task.done():
+                                task.cancel()
+                        await asyncio.wait(list(self._pending))
+                    msg = core.Message.inform('disconnect', 'server shutting down')
+                    for client in list(self._connections):
+                        client.write_message(msg)
+                        client.close()
+                        await client.wait_closed()
+                    await self.on_stop()
+                    service_tasks = self._service_tasks
+                    # _service_tasks is mutated by the done callback, so
+                    # replace it now prevent mutating the list we're
+                    # iterating.
+                    self._service_tasks = []
+                    for task in service_tasks:
+                        task.cancel()
+                    for coro in asyncio.as_completed(service_tasks):
+                        try:
+                            await coro
+                        except asyncio.CancelledError:
+                            pass
+        finally:
+            self._stopped.set()
 
     async def stop(self, cancel: bool = True) -> None:
         """Shut down the server.
@@ -342,24 +377,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
         cancel
             If true (default), cancel any pending asynchronous requests.
         """
-        async with self._server_lock:
-            self._stopping = True
-            if self._server is not None:
-                self._server.close()
-                await self._server.wait_closed()
-                self._server = None
-                if self._pending:
-                    for task in self._pending:
-                        if cancel and not task.done():
-                            task.cancel()
-                    await asyncio.wait(list(self._pending))
-                msg = core.Message.inform('disconnect', 'server shutting down')
-                for client in list(self._connections):
-                    client.write_message(msg)
-                    client.close()
-                    await client.wait_closed()
-                await self.on_stop()
-            self._stopped.set()
+        self.halt(cancel=cancel)
+        await self.join()
 
     def halt(self, cancel: bool = True) -> asyncio.Task:
         """Begin server shutdown, but do not wait for it to complete.
@@ -374,11 +393,19 @@ class DeviceServer(metaclass=DeviceServerMeta):
         task
             Task that is performing the stop.
         """
-        return self.loop.create_task(self.stop(cancel))
+        return self.loop.create_task(self._stop_impl(cancel))
 
     async def join(self) -> None:
-        """Block until the server has stopped"""
+        """Block until the server has stopped.
+
+        This will re-raise any exception raised by :meth:`on_stop` or a service
+        task.
+        """
         await self._stopped.wait()
+        if self._stop_task is not None:
+            # Should always be non-None, unless the server has been started
+            # again before we got a chance to be woken up.
+            await self._stop_task
 
     @property
     def server(self) -> Optional[asyncio.base_events.Server]:
@@ -398,6 +425,49 @@ class DeviceServer(metaclass=DeviceServerMeta):
             return sockets
         else:
             return tuple(sockets)
+
+    @property
+    def service_tasks(self) -> Tuple[asyncio.Task, ...]:
+        return tuple(self._service_tasks)
+
+    def _service_task_done(self, task: asyncio.Task) -> None:
+        """Done callback for service tasks."""
+        remove = False
+        try:
+            task.result()  # Evaluated just for side effects
+            remove = True
+        except asyncio.CancelledError:
+            remove = True
+        except BaseException as exc:
+            try:
+                name = f'task {task.get_name()!r}'  # type: ignore
+            except AttributeError:
+                # Python 3.7 does not have task names
+                name = 'a task'
+            logger.warning('Halting the server because %s raised %s', name, exc)
+            self.halt()
+        if remove:
+            # No exception to report during shutdown, so clean it up
+            try:
+                self._service_tasks.remove(task)
+            except ValueError:  # Can happen during shutdown
+                pass
+
+    def add_service_task(self, task: asyncio.Task) -> None:
+        """Register an asynchronous task that runs as part of the server.
+
+        The task will be cancelled when the server is stopped. If it throws an
+        exception (other than :exc:`asyncio.CancelledError`), the server will
+        be halted and the exception will be rethrown from :meth:`stop` or
+        :meth:`join`.
+
+        .. note::
+
+           The `task` must actually be an instance of :class:`asyncio.Task`
+           rather than a coroutine.
+        """
+        self._service_tasks.append(task)
+        task.add_done_callback(self._service_task_done)
 
     def send_version_info(self, ctx: RequestContext, *, send_reply=True) -> None:
         """Send version information informs to the client.
@@ -516,7 +586,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
 
     async def handle_message(self, conn: ClientConnection, msg: core.Message) -> None:
         """Called by :class:`ClientConnection` for each incoming message."""
-        if self._stopping:
+        if self._stop_task is not None:
             return
         if msg.mtype == core.Message.Type.REQUEST:
             await self._pending_space.acquire()
