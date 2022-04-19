@@ -1,16 +1,8 @@
 - revisit exception handling when socket closes or half-closes
-- make Connection owner a protocol (might need Python 3.6 though)
 - strict timestamp parsing
 - mechanism to enforce human readable ASCII on certain strings
-- Sphinx and type hints
 - required requests (restart)
 - tidy up the rendering of the documentation: there are some issues
-- add unhandled_request method to server
 - provide a way to make local type registrations e.g. that are only applied to
   the current client/server (would also make it possible to use local state in
   the conversion e.g. to convert a name to the object with that name).
-- cleanup after dropping Python 3.5:
-  - Remove TCP_NODELAY (it's default since 3.6)
-  - Use pyupgrade to convert to f-strings
-  - Check if StreamWriter.drain is now reentrant
-- katcp 5.1
