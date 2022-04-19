@@ -7,3 +7,4 @@ Writing a server
 
    server/tutorial
    server/logging
+   server/service_tasks

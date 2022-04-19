@@ -53,6 +53,7 @@ class Server(aiokatcp.DeviceServer):
         self.sensors.add(sensor)
         sensor = aiokatcp.Sensor(Foo, 'foo', 'nonsense')
         self.sensors.add(sensor)
+        self.add_service_task(asyncio.create_task(self._service_task()))
 
     async def request_echo(self, ctx, *args: str) -> Tuple:
         """Return the arguments to the caller"""
@@ -60,7 +61,7 @@ class Server(aiokatcp.DeviceServer):
 
     async def request_sleep(self, ctx, time: float) -> None:
         """Sleep for some amount of time"""
-        await asyncio.sleep(time, loop=self.loop)
+        await asyncio.sleep(time)
 
     async def request_fail(self, ctx, arg: str) -> None:
         """Request that always returns a failure reply"""
@@ -73,6 +74,12 @@ class Server(aiokatcp.DeviceServer):
     async def request_counter(self, ctx) -> None:
         """Increment counter-queries"""
         self.sensors['counter-queries'].value += 1
+
+    async def _service_task(self) -> None:
+        """Example service task that just broadcasts to clients."""
+        while True:
+            await asyncio.sleep(10)
+            self.mass_inform('hello', 'Hi I am a service task')
 
 
 async def main():

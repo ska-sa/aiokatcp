@@ -80,6 +80,7 @@ class DummyServer(DeviceServer):
                         auto_strategy_parameters=(2.5,))
         self.sensors.add(sensor)
         self.on_stop_called = 0
+        self.crash_on_stop = False  # Set to true to raise in on_stop
 
     async def request_increment_counter(self, ctx: RequestContext) -> None:
         """Increment a counter"""
@@ -126,6 +127,8 @@ class DummyServer(DeviceServer):
 
     async def on_stop(self) -> None:
         self.on_stop_called += 1
+        if self.crash_on_stop:
+            raise RuntimeError('crash_on_stop is true')
 
 
 class BadServer(DummyServer):
@@ -493,6 +496,55 @@ async def test_on_stop(server: DummyServer) -> None:
     # on_stop should not be called when already stopped
     await server.stop()
     assert server.on_stop_called == 1
+
+
+async def test_on_stop_raises() -> None:
+    server = DummyServer()
+    server.crash_on_stop = True
+    await server.start()
+    with pytest.raises(RuntimeError, match='crash_on_stop'):
+        await server.stop()
+
+
+async def test_service_task(server: DummyServer) -> None:
+    intervals = 0
+
+    async def service_task():
+        nonlocal intervals
+        while True:
+            await asyncio.sleep(1)
+            intervals += 1
+
+    task = asyncio.create_task(service_task())
+    server.add_service_task(task)
+    await asyncio.sleep(3.5)
+    await server.stop()
+    assert intervals == 3
+    assert task.done()
+
+
+async def test_service_task_exception() -> None:
+    async def service_task():
+        raise RuntimeError('boom')
+
+    server = DummyServer()
+    task = asyncio.create_task(service_task())
+    server.add_service_task(task)
+    await server.start()
+    with pytest.raises(RuntimeError, match='boom'):
+        await server.join()
+
+
+async def test_service_task_early_exit(server: DummyServer) -> None:
+    async def service_task():
+        await asyncio.sleep(1)
+
+    task = asyncio.create_task(service_task())
+    server.add_service_task(task)
+    assert task in server.service_tasks
+    await asyncio.sleep(2)
+    # Should now have finished and been removed
+    assert task not in server.service_tasks
 
 
 async def test_slow_client(server: DummyServer, reader: asyncio.StreamReader) -> None:
