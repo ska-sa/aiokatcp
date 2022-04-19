@@ -130,7 +130,8 @@ class Connection:
                  is_server: bool) -> None:
         self.owner = owner
         self.reader = reader
-        self.writer: Optional[asyncio.StreamWriter] = writer
+        self.writer = writer
+        self._writer_closing = False
         host, port, *_ = writer.get_extra_info('peername')
         self.address = core.Address(ipaddress.ip_address(host), port)
         self._drain_lock = asyncio.Lock()
@@ -142,16 +143,15 @@ class Connection:
         self._closed_event = asyncio.Event()
 
     def _close_writer(self):
-        if self.writer is not None:
-            self.writer.close()
-            self.writer = None
+        self.writer.close()
+        self._writer_closing = True
 
     def write_messages(self, msgs: Iterable[core.Message]) -> None:
         """Write a stream of messages to the connection.
 
         Connection errors are logged and swallowed.
         """
-        if self.writer is None:
+        if self._writer_closing:
             return     # We previously detected that it was closed
         try:
             # Normally this would be checked by the internals of
@@ -179,12 +179,12 @@ class Connection:
         # The Python 3.5 implementation of StreamWriter.drain is not reentrant,
         # so we use a lock.
         async with self._drain_lock:
-            if self.writer is not None:
+            if not self._writer_closing:
                 try:
                     await self.writer.drain()
                 except ConnectionError as error:
                     # The writer could have been closed during the await
-                    if self.writer is not None:
+                    if not self._writer_closing:
                         self.logger.warning('Connection closed while draining: %s', error)
                         self._close_writer()
 
@@ -236,6 +236,11 @@ class Connection:
         to wait for the remote end to close the connection.
         """
         await self._closed_event.wait()
+        self._close_writer()
+        try:
+            await self.writer.wait_closed()
+        except ConnectionError:
+            pass
 
 
 @decorator.decorator
