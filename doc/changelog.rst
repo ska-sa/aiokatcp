@@ -1,7 +1,7 @@
 Changelog
 =========
 
-.. rubric:: Development versoin
+.. rubric:: Version 1.2.0
 
 - Add support for :doc:`server/service_tasks`.
 
