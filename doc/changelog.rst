@@ -1,6 +1,10 @@
 Changelog
 =========
 
+.. rubric:: Development versoin
+
+- Add support for :doc:`server/service_tasks`.
+
 .. rubric:: Version 1.1.0
 
 - Increment server protocol version to 5.1.
