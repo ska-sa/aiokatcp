@@ -37,8 +37,8 @@ import time
 import warnings
 from collections import OrderedDict
 from typing import (
-    Any, Callable, Dict, Generator, Iterable, List, Optional, Sequence, Set,
-    Tuple, Type, Union, cast
+    Any, Callable, Dict, FrozenSet, Generator, Iterable, List, Optional,
+    Sequence, Set, Tuple, Type, Union, cast
 )
 
 from typing_extensions import Protocol
@@ -155,6 +155,8 @@ class Client(metaclass=ClientMeta):
         self._inform_callbacks: Dict[str, List[_InformCallback]] = {}
         self._sensor_monitor: Optional[_SensorMonitor] = None
         self._mid_support = False
+        # Updated once we get the protocol version from the server
+        self.protocol_flags: FrozenSet[str] = frozenset()
         # Used to serialize requests if the server does not support message IDs
         self._request_lock = asyncio.Lock()
         self.auto_reconnect = auto_reconnect
@@ -246,11 +248,12 @@ class Client(metaclass=ClientMeta):
                 major = int(match.group(1))
                 minor = int(match.group(2))
                 self.logger.debug('Protocol version %d.%d', major, minor)
-                flags = match.group(3)
+                flags = frozenset(match.group(3) or '')
                 if major != 5:
                     error = f'Unknown protocol version {major}.{minor}'
             if error is None:
-                self._mid_support = (flags is not None and 'I' in flags)
+                self._mid_support = 'I' in flags
+                self.protocol_flags = flags
                 # Safety in case a race condition causes the connection to
                 # die before this function was called.
                 if self._connection is not None:
@@ -844,6 +847,19 @@ class _SensorMonitor:
 
     async def _set_sampling(self, names: Sequence[str]) -> None:
         """Register sampling strategy with sensors in `names`"""
+        # First try to set them all at once. This can fail if any of the
+        # sensors disappeared in the meantime, in which case we recover by
+        # falling back to subscribing individually.
+        if 'B' in self.client.protocol_flags and len(names) > 1:
+            try:
+                await self.client.request('sensor-sampling', ','.join(names), 'auto')
+            except (FailReply, InvalidReply) as error:
+                self.logger.debug(
+                    'Failed to use bulk sampling (%s), falling back to one at a time', error)
+            else:
+                self._sampling_set.update(names)
+                return
+
         coros = [self.client.request('sensor-sampling', name, 'auto') for name in names]
         results = await asyncio.gather(*coros, return_exceptions=True)
         for name, result in zip(names, results):
