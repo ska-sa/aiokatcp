@@ -427,11 +427,13 @@ class TestSensorMonitor:
         await channel.interface_changed()
         channel.writer.write(
             b'#sensor-list[3] temp Temperature F float\n'
+            b'#sensor-list[3] pressure Pressure Pa float\n'
             b'!sensor-list[3] ok 1\n')
-        assert await channel.reader.readline() == b'?sensor-sampling[4] temp auto\n'
+        assert await channel.reader.readline() == b'?sensor-sampling[4] temp,pressure auto\n'
         assert channel.watcher.mock_calls == [
             call.batch_start(),
             call.sensor_added('temp', 'Temperature', 'F', 'float'),
+            call.sensor_added('pressure', 'Pressure', 'Pa', 'float'),
             call.sensor_removed('device-status'),
             call.batch_stop()
         ]
@@ -439,9 +441,47 @@ class TestSensorMonitor:
 
         channel.writer.write(
             b'#sensor-status 123456790.0 1 temp warn 451.0\n'
-            b'!sensor-sampling[4] ok temp auto\n')
+            b'#sensor-status 123456791.0 1 pressure nominal 101.0\n'
+            b'!sensor-sampling[4] ok temp,pressure auto\n')
         await asyncio.sleep(1)
+        # Note: in future batches may be less fine-grained
         assert channel.watcher.mock_calls == [
+            call.batch_start(),
+            call.sensor_updated('temp', b'451.0', Sensor.Status.WARN, 123456790.0),
+            call.batch_stop(),
+            call.batch_start(),
+            call.sensor_updated('pressure', b'101.0', Sensor.Status.NOMINAL, 123456791.0),
+            call.batch_stop(),
+            call.state_updated(SyncState.SYNCED)
+        ]
+
+    async def test_remove_sensor_while_subscribing(self, channel):
+        """Sensor is removed between notification and subscription attempt."""
+        await channel.init()
+        await channel.interface_changed()
+        channel.writer.write(
+            b'#sensor-list[3] temp Temperature F float\n'
+            b'#sensor-list[3] pressure Pressure Pa float\n'
+            b'!sensor-list[3] ok 1\n')
+        assert await channel.reader.readline() == b'?sensor-sampling[4] temp,pressure auto\n'
+
+        channel.writer.write(
+            rb"!sensor-sampling[4] fail Unknown\_sensor\_'pressure'" + b'\n')
+        assert await channel.reader.readline() == b'?sensor-sampling[5] temp auto\n'
+        channel.writer.write(
+            b'#sensor-status 123456790.0 1 temp warn 451.0\n'
+            b'!sensor-sampling[5] ok temp auto\n')
+        assert await channel.reader.readline() == b'?sensor-sampling[6] pressure auto\n'
+        channel.writer.write(
+            rb"!sensor-sampling[6] fail Unknown\_sensor\_'pressure'" + b'\n')
+        await asyncio.sleep(1)
+
+        assert channel.watcher.mock_calls == [
+            call.batch_start(),
+            call.sensor_added('temp', 'Temperature', 'F', 'float'),
+            call.sensor_added('pressure', 'Pressure', 'Pa', 'float'),
+            call.sensor_removed('device-status'),
+            call.batch_stop(),
             call.batch_start(),
             call.sensor_updated('temp', b'451.0', Sensor.Status.WARN, 123456790.0),
             call.batch_stop(),
