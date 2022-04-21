@@ -1,6 +1,10 @@
 Changelog
 =========
 
+.. rubric:: Version 1.3.0
+
+- Use bulk sensor sampling in :class:`.SensorWatcher` when available.
+
 .. rubric:: Version 1.2.0
 
 - Add support for :doc:`server/service_tasks`.
