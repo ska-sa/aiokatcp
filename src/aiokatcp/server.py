@@ -503,6 +503,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         async def cleanup():
             await conn.wait_closed()
+            conn.close()
             self._connections.discard(conn)
         conn = ClientConnection(self, reader, writer)
         # Copy the connection list, to avoid mutation while iterating and to
