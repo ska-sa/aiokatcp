@@ -1,6 +1,12 @@
 Changelog
 =========
 
+.. rubric:: Version 1.3.1
+
+- Fix a resource leak that prevented full cleanup of client state on the
+  server after the client disconnected (although the garbage collector would
+  have cleaned it up eventually).
+
 .. rubric:: Version 1.3.0
 
 - Use bulk sensor sampling in :class:`.SensorWatcher` when available.
