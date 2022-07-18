@@ -6,7 +6,7 @@ the server. aiokatcp provides the :class:`.DeviceServer.LogHandler` class to
 connect Python loggers to this logging mechanism.
 
 To use this mechanism, one should create a handler, then attach it to an
-existign Python logger. The simplest case is to attach it to the root logger,
+existing Python logger. The simplest case is to attach it to the root logger,
 like so:
 
 .. code:: python
@@ -34,7 +34,7 @@ Logger adapters
 ---------------
 A :class:`.Connection` contains a :attr:`~.Connection.logger` attribute which
 is a :class:`logging.LoggerAdapter`. It provides an extra `address`
-attribute to log records. Similarly, :class:`.RequestContext` cotnains a
+attribute to log records. Similarly, :class:`.RequestContext` contains a
 :attr:`~.RequestContext.Logger` which adds `address` and `req` attributes.
 
 By themselves, this has no effect on logging. However, you could provide a
