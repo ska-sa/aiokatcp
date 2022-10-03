@@ -31,6 +31,7 @@ try:
     import katversion as _katversion
 except ImportError:
     import time as _time
+
     __version__ = "0.0+unknown.{}".format(_time.strftime('%Y%m%d%H%M'))
 else:
     __version__ = _katversion.get_version(__path__[0])
@@ -44,7 +45,9 @@ from .core import (  # noqa: F401
     Address, KatcpSyntaxError, Message, Now, Timestamp, TimestampOrNow,
     TypeInfo, decode, encode, get_type, register_type
 )
-from .sensor import Reading, Sensor, SensorSampler, SensorSet  # noqa: F401
+from .sensor import (  # noqa: F401
+    AggregateSensor, Reading, Sensor, SensorSampler, SensorSet
+)
 from .server import DeviceServer, RequestContext  # noqa: F401
 
 
