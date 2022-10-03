@@ -39,12 +39,12 @@ import aiokatcp
 
 
 def text(msg: aiokatcp.Message) -> str:
-    return bytes(msg).decode('utf-8', errors='backslashreplace')
+    return bytes(msg).decode("utf-8", errors="backslashreplace")
 
 
 class CmdClient(aiokatcp.Client):
     def unhandled_inform(self, msg: aiokatcp.Message) -> None:
-        print(text(msg), end='')
+        print(text(msg), end="")
 
 
 async def async_main(args, host, port) -> int:
@@ -52,23 +52,23 @@ async def async_main(args, host, port) -> int:
         with async_timeout.timeout(args.connect_timeout):
             client = await CmdClient.connect(host, port, auto_reconnect=False)
     except (OSError, aiokatcp.client.ProtocolError) as error:
-        logging.error('Connection error: %s', error)
+        logging.error("Connection error: %s", error)
         return 1
     except asyncio.TimeoutError:
-        logging.error('Timed out connecting to %s:%s', host, port)
+        logging.error("Timed out connecting to %s:%s", host, port)
         return 1
     async with client:
         try:
             with async_timeout.timeout(args.request_timeout):
                 reply, informs = await client.request_raw(args.command, *args.args)
         except (OSError, aiokatcp.client.ProtocolError) as error:
-            logging.error('Connection error: %s', error)
+            logging.error("Connection error: %s", error)
             return 1
         except asyncio.TimeoutError:
-            logging.error('Request timed out after %gs', args.request_timeout)
+            logging.error("Request timed out after %gs", args.request_timeout)
         else:
             for msg in informs + [reply]:
-                print(text(msg), end='')
+                print(text(msg), end="")
             if not reply.reply_ok():
                 return 2
     return 0
@@ -78,19 +78,29 @@ def main() -> int:
     logging.basicConfig(level=logging.WARNING)
 
     parser = argparse.ArgumentParser(
-        description='Send a single katcp request and print the reply',
-        usage='%(prog)s host:port command [args...]')
-    parser.add_argument('endpoint')
-    parser.add_argument('command')
-    parser.add_argument('args', nargs='*')
-    parser.add_argument('--connect-timeout', type=float, metavar='TIME', default=30,
-                        help='Time to wait for a connection to be established')
-    parser.add_argument('--request-timeout', type=float, metavar='TIME',
-                        help='Time to wait for the request to complete')
+        description="Send a single katcp request and print the reply",
+        usage="%(prog)s host:port command [args...]",
+    )
+    parser.add_argument("endpoint")
+    parser.add_argument("command")
+    parser.add_argument("args", nargs="*")
+    parser.add_argument(
+        "--connect-timeout",
+        type=float,
+        metavar="TIME",
+        default=30,
+        help="Time to wait for a connection to be established",
+    )
+    parser.add_argument(
+        "--request-timeout",
+        type=float,
+        metavar="TIME",
+        help="Time to wait for the request to complete",
+    )
     args = parser.parse_args()
-    host_port = args.endpoint.rsplit(':', 1)
+    host_port = args.endpoint.rsplit(":", 1)
     if len(host_port) != 2:
-        parser.error(f'missing port number in {host_port}')
+        parser.error(f"missing port number in {host_port}")
 
     loop = asyncio.get_event_loop()
     with contextlib.closing(loop):

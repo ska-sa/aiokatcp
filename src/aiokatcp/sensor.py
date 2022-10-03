@@ -32,14 +32,30 @@ import time
 import warnings
 from abc import ABCMeta, abstractmethod
 from typing import (
-    Any, Callable, Dict, Generic, ItemsView, Iterable, Iterator, KeysView,
-    List, Mapping, Optional, Set, Tuple, Type, TypeVar, Union, ValuesView,
-    cast, overload
+    Any,
+    Callable,
+    Dict,
+    Generic,
+    ItemsView,
+    Iterable,
+    Iterator,
+    KeysView,
+    List,
+    Mapping,
+    Optional,
+    Set,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+    ValuesView,
+    cast,
+    overload,
 )
 
 from . import core
 
-_T = TypeVar('_T')
+_T = TypeVar("_T")
 
 
 class Reading(Generic[_T]):
@@ -55,15 +71,15 @@ class Reading(Generic[_T]):
         Sensor value at `timestamp`
     """
 
-    __slots__ = ('timestamp', 'status', 'value')
+    __slots__ = ("timestamp", "status", "value")
 
-    def __init__(self, timestamp: float, status: 'Sensor.Status', value: _T) -> None:
+    def __init__(self, timestamp: float, status: "Sensor.Status", value: _T) -> None:
         self.timestamp = timestamp
         self.status = status
         self.value = value
 
 
-def _default_status_func(value) -> 'Sensor.Status':
+def _default_status_func(value) -> "Sensor.Status":
     return Sensor.Status.NOMINAL
 
 
@@ -112,18 +128,25 @@ class Sensor(Generic[_T]):
 
         def valid_value(self) -> bool:
             """True if this state is one where the value provided is valid."""
-            return self in {Sensor.Status.NOMINAL, Sensor.Status.WARN, Sensor.Status.ERROR}
+            return self in {
+                Sensor.Status.NOMINAL,
+                Sensor.Status.WARN,
+                Sensor.Status.ERROR,
+            }
 
-    def __init__(self, sensor_type: Type[_T],
-                 name: str,
-                 description: str = None,
-                 units: str = '',
-                 default: _T = None,
-                 initial_status: Status = Status.UNKNOWN,
-                 *,
-                 status_func: Callable[[_T], Status] = _default_status_func,
-                 auto_strategy: Optional['SensorSampler.Strategy'] = None,
-                 auto_strategy_parameters: Iterable[Any] = ()) -> None:
+    def __init__(
+        self,
+        sensor_type: Type[_T],
+        name: str,
+        description: str = "",
+        units: str = "",
+        default: _T = None,
+        initial_status: Status = Status.UNKNOWN,
+        *,
+        status_func: Callable[[_T], Status] = _default_status_func,
+        auto_strategy: Optional["SensorSampler.Strategy"] = None,
+        auto_strategy_parameters: Iterable[Any] = (),
+    ) -> None:
         self.stype = sensor_type
         type_info = core.get_type(sensor_type)
         self.type_name = type_info.name
@@ -153,8 +176,7 @@ class Sensor(Generic[_T]):
         for observer in self._observers:
             observer(self, reading)
 
-    def set_value(self, value: _T, status: Status = None,
-                  timestamp: float = None) -> None:
+    def set_value(self, value: _T, status: Status = None, timestamp: float = None) -> None:
         """Set the current value of the sensor.
 
         Parameters
@@ -304,9 +326,7 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
         return self._observer
 
     @observer.setter
-    def observer(
-        self, observer: Optional[Callable[[Sensor[_T], Reading[_T]], None]]
-    ) -> None:
+    def observer(self, observer: Optional[Callable[[Sensor[_T], Reading[_T]], None]]) -> None:
         assert self.sensor is not None
         self._observer = observer
         self._send_update(self.loop.time(), self.sensor.reading)
@@ -330,9 +350,7 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
         self._clear_callback()
         if self.longest is not None:
             next_time = max(self.loop.time(), sched_time + self.longest)
-            self._callback_handle = self.loop.call_at(
-                next_time, self._send_update, next_time, None
-            )
+            self._callback_handle = self.loop.call_at(next_time, self._send_update, next_time, None)
 
     def _receive_update(self, sensor: Sensor[_T], reading: Reading[_T]) -> None:
         if self._changed:
@@ -411,13 +429,9 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
                 types[0] = sensor.stype
             if len(types) != len(args):
                 raise ValueError(
-                    "expected {} strategy arguments, found {}".format(
-                        len(types), len(args)
-                    )
+                    "expected {} strategy arguments, found {}".format(len(types), len(args))
                 )
-            decoded_args = tuple(
-                core.decode(type_, arg) for type_, arg in zip(types, args)
-            )
+            decoded_args = tuple(core.decode(type_, arg) for type_, arg in zip(types, args))
             is_auto = False
 
         if out_cls is None:
@@ -451,9 +465,7 @@ class _SensorSamplerPeriod(SensorSampler[_T]):
         *,
         is_auto: bool,
     ) -> None:
-        super().__init__(
-            sensor, observer, loop, shortest=period, longest=period, is_auto=is_auto
-        )
+        super().__init__(sensor, observer, loop, shortest=period, longest=period, is_auto=is_auto)
 
     def _parameters(self) -> Tuple[SensorSampler.Strategy, core.Timestamp]:
         return (SensorSampler.Strategy.PERIOD, core.Timestamp(self.shortest))
@@ -729,7 +741,7 @@ class AggregateSensor(Sensor, metaclass=ABCMeta):
         target: SensorSet,
         sensor_type: Type[_T],
         name: str,
-        description: str = None,
+        description: str = "",
         units: str = "",
         default: _T = None,
         initial_status: Sensor.Status = Sensor.Status.UNKNOWN,

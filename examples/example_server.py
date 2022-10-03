@@ -42,16 +42,20 @@ class Foo(enum.Enum):
 
 
 class Server(aiokatcp.DeviceServer):
-    VERSION = 'testapi-1.0'
-    BUILD_STATE = 'testapi-1.0.1'
+    VERSION = "testapi-1.0"
+    BUILD_STATE = "testapi-1.0.1"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        sensor = aiokatcp.Sensor(int, 'counter-queries', 'number of ?counter queries',
-                                 default=0,
-                                 initial_status=aiokatcp.Sensor.Status.NOMINAL)
+        sensor = aiokatcp.Sensor(
+            int,
+            "counter-queries",
+            "number of ?counter queries",
+            default=0,
+            initial_status=aiokatcp.Sensor.Status.NOMINAL,
+        )
         self.sensors.add(sensor)
-        sensor = aiokatcp.Sensor(Foo, 'foo', 'nonsense')
+        sensor = aiokatcp.Sensor(Foo, "foo", "nonsense")
         self.sensors.add(sensor)
         self.add_service_task(asyncio.create_task(self._service_task()))
 
@@ -65,7 +69,7 @@ class Server(aiokatcp.DeviceServer):
 
     async def request_fail(self, ctx, arg: str) -> None:
         """Request that always returns a failure reply"""
-        raise aiokatcp.FailReply(arg + ' is no good')
+        raise aiokatcp.FailReply(arg + " is no good")
 
     async def request_crash(self, ctx) -> None:
         """Request that always raises an exception"""
@@ -73,17 +77,17 @@ class Server(aiokatcp.DeviceServer):
 
     async def request_counter(self, ctx) -> None:
         """Increment counter-queries"""
-        self.sensors['counter-queries'].value += 1
+        self.sensors["counter-queries"].value += 1
 
     async def _service_task(self) -> None:
         """Example service task that just broadcasts to clients."""
         while True:
             await asyncio.sleep(10)
-            self.mass_inform('hello', 'Hi I am a service task')
+            self.mass_inform("hello", "Hi I am a service task")
 
 
 async def main():
-    server = Server('localhost', 4444)
+    server = Server("localhost", 4444)
     handler = Server.LogHandler(server)
     logging.getLogger().addHandler(handler)
     await server.start()
@@ -91,7 +95,7 @@ async def main():
     await server.join()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
