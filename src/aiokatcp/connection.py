@@ -42,10 +42,10 @@ from . import core
 
 logger = logging.getLogger(__name__)
 DEFAULT_LIMIT = 16 * 1024**2
-_BLANK_RE = re.compile(br'^[ \t]*[\r\n]?$')
+_BLANK_RE = re.compile(rb"^[ \t]*[\r\n]?$")
 # typing.Protocol requires a contravariant typevar
-_C_contra = TypeVar('_C_contra', bound='Connection', contravariant=True)
-_C = TypeVar('_C', bound='Connection')
+_C_contra = TypeVar("_C_contra", bound="Connection", contravariant=True)
+_C = TypeVar("_C", bound="Connection")
 
 
 class ConvertCRProtocol(asyncio.StreamReaderProtocol):
@@ -55,8 +55,9 @@ class ConvertCRProtocol(asyncio.StreamReaderProtocol):
     whose :meth:`~asyncio.StreamReader.readuntil` method is limited to a single
     separator.
     """
+
     def data_received(self, data: bytes) -> None:
-        super().data_received(data.replace(b'\r', b'\n'))
+        super().data_received(data.replace(b"\r", b"\n"))
 
 
 async def _discard_to_eol(stream: asyncio.StreamReader) -> None:
@@ -65,7 +66,7 @@ async def _discard_to_eol(stream: asyncio.StreamReader) -> None:
         try:
             await stream.readuntil()
         except asyncio.IncompleteReadError:
-            break     # EOF reached
+            break  # EOF reached
         except asyncio.LimitOverrunError as error:
             # Extract the data that's already in the buffer
             consumed = error.consumed
@@ -97,10 +98,10 @@ async def read_message(stream: asyncio.StreamReader) -> Optional[core.Message]:
         except asyncio.IncompleteReadError as error:
             raw = error.partial
             if not raw:
-                return None    # End of stream reached
+                return None  # End of stream reached
         except asyncio.LimitOverrunError:
             await _discard_to_eol(stream)
-            raise core.KatcpSyntaxError('Message exceeded stream buffer size')
+            raise core.KatcpSyntaxError("Message exceeded stream buffer size")
         if not _BLANK_RE.match(raw):
             return core.Message.parse(raw)
 
@@ -115,24 +116,29 @@ class InvalidReply(Exception):
 
 class ConnectionLoggerAdapter(logging.LoggerAdapter):
     def process(self, msg, kwargs):
-        return '{} [{}]'.format(msg, self.extra['address']), kwargs
+        return "{} [{}]".format(msg, self.extra["address"]), kwargs
 
 
 class _ConnectionOwner(Protocol[_C_contra]):
     loop: asyncio.AbstractEventLoop
 
-    async def handle_message(self, conn: _C_contra, msg: core.Message) -> None: ...
+    async def handle_message(self, conn: _C_contra, msg: core.Message) -> None:
+        ...
 
 
 class Connection:
-    def __init__(self: _C, owner: _ConnectionOwner[_C],
-                 reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
-                 is_server: bool) -> None:
+    def __init__(
+        self: _C,
+        owner: _ConnectionOwner[_C],
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        is_server: bool,
+    ) -> None:
         self.owner = owner
         self.reader = reader
         self.writer = writer
         self._writer_closing = False
-        host, port, *_ = writer.get_extra_info('peername')
+        host, port, *_ = writer.get_extra_info("peername")
         self.address = core.Address(ipaddress.ip_address(host), port)
         self._drain_lock = asyncio.Lock()
         self.is_server = is_server
@@ -152,19 +158,19 @@ class Connection:
         Connection errors are logged and swallowed.
         """
         if self._writer_closing:
-            return     # We previously detected that it was closed
+            return  # We previously detected that it was closed
         try:
             # Normally this would be checked by the internals of
             # self.writer.drain and bubble out to self.drain, but there is no
             # guarantee that self.drain will be called in the near future
             # (see Github issue #11).
             if self.writer.transport.is_closing():
-                raise ConnectionResetError('Connection lost')
-            raw = b''.join(bytes(msg) for msg in msgs)
+                raise ConnectionResetError("Connection lost")
+            raw = b"".join(bytes(msg) for msg in msgs)
             self.writer.write(raw)
-            self.logger.debug('Sent message %r', raw)
+            self.logger.debug("Sent message %r", raw)
         except ConnectionError as error:
-            self.logger.warning('Connection closed before message could be sent: %s', error)
+            self.logger.warning("Connection closed before message could be sent: %s", error)
             self._close_writer()
 
     def write_message(self, msg: core.Message) -> None:
@@ -185,7 +191,7 @@ class Connection:
                 except ConnectionError as error:
                     # The writer could have been closed during the await
                     if not self._writer_closing:
-                        self.logger.warning('Connection closed while draining: %s', error)
+                        self.logger.warning("Connection closed while draining: %s", error)
                         self._close_writer()
 
     async def _run(self: _C) -> None:
@@ -195,18 +201,19 @@ class Connection:
             try:
                 msg = await read_message(self.reader)
             except core.KatcpSyntaxError as error:
-                self.logger.warning('Malformed message received', exc_info=True)
+                self.logger.warning("Malformed message received", exc_info=True)
                 if self.is_server:
                     # TODO: #log informs are supposed to go to all clients
                     self.write_message(
-                        core.Message.inform('log', 'error', time.time(), __name__, str(error)))
+                        core.Message.inform("log", "error", time.time(), __name__, str(error))
+                    )
             except ConnectionResetError:
                 # Client closed connection without consuming everything we sent it.
                 break
             else:
-                if msg is None:   # EOF received
+                if msg is None:  # EOF received
                     break
-                self.logger.debug('Received message %r', bytes(msg))
+                self.logger.debug("Received message %r", bytes(msg))
                 await self.owner.handle_message(self, msg)
 
     def _done_callback(self, task: asyncio.Future) -> None:
@@ -215,7 +222,7 @@ class Connection:
             try:
                 task.result()
             except Exception:
-                self.logger.exception('Exception in connection handler')
+                self.logger.exception("Exception in connection handler")
 
     def close(self) -> None:
         """Start closing the connection.
@@ -277,17 +284,19 @@ def wrap_handler(name: str, handler: Callable, fixed: int) -> Callable:
     for parameter in sig.parameters.values():
         if parameter.kind == inspect.Parameter.VAR_POSITIONAL:
             var_pos = parameter
-        elif parameter.kind in (inspect.Parameter.POSITIONAL_ONLY,
-                                inspect.Parameter.POSITIONAL_OR_KEYWORD):
+        elif parameter.kind in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        ):
             pos.append(parameter)
-        if parameter.name == '_msg':
-            raise ValueError('Parameter cannot be named _msg')
+        if parameter.name == "_msg":
+            raise ValueError("Parameter cannot be named _msg")
     if len(pos) < fixed:
-        raise TypeError(f'Handler must accept at least {fixed} positional argument(s)')
+        raise TypeError(f"Handler must accept at least {fixed} positional argument(s)")
 
     # Exclude transferring __annotations__ from the wrapped function,
     # because the decorator does not preserve signature.
-    @functools.wraps(handler, assigned=['__module__', '__name__', '__qualname__', '__doc__'])
+    @functools.wraps(handler, assigned=["__module__", "__name__", "__qualname__", "__doc__"])
     def wrapper(*args):
         assert len(args) == fixed + 1
         msg = args[-1]
@@ -295,7 +304,7 @@ def wrap_handler(name: str, handler: Callable, fixed: int) -> Callable:
         for argument in msg.arguments:
             if len(args) >= len(pos):
                 if var_pos is None:
-                    raise FailReply(f'too many arguments for {name}')
+                    raise FailReply(f"too many arguments for {name}")
                 else:
                     hint = var_pos.annotation
             else:
@@ -316,10 +325,10 @@ def wrap_handler(name: str, handler: Callable, fixed: int) -> Callable:
 
     wrapper_parameters = pos[:fixed]
     wrapper_parameters.append(
-        inspect.Parameter('_msg', inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                          annotation=core.Message))
+        inspect.Parameter("_msg", inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=core.Message)
+    )
     wrapper.__signature__ = sig.replace(parameters=wrapper_parameters)  # type: ignore
     wrapper = _identity_decorator(wrapper)
-    wrapper._aiokatcp_orig_handler = handler                            # type: ignore
+    wrapper._aiokatcp_orig_handler = handler  # type: ignore
 
     return wrapper

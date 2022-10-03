@@ -38,7 +38,7 @@ from aiokatcp.sensor import Sensor, SensorSampler, SensorSet
 
 
 @pytest.mark.parametrize(
-    'status,valid',
+    "status,valid",
     [
         (Sensor.Status.UNKNOWN, False),
         (Sensor.Status.NOMINAL, True),
@@ -46,8 +46,8 @@ from aiokatcp.sensor import Sensor, SensorSampler, SensorSet
         (Sensor.Status.ERROR, True),
         (Sensor.Status.FAILURE, False),
         (Sensor.Status.UNREACHABLE, False),
-        (Sensor.Status.INACTIVE, False)
-    ]
+        (Sensor.Status.INACTIVE, False),
+    ],
 )
 def test_sensor_state_valid_value(status, valid):
     assert status.valid_value() is valid
@@ -57,7 +57,7 @@ def test_sensor_status_func():
     def status_func(value):
         return Sensor.Status.WARN if value & 1 else Sensor.Status.ERROR
 
-    sensor = Sensor(int, 'sensor', status_func=status_func)
+    sensor = Sensor(int, "sensor", status_func=status_func)
     assert sensor.status == Sensor.Status.UNKNOWN
     sensor.value = 1
     assert sensor.status == Sensor.Status.WARN
@@ -68,10 +68,10 @@ def test_sensor_status_func():
 
 
 async def test_unclosed_sampler(event_loop):
-    sensor = Sensor(int, 'sensor')
+    sensor = Sensor(int, "sensor")
     sampler = SensorSampler.factory(
-        sensor, lambda sensor, reading: None,
-        event_loop, SensorSampler.Strategy.EVENT)
+        sensor, lambda sensor, reading: None, event_loop, SensorSampler.Strategy.EVENT
+    )
     with pytest.warns(ResourceWarning):
         del sensor
         del sampler
@@ -92,13 +92,13 @@ def remove_callback():
 
 @pytest.fixture
 def sensors():
-    return [Sensor(int, f'name{i}') for i in range(5)]
+    return [Sensor(int, f"name{i}") for i in range(5)]
 
 
 @pytest.fixture
 def alt_sensors():
     # A different set of sensors with the same names
-    return [Sensor(float, f'name{i}') for i in range(5)]
+    return [Sensor(float, f"name{i}") for i in range(5)]
 
 
 @pytest.fixture
@@ -174,53 +174,53 @@ class TestSensorSet:
         ss.add(sensors[1])
         items = []
         try:
-            for _ in range(100):   # To prevent infinite loop if it's broken
+            for _ in range(100):  # To prevent infinite loop if it's broken
                 items.append(ss.popitem())
         except KeyError:
             pass
         items.sort(key=lambda x: x[0])
-        assert items == [('name0', sensors[0]), ('name1', sensors[1])]
+        assert items == [("name0", sensors[0]), ("name1", sensors[1])]
         remove_callback.assert_any_call(sensors[0])
         remove_callback.assert_any_call(sensors[1])
 
     def test_pop_absent(self, ss, sensors, remove_callback):
         # Non-existent name
         with pytest.raises(KeyError):
-            ss.pop('name4')
+            ss.pop("name4")
         # Non-existent with defaults
-        assert ss.pop('name4', None) is None
-        assert ss.pop('name4', 'foo') == 'foo'
+        assert ss.pop("name4", None) is None
+        assert ss.pop("name4", "foo") == "foo"
         # Remove one
         remove_callback.assert_not_called()
-        assert ss.pop('name0') is sensors[0]
+        assert ss.pop("name0") is sensors[0]
         assert _get_sensors(ss) == []
         remove_callback.assert_called_once_with(sensors[0])
 
     def test_delitem(self, ss, sensors, remove_callback):
         # Try to remove non-existent name
         with pytest.raises(KeyError):
-            del ss['name4']
+            del ss["name4"]
         assert _get_sensors(ss) == [sensors[0]]
         # Remove one
         remove_callback.assert_not_called()
-        del ss['name0']
+        del ss["name0"]
         assert _get_sensors(ss) == []
         remove_callback.assert_called_once_with(sensors[0])
 
     def test_getitem(self, ss, sensors):
         # Non-existing name
         with pytest.raises(KeyError):
-            ss['name4']
+            ss["name4"]
         # Existing name
-        assert ss['name0'] is sensors[0]
+        assert ss["name0"] is sensors[0]
 
     def test_get(self, ss, sensors):
         # Non-existing name
-        assert ss.get('name4') is None
-        assert ss.get('name4', None) is None
-        assert ss.get('name4', 'foo') == 'foo'
+        assert ss.get("name4") is None
+        assert ss.get("name4", None) is None
+        assert ss.get("name4", "foo") == "foo"
         # Existing name
-        assert ss.get('name0') is sensors[0]
+        assert ss.get("name0") is sensors[0]
 
     def test_len(self, ss, sensors):
         assert len(ss) == 1
@@ -239,7 +239,7 @@ class TestSensorSet:
 
     def test_keys(self, ss, sensors):
         ss.add(sensors[1])
-        assert sorted(ss.keys()) == ['name0', 'name1']
+        assert sorted(ss.keys()) == ["name0", "name1"]
 
     def test_values(self, ss, sensors):
         ss.add(sensors[1])
@@ -247,16 +247,13 @@ class TestSensorSet:
 
     def test_items(self, ss, sensors):
         ss.add(sensors[1])
-        assert sorted(ss.items()) == [
-            ('name0', sensors[0]),
-            ('name1', sensors[1])
-        ]
+        assert sorted(ss.items()) == [("name0", sensors[0]), ("name1", sensors[1])]
 
     def test_iter(self, ss):
-        assert sorted(iter(ss)) == ['name0']
+        assert sorted(iter(ss)) == ["name0"]
 
     def test_copy(self, ss, sensors):
-        assert ss.copy() == {'name0': sensors[0]}
+        assert ss.copy() == {"name0": sensors[0]}
 
     def test_remove_callbacks(self, ss, sensors, add_callback, remove_callback):
         ss.remove_remove_callback(remove_callback)
