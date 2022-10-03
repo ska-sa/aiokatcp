@@ -115,7 +115,7 @@ class Sensor(Generic[_T]):
 
     def __init__(self, sensor_type: Type[_T],
                  name: str,
-                 description: str = None,
+                 description: str = '',
                  units: str = '',
                  default: _T = None,
                  initial_status: Status = Status.UNKNOWN,
