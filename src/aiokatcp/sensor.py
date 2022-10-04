@@ -128,11 +128,7 @@ class Sensor(Generic[_T]):
 
         def valid_value(self) -> bool:
             """True if this state is one where the value provided is valid."""
-            return self in {
-                Sensor.Status.NOMINAL,
-                Sensor.Status.WARN,
-                Sensor.Status.ERROR,
-            }
+            return self in {Sensor.Status.NOMINAL, Sensor.Status.WARN, Sensor.Status.ERROR}
 
     def __init__(
         self,
@@ -508,9 +504,7 @@ class _SensorSamplerEventRate(SensorSampler[_T]):
             sensor, observer, loop, shortest=shortest, longest=longest, is_auto=is_auto
         )
 
-    def _parameters(
-        self,
-    ) -> Tuple[SensorSampler.Strategy, core.Timestamp, core.Timestamp]:
+    def _parameters(self) -> Tuple[SensorSampler.Strategy, core.Timestamp, core.Timestamp]:
         # assertions to keep mypy happy
         assert self.shortest is not None
         assert self.longest is not None
