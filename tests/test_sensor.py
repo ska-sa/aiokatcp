@@ -34,7 +34,7 @@ import unittest
 
 import pytest
 
-from aiokatcp.sensor import Sensor, SensorSampler, SensorSet
+from aiokatcp.sensor import AggregateSensor, Sensor, SensorSampler, SensorSet
 
 
 @pytest.mark.parametrize(
@@ -262,3 +262,29 @@ class TestSensorSet:
         ss.remove(sensors[0])
         remove_callback.assert_not_called()
         add_callback.assert_not_called()
+
+
+def test_aggregate_sensor(mocker, ss, sensors):
+    """Test operation of AggregateSensor.
+
+    Create a simple derived class, mock out the _update_aggregate function, and
+    test that (1) the target is properly assigned, and (2) the update function
+    is called at all appropriate occasions.
+    """
+
+    class MyAgg(AggregateSensor):
+        def _update_aggregate(self, *args):
+            pass
+
+    my_agg = MyAgg(target=ss, sensor_type=int, name="good-bad-ugly")
+    assert my_agg.target == ss
+
+    mocker.patch.object(my_agg, "_update_aggregate")
+    ss.add(sensors[1])
+    my_agg._update_aggregate.assert_called_with(sensors[1], sensors[1].reading)
+
+    ss.remove(sensors[0])
+    my_agg._update_aggregate.assert_called_with(sensors[0], sensors[0].reading)
+
+    sensors[1].set_value(7, Sensor.Status.WARN)
+    my_agg._update_aggregate.assert_called_with(sensors[1], sensors[1].reading)

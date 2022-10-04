@@ -772,8 +772,12 @@ class AggregateSensor(Sensor, metaclass=ABCMeta):
         """Add the update callback to a new sensor in the set."""
         if sensor is not self:
             sensor.attach(self._update_aggregate)
+        # The new sensor might actually affect the aggregate reading.
+        self._update_aggregate(sensor, sensor.reading)
 
     def _sensor_removed(self, sensor: Sensor):
         """Remove the update callback from a sensor no longer in the set."""
         if sensor is not self:
             sensor.detach(self._update_aggregate)
+        # The new sensor might actually affect the aggregate reading.
+        self._update_aggregate(sensor, sensor.reading)
