@@ -288,3 +288,11 @@ def test_aggregate_sensor(mocker, ss, sensors):
 
     sensors[1].set_value(7, Sensor.Status.WARN)
     my_agg._update_aggregate.assert_called_with(sensors[1], sensors[1].reading)
+
+    # Check that the aggregate sensor gets excluded if it's in the set.
+    mocker.patch.object(my_agg, "attach")
+    mocker.patch.object(my_agg, "detach")
+    ss.add(my_agg)
+    my_agg.attach.assert_not_called()
+    ss.remove(my_agg)
+    my_agg.detach.assert_not_called()
