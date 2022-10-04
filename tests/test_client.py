@@ -746,7 +746,9 @@ class TestSensorWatcher:
         watcher.batch_start()
         watcher.sensor_updated("bar", b"123.0", Sensor.Status.WARN, 1234567890.0)
         watcher.batch_stop()
-        watcher.logger.warning.assert_called_once_with("Received update for unknown sensor %s", "bar")  # type: ignore
+        watcher.logger.warning.assert_called_once_with(  # type: ignore
+            "Received update for unknown sensor %s", "bar"
+        )
 
     def test_state_updated(self, watcher: DummySensorWatcher) -> None:
         self.test_sensor_added(watcher)

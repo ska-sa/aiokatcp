@@ -431,8 +431,13 @@ async def test_halt(
 ) -> None:
     writer.write(b"?halt[11]\n")
     await check_reply(
-        reader, [b"!halt[11] ok\n", rb"#disconnect server\_shutting\_down" + b"\n", b""]
-    )  # Empty string indicates EOF
+        reader,
+        [
+            b"!halt[11] ok\n",
+            rb"#disconnect server\_shutting\_down" + b"\n",
+            b"",  # Empty string indicates EOF
+        ],
+    )
     await server.join()
 
 
@@ -446,9 +451,9 @@ async def test_halt_while_waiting(
             b"!halt[2] ok\n",
             b"!wait[1] fail request\\_cancelled\n",
             b"#disconnect server\\_shutting\\_down\n",
-            b"",
+            b"",  # Empty line indicates EOF
         ],
-    )  # Empty line indicates EOF
+    )
 
 
 async def test_too_few_params(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
