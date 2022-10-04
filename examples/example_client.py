@@ -35,16 +35,16 @@ import aiokatcp
 
 
 async def main():
-    client = await aiokatcp.Client.connect('localhost', 4444)
+    client = await aiokatcp.Client.connect("localhost", 4444)
     async with client:
         while True:
             await client.wait_connected()
-            value, _ = await client.request('echo', 10)
+            value, _ = await client.request("echo", 10)
             print(value)
             await asyncio.sleep(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     loop = asyncio.get_event_loop()
     loop.set_debug(True)

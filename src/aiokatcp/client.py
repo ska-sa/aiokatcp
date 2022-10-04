@@ -37,8 +37,20 @@ import time
 import warnings
 from collections import OrderedDict
 from typing import (
-    Any, Callable, Dict, FrozenSet, Generator, Iterable, List, Optional,
-    Sequence, Set, Tuple, Type, Union, cast
+    Any,
+    Callable,
+    Dict,
+    FrozenSet,
+    Generator,
+    Iterable,
+    List,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    Type,
+    Union,
+    cast,
 )
 
 from typing_extensions import Protocol
@@ -54,11 +66,13 @@ class _Handler(Protocol):
 
 
 class _InformHandler(_Handler):
-    def __call__(self, _client: 'Client', _msg: core.Message) -> None: ...
+    def __call__(self, _client: "Client", _msg: core.Message) -> None:
+        ...
 
 
 class _InformCallback(_Handler):
-    def __call__(self, _msg: core.Message) -> None: ...
+    def __call__(self, _msg: core.Message) -> None:
+        ...
 
 
 class _PendingRequest:
@@ -75,14 +89,14 @@ class ClientMeta(type):
         return cast(_InformHandler, connection.wrap_handler(name, value, 1))
 
     def __new__(mcs, name, bases, namespace, **kwds):
-        namespace.setdefault('_inform_handlers', {})
+        namespace.setdefault("_inform_handlers", {})
         for base in bases:
-            namespace['_inform_handlers'].update(getattr(base, '_inform_handlers', {}))
+            namespace["_inform_handlers"].update(getattr(base, "_inform_handlers", {}))
         result = type.__new__(mcs, name, bases, namespace)
-        inform_handlers = getattr(result, '_inform_handlers')
+        inform_handlers = getattr(result, "_inform_handlers")
         for key, value in namespace.items():
-            if key.startswith('inform_') and inspect.isfunction(value):
-                request_name = key[7:].replace('_', '-')
+            if key.startswith("inform_") and inspect.isfunction(value):
+                request_name = key[7:].replace("_", "-")
                 inform_handlers[request_name] = mcs._wrap_inform(request_name, value)
         return result
 
@@ -94,6 +108,7 @@ def _make_done(future):
 
 class ProtocolError(ValueError):
     """The server does not implement the required protocol version"""
+
     def __init__(self, msg, version):
         super().__init__(msg)
         self.version = version
@@ -130,10 +145,15 @@ class Client(metaclass=ClientMeta):
 
     _inform_handlers: Dict[str, _InformHandler]  # Initialised by metaclass
 
-    def __init__(self, host: str, port: int, *,
-                 auto_reconnect: bool = True,
-                 limit: int = connection.DEFAULT_LIMIT,
-                 loop: asyncio.AbstractEventLoop = None) -> None:
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        *,
+        auto_reconnect: bool = True,
+        limit: int = connection.DEFAULT_LIMIT,
+        loop: asyncio.AbstractEventLoop = None,
+    ) -> None:
         if loop is None:
             loop = asyncio.get_event_loop()
         self._connection: Optional[connection.Connection] = None
@@ -166,8 +186,8 @@ class Client(metaclass=ClientMeta):
         self.last_exc: Optional[Exception] = None
 
     def __del__(self) -> None:
-        if hasattr(self, '_closed_event') and not self._closed_event.is_set():
-            warnings.warn(f'unclosed Client {self!r}', ResourceWarning)
+        if hasattr(self, "_closed_event") and not self._closed_event.is_set():
+            warnings.warn(f"unclosed Client {self!r}", ResourceWarning)
             if not self.loop.is_closed():
                 self.loop.call_soon_threadsafe(self.close)
 
@@ -176,23 +196,24 @@ class Client(metaclass=ClientMeta):
         if conn is None:
             self.logger = logger
         else:
-            self.logger = connection.ConnectionLoggerAdapter(
-                logger, dict(address=conn.address))
+            self.logger = connection.ConnectionLoggerAdapter(logger, dict(address=conn.address))
 
     async def handle_message(self, conn: connection.Connection, msg: core.Message) -> None:
         """Called by :class:`~.Connection` for each incoming message."""
         if msg.mtype == core.Message.Type.REQUEST:
-            self.logger.info('Received unexpected request %s from server', msg.name)
+            self.logger.info("Received unexpected request %s from server", msg.name)
             return
-        if msg.mid is not None or (not self._mid_support
-                                   and None in self._pending
-                                   and self._pending[None].name == msg.name):
+        if msg.mid is not None or (
+            not self._mid_support and None in self._pending and self._pending[None].name == msg.name
+        ):
             try:
                 req = self._pending[msg.mid]
             except KeyError:
                 self.logger.debug(
-                    'Received %r with unknown message ID %s (possibly cancelled request)',
-                    bytes(msg), msg.mid)
+                    "Received %r with unknown message ID %s (possibly cancelled request)",
+                    bytes(msg),
+                    msg.mid,
+                )
             else:
                 if msg.mtype == core.Message.Type.REPLY:
                     if not req.reply.done():
@@ -200,24 +221,26 @@ class Client(metaclass=ClientMeta):
                 elif msg.mtype == core.Message.Type.INFORM:
                     req.informs.append(msg)
                 else:
-                    self.logger.warning('Unknown message type %s', msg.mtype)  # pragma: no cover
+                    self.logger.warning("Unknown message type %s", msg.mtype)  # pragma: no cover
         elif msg.mtype == core.Message.Type.INFORM:
             self.handle_inform(msg)
         else:
-            self.logger.info('Received unexpected %s (%s) from server without message ID',
-                             msg.mtype.name, msg.name)
+            self.logger.info(
+                "Received unexpected %s (%s) from server without message ID",
+                msg.mtype.name,
+                msg.name,
+            )
 
     def handle_inform(self, msg: core.Message) -> None:
-        self.logger.debug('Received %s', bytes(msg))
+        self.logger.debug("Received %s", bytes(msg))
         # TODO: provide dispatch mechanism for informs
-        handler = self._inform_handlers.get(
-            msg.name, self.__class__.unhandled_inform)
+        handler = self._inform_handlers.get(msg.name, self.__class__.unhandled_inform)
         try:
             handler(self, msg)
         except FailReply as error:
-            self.logger.warning('error in inform %s: %s', msg.name, error)
+            self.logger.warning("error in inform %s: %s", msg.name, error)
         except Exception:
-            self.logger.exception('unhandled exception in inform %s', msg.name, exc_info=True)
+            self.logger.exception("unhandled exception in inform %s", msg.name, exc_info=True)
         self._run_callbacks(self._inform_callbacks.get(msg.name, {}), msg)
 
     def unhandled_inform(self, msg: core.Message) -> None:
@@ -228,7 +251,7 @@ class Client(metaclass=ClientMeta):
         provide other behaviour for unknown informs.
         """
         if msg.name not in self._inform_callbacks:
-            self.logger.debug('unknown inform %s', msg.name)
+            self.logger.debug("unknown inform %s", msg.name)
 
     def _close_connection(self) -> None:
         if self._connection is not None:
@@ -236,23 +259,23 @@ class Client(metaclass=ClientMeta):
             self._set_connection(None)
 
     def _warn_failed_connect(self, exc: Exception) -> None:
-        self.logger.warning('Failed to connect to %s:%s: %s', self.host, self.port, exc)
+        self.logger.warning("Failed to connect to %s:%s: %s", self.host, self.port, exc)
 
     def inform_version_connect(self, api: str, version: str, build_state: str = None) -> None:
-        if api == 'katcp-protocol':
-            match = re.match(r'^(\d+)\.(\d+)(?:-(.+))?$', version)
+        if api == "katcp-protocol":
+            match = re.match(r"^(\d+)\.(\d+)(?:-(.+))?$", version)
             error = None
             if not match:
-                error = f'Unparsable katcp-protocol {version!r}'
+                error = f"Unparsable katcp-protocol {version!r}"
             else:
                 major = int(match.group(1))
                 minor = int(match.group(2))
-                self.logger.debug('Protocol version %d.%d', major, minor)
-                flags = frozenset(match.group(3) or '')
+                self.logger.debug("Protocol version %d.%d", major, minor)
+                flags = frozenset(match.group(3) or "")
                 if major != 5:
-                    error = f'Unknown protocol version {major}.{minor}'
+                    error = f"Unknown protocol version {major}.{minor}"
             if error is None:
-                self._mid_support = 'I' in flags
+                self._mid_support = "I" in flags
                 self.protocol_flags = flags
                 # Safety in case a race condition causes the connection to
                 # die before this function was called.
@@ -264,7 +287,7 @@ class Client(metaclass=ClientMeta):
         # TODO: add a inform_version handler
 
     def inform_disconnect(self, reason: str) -> None:
-        self.logger.info('Server disconnected: %s', reason)
+        self.logger.info("Server disconnected: %s", reason)
         self._close_connection()
 
     def add_connected_callback(self, callback: Callable[[], None]) -> None:
@@ -333,7 +356,7 @@ class Client(metaclass=ClientMeta):
             try:
                 callback(*args)
             except Exception:
-                self.logger.exception('Exception raised from callback')
+                self.logger.exception("Exception raised from callback")
 
     def _on_connected(self) -> None:
         if not self.is_connected:
@@ -344,7 +367,7 @@ class Client(metaclass=ClientMeta):
     def _on_disconnected(self) -> None:
         if self.is_connected:
             self.is_connected = False
-            self.last_exc = ConnectionResetError('Connection to server lost')
+            self.last_exc = ConnectionResetError("Connection to server lost")
             for req in self._pending.values():
                 if not req.reply.done():
                     req.reply.set_exception(self.last_exc)
@@ -361,8 +384,7 @@ class Client(metaclass=ClientMeta):
         reader = asyncio.StreamReader(limit=self._limit)
         protocol = connection.ConvertCRProtocol(reader)
         try:
-            transport, _ = await self.loop.create_connection(
-                lambda: protocol, self.host, self.port)
+            transport, _ = await self.loop.create_connection(lambda: protocol, self.host, self.port)
         except OSError as error:
             self._on_failed_connect(error)
             return False
@@ -398,7 +420,7 @@ class Client(metaclass=ClientMeta):
         if self.is_connected:
             self._on_disconnected()
         else:
-            self._on_failed_connect(ConnectionAbortedError('close() called'))
+            self._on_failed_connect(ConnectionAbortedError("close() called"))
         self._closed_event.set()
 
     def close(self) -> None:
@@ -410,7 +432,7 @@ class Client(metaclass=ClientMeta):
         # TODO: also needs to abort any pending requests
         if not self._closing:
             self._run_task.cancel()
-            self._close_connection()    # Ensures the transport gets closed now
+            self._close_connection()  # Ensures the transport gets closed now
             self._closing = True
             if self._sensor_monitor is not None:
                 self._sensor_monitor.close(True)
@@ -421,7 +443,7 @@ class Client(metaclass=ClientMeta):
         await self._closed_event.wait()
 
     # Make client a context manager that self-closes
-    async def __aenter__(self) -> 'Client':
+    async def __aenter__(self) -> "Client":
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
@@ -477,10 +499,15 @@ class Client(metaclass=ClientMeta):
                 self.remove_disconnected_callback(callback)
 
     @classmethod
-    async def connect(cls, host: str, port: int, *,
-                      auto_reconnect: bool = True,
-                      limit: int = connection.DEFAULT_LIMIT,
-                      loop: asyncio.AbstractEventLoop = None) -> 'Client':
+    async def connect(
+        cls,
+        host: str,
+        port: int,
+        *,
+        auto_reconnect: bool = True,
+        limit: int = connection.DEFAULT_LIMIT,
+        loop: asyncio.AbstractEventLoop = None,
+    ) -> "Client":
         """Factory function that creates a client and waits until it is connected.
 
         Refer to the constructor documentation for details of the parameters.
@@ -518,7 +545,7 @@ class Client(metaclass=ClientMeta):
             if the connection was lost before the reply was received
         """
         if not self.is_connected:
-            raise BrokenPipeError('Not connected')
+            raise BrokenPipeError("Not connected")
         if self._mid_support:
             mid = self._next_mid
             self._next_mid += 1
@@ -527,8 +554,9 @@ class Client(metaclass=ClientMeta):
             async with self._request_lock:
                 return await self._request_raw_impl(None, name, *args)
 
-    async def _request_raw_impl(self, mid: Optional[int], name: str, *args: Any) -> \
-            Tuple[core.Message, List[core.Message]]:
+    async def _request_raw_impl(
+        self, mid: Optional[int], name: str, *args: Any
+    ) -> Tuple[core.Message, List[core.Message]]:
         req = _PendingRequest(name, mid, self.loop)
         self._pending[mid] = req
         try:
@@ -574,29 +602,30 @@ class Client(metaclass=ClientMeta):
         """
         reply_msg, informs = await self.request_raw(name, *args)
         type_ = core.Message.INVALID if not reply_msg.arguments else reply_msg.arguments[0]
-        error = b'' if len(reply_msg.arguments) <= 1 else reply_msg.arguments[1]
+        error = b"" if len(reply_msg.arguments) <= 1 else reply_msg.arguments[1]
         if type_ == core.Message.OK:
             return reply_msg.arguments[1:], informs
         elif type_ == core.Message.FAIL:
-            raise FailReply(error.decode('utf-8', errors='replace'))
+            raise FailReply(error.decode("utf-8", errors="replace"))
         else:
-            raise InvalidReply(error.decode('utf-8', errors='replace'))
+            raise InvalidReply(error.decode("utf-8", errors="replace"))
 
-    def add_sensor_watcher(self, watcher: 'AbstractSensorWatcher') -> None:
+    def add_sensor_watcher(self, watcher: "AbstractSensorWatcher") -> None:
         if self._sensor_monitor is None:
             self._sensor_monitor = _SensorMonitor(self)
         self._sensor_monitor.add_watcher(watcher)
 
-    def remove_sensor_watcher(self, watcher: 'AbstractSensorWatcher') -> None:
+    def remove_sensor_watcher(self, watcher: "AbstractSensorWatcher") -> None:
         if self._sensor_monitor is not None:
             self._sensor_monitor.remove_watcher(watcher)
-            if not self._sensor_monitor:   # i.e. no more watchers
+            if not self._sensor_monitor:  # i.e. no more watchers
                 self._sensor_monitor.close(False)
                 self._sensor_monitor = None
 
 
 class SyncState(enum.Enum):
     """State of synchronisation of an :class:`AbstractSensorWatcher`"""
+
     #: Not currently connected to the server
     DISCONNECTED = 1
     #: Connected to the server, but still subscribing to sensors
@@ -613,23 +642,26 @@ class AbstractSensorWatcher:
     This class is intended to be subclassed to implement any of the
     notification callbacks.
     """
-    def sensor_added(self, name: str, description: str, units: str, type_name: str,
-                     *args: bytes) -> None:
+
+    def sensor_added(
+        self, name: str, description: str, units: str, type_name: str, *args: bytes
+    ) -> None:
         """A sensor was added on the remote server.
 
         This is also called if a sensor changed its properties. In that case
         there is *no* call to :meth:`sensor_removed`.
         """
-        pass         # pragma: nocover
+        pass  # pragma: nocover
 
     def sensor_removed(self, name: str) -> None:
         """A sensor disappeared from the remote server."""
-        pass         # pragma: nocover
+        pass  # pragma: nocover
 
-    def sensor_updated(self, name: str, value: bytes,
-                       status: sensor.Sensor.Status, timestamp: float) -> None:
+    def sensor_updated(
+        self, name: str, value: bytes, status: sensor.Sensor.Status, timestamp: float
+    ) -> None:
         """The value of a sensor changed on the remote server."""
-        pass         # pragma: nocover
+        pass  # pragma: nocover
 
     def batch_start(self) -> None:
         """Called at the start of a batch of back-to-back updates.
@@ -637,11 +669,11 @@ class AbstractSensorWatcher:
         Calls to :meth:`sensor_added`, :meth:`sensor_removed` and :meth:`sensor_updated`
         will always be bracketed by :meth:`batch_start` and :meth:`batch_stop`. This
         does not apply to :meth:`state_updated`."""
-        pass         # pragma: nocover
+        pass  # pragma: nocover
 
     def batch_stop(self) -> None:
         """Called at the end of a batch of back-to-back updates."""
-        pass         # pragma: nocover
+        pass  # pragma: nocover
 
     def state_updated(self, state: SyncState) -> None:
         """Indicates the state of the synchronisation state machine.
@@ -649,7 +681,7 @@ class AbstractSensorWatcher:
         Implementations should assume the initial state is
         :const:`SyncState.DISCONNECTED`.
         """
-        pass         # pragma: nocover
+        pass  # pragma: nocover
 
 
 class DiscreteMixin:
@@ -681,13 +713,13 @@ class SensorWatcher(AbstractSensorWatcher):
     """
 
     SENSOR_TYPES = {
-        'integer': int,
-        'float': float,
-        'boolean': bool,
-        'timestamp': core.Timestamp,
-        'discrete': enum.Enum,    # Actual type is constructed dynamically
-        'address': core.Address,
-        'string': bytes      # Allows passing through arbitrary values even if not UTF-8
+        "integer": int,
+        "float": float,
+        "boolean": bool,
+        "timestamp": core.Timestamp,
+        "discrete": enum.Enum,  # Actual type is constructed dynamically
+        "address": core.Address,
+        "string": bytes,  # Allows passing through arbitrary values even if not UTF-8
     }
 
     def __init__(self, client: Client, enum_types: Sequence[Type[enum.Enum]] = ()) -> None:
@@ -709,7 +741,7 @@ class SensorWatcher(AbstractSensorWatcher):
 
     def make_type(self, type_name: str, parameters: Sequence[bytes]) -> type:
         """Get the sensor type for a given type name"""
-        if type_name == 'discrete':
+        if type_name == "discrete":
             values = tuple(parameters)
             if values in self._enum_cache:
                 return self._enum_cache[values]
@@ -717,19 +749,19 @@ class SensorWatcher(AbstractSensorWatcher):
                 # We need unique Python identifiers for each value, but simply
                 # normalising names in some way doesn't guarantee that.
                 # Instead, we use arbitrary numbering.
-                enums = [(f'ENUM{i}', value) for i, value in enumerate(values)]
+                enums = [(f"ENUM{i}", value) for i, value in enumerate(values)]
                 # Type checking disabled due to https://github.com/python/mypy/issues/5317
-                stype = enum.Enum('discrete', enums, type=DiscreteMixin)  # type: ignore
+                stype = enum.Enum("discrete", enums, type=DiscreteMixin)  # type: ignore
                 self._enum_cache[values] = stype
                 return stype
         else:
             return self.SENSOR_TYPES[type_name]
 
-    def sensor_added(self, name: str, description: str, units: str, type_name: str,
-                     *args: bytes) -> None:
+    def sensor_added(
+        self, name: str, description: str, units: str, type_name: str, *args: bytes
+    ) -> None:
         if type_name not in self.SENSOR_TYPES:
-            self.logger.warning('Type %s is not recognised, skipping sensor %s',
-                                type_name, name)
+            self.logger.warning("Type %s is not recognised, skipping sensor %s", type_name, name)
             return
         stype = self.make_type(type_name, args)
         s: sensor.Sensor = sensor.Sensor(stype, self.rewrite_name(name), description, units)
@@ -738,19 +770,25 @@ class SensorWatcher(AbstractSensorWatcher):
     def sensor_removed(self, name: str) -> None:
         self.sensors.pop(self.rewrite_name(name), None)
 
-    def sensor_updated(self, name: str, value: bytes,
-                       status: sensor.Sensor.Status, timestamp: float) -> None:
+    def sensor_updated(
+        self, name: str, value: bytes, status: sensor.Sensor.Status, timestamp: float
+    ) -> None:
         try:
             sensor = self.sensors[self.rewrite_name(name)]
         except KeyError:
-            self.logger.warning('Received update for unknown sensor %s', name)
+            self.logger.warning("Received update for unknown sensor %s", name)
             return
 
         try:
             decoded = core.decode(sensor.stype, value)
         except ValueError as exc:
-            self.logger.warning('Sensor %s: value %r does not match type %s: %s',
-                                name, value, sensor.type_name, exc)
+            self.logger.warning(
+                "Sensor %s: value %r does not match type %s: %s",
+                name,
+                value,
+                sensor.type_name,
+                exc,
+            )
             return
 
         sensor.set_value(decoded, status=status, timestamp=timestamp)
@@ -781,8 +819,8 @@ class _SensorMonitor:
         self.logger = client.logger
         client.add_connected_callback(self._connected)
         client.add_disconnected_callback(self._disconnected)
-        client.add_inform_callback('interface-changed', self._interface_changed)
-        client.add_inform_callback('sensor-status', self._sensor_status)
+        client.add_inform_callback("interface-changed", self._interface_changed)
+        client.add_inform_callback("sensor-status", self._sensor_status)
         self._update_task: Optional[asyncio.Task] = None
         # Sensors we have seen: maps name to arguments
         self._sensors: Dict[str, Tuple[bytes, ...]] = {}
@@ -807,15 +845,15 @@ class _SensorMonitor:
 
     @contextlib.contextmanager
     def _batch(self) -> Generator[None, None, None]:
-        assert not self._in_batch, 'Re-entered _batch'
+        assert not self._in_batch, "Re-entered _batch"
         self._in_batch = True
-        self.logger.debug('Entering batch')
+        self.logger.debug("Entering batch")
         try:
             for watcher in self._watchers:
                 watcher.batch_start()
             yield
         finally:
-            self.logger.debug('Exiting batch')
+            self.logger.debug("Exiting batch")
             for watcher in self._watchers:
                 watcher.batch_stop()
             self._in_batch = False
@@ -833,12 +871,12 @@ class _SensorMonitor:
         except OSError as error:
             # Connection died before we finished. Log it, but no need for
             # a stack trace.
-            self.logger.warning('Connection error in update task: %s', error)
+            self.logger.warning("Connection error in update task: %s", error)
         except Exception:
-            self.logger.exception('Exception in update task')
+            self.logger.exception("Exception in update task")
 
     def _trigger_update(self) -> None:
-        self.logger.debug('Sensor sync triggered')
+        self.logger.debug("Sensor sync triggered")
         for watcher in self._watchers:
             watcher.state_updated(SyncState.SYNCING)
         self._cancel_update()
@@ -850,45 +888,49 @@ class _SensorMonitor:
         # First try to set them all at once. This can fail if any of the
         # sensors disappeared in the meantime, in which case we recover by
         # falling back to subscribing individually.
-        if 'B' in self.client.protocol_flags and len(names) > 1:
+        if "B" in self.client.protocol_flags and len(names) > 1:
             try:
-                await self.client.request('sensor-sampling', ','.join(names), 'auto')
+                await self.client.request("sensor-sampling", ",".join(names), "auto")
             except (FailReply, InvalidReply) as error:
                 self.logger.debug(
-                    'Failed to use bulk sampling (%s), falling back to one at a time', error)
+                    "Failed to use bulk sampling (%s), falling back to one at a time",
+                    error,
+                )
             else:
                 self._sampling_set.update(names)
                 return
 
-        coros = [self.client.request('sensor-sampling', name, 'auto') for name in names]
+        coros = [self.client.request("sensor-sampling", name, "auto") for name in names]
         results = await asyncio.gather(*coros, return_exceptions=True)
         for name, result in zip(names, results):
             if isinstance(result, Exception):
                 try:
                     raise result
                 except (FailReply, InvalidReply) as error:
-                    self.logger.warning('Failed to set strategy on %s: %s', name, error)
+                    self.logger.warning("Failed to set strategy on %s: %s", name, error)
             else:
                 self._sampling_set.add(name)
 
     async def _update(self) -> None:
         """Refresh the sensor list and subscriptions."""
-        reply, informs = await self.client.request('sensor-list')
+        reply, informs = await self.client.request("sensor-list")
         sampling: List[str] = []
         seen: Set[str] = set()
         with self._batch():
             # Enumerate all sensors and add new or changed ones
             for inform in informs:
                 name, description, units, type_name = (
-                    core.decode(str, inform.arguments[i]) for i in range(4))
+                    core.decode(str, inform.arguments[i]) for i in range(4)
+                )
                 seen.add(name)
                 params = tuple(inform.arguments[1:])
                 # Check if it already exists with the same parameters
                 old = self._sensors.get(name)
                 if old != params:
                     for watcher in self._watchers:
-                        watcher.sensor_added(name, description, units, type_name,
-                                             *inform.arguments[4:])
+                        watcher.sensor_added(
+                            name, description, units, type_name, *inform.arguments[4:]
+                        )
                     self._sensors[name] = params
                     self._sampling_set.discard(name)
                 if name not in self._sampling_set:
@@ -905,7 +947,7 @@ class _SensorMonitor:
 
     async def _unsubscribe(self, sampling_set: Set[str]) -> None:
         for name in sampling_set:
-            await self.client.request('sensor-sampling', name, 'none')
+            await self.client.request("sensor-sampling", name, "none")
 
     def _connected(self) -> None:
         self._sampling_set.clear()
@@ -923,10 +965,10 @@ class _SensorMonitor:
 
     def _sensor_status(self, timestamp: core.Timestamp, n: int, *args) -> None:
         if len(args) != 3 * n:
-            raise FailReply('Incorrect number of arguments')
+            raise FailReply("Incorrect number of arguments")
         with self._batch():
             for i in range(n):
-                name = '<unknown>'
+                name = "<unknown>"
                 try:
                     name = core.decode(str, args[3 * i])
                     status = core.decode(sensor.Sensor.Status, args[3 * i + 1])
@@ -934,15 +976,16 @@ class _SensorMonitor:
                     for watcher in self._watchers:
                         watcher.sensor_updated(name, value, status, timestamp)
                 except Exception:
-                    self.logger.warning('Failed to process #sensor-status for %s',
-                                        name, exc_info=True)
+                    self.logger.warning(
+                        "Failed to process #sensor-status for %s", name, exc_info=True
+                    )
 
     def close(self, client_closing: bool) -> None:
         self._cancel_update()
         self.client.remove_connected_callback(self._connected)
         self.client.remove_disconnected_callback(self._disconnected)
-        self.client.remove_inform_callback('interface-changed', self._interface_changed)
-        self.client.remove_inform_callback('sensor-status', self._sensor_status)
+        self.client.remove_inform_callback("interface-changed", self._interface_changed)
+        self.client.remove_inform_callback("sensor-status", self._sensor_status)
         # The monitor is closed if there are no more watchers or if the
         # client is closed. In the latter case, let the watchers know.
         for watcher in self._watchers:

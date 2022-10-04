@@ -31,22 +31,36 @@ try:
     import katversion as _katversion
 except ImportError:
     import time as _time
-    __version__ = "0.0+unknown.{}".format(_time.strftime('%Y%m%d%H%M'))
+
+    __version__ = "0.0+unknown.{}".format(_time.strftime("%Y%m%d%H%M"))
 else:
     __version__ = _katversion.get_version(__path__[0])
 # END VERSION CHECK
 
 from .client import (  # noqa: F401
-    AbstractSensorWatcher, Client, ProtocolError, SensorWatcher, SyncState
+    AbstractSensorWatcher,
+    Client,
+    ProtocolError,
+    SensorWatcher,
+    SyncState,
 )
 from .connection import Connection, FailReply, InvalidReply  # noqa: F401
 from .core import (  # noqa: F401
-    Address, KatcpSyntaxError, Message, Now, Timestamp, TimestampOrNow,
-    TypeInfo, decode, encode, get_type, register_type
+    Address,
+    KatcpSyntaxError,
+    Message,
+    Now,
+    Timestamp,
+    TimestampOrNow,
+    TypeInfo,
+    decode,
+    encode,
+    get_type,
+    register_type,
 )
 from .sensor import Reading, Sensor, SensorSampler, SensorSet  # noqa: F401
 from .server import DeviceServer, RequestContext  # noqa: F401
 
 
 def minor_version():
-    return '.'.join(__version__.split('.')[:2])
+    return ".".join(__version__.split(".")[:2])

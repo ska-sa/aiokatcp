@@ -35,8 +35,18 @@ import socket
 import time
 import traceback
 from typing import (
-    Any, Awaitable, Callable, Dict, Iterable, List, Optional, Sequence, Set,
-    Tuple, TypeVar, cast
+    Any,
+    Awaitable,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    TypeVar,
+    cast,
 )
 
 import aiokatcp
@@ -47,15 +57,19 @@ from .connection import FailReply, InvalidReply
 logger = logging.getLogger(__name__)
 _BULK_SENSOR_BATCH = 50
 _RequestReply = Awaitable[Optional[Sequence]]
-_RequestHandler = Callable[['DeviceServer', 'RequestContext', core.Message], _RequestReply]
-_T = TypeVar('_T')
+_RequestHandler = Callable[["DeviceServer", "RequestContext", core.Message], _RequestReply]
+_T = TypeVar("_T")
 
 
 class ClientConnection(connection.Connection):
     """Server's view of the connection from a single client."""
 
-    def __init__(self, owner: 'DeviceServer',
-                 reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    def __init__(
+        self,
+        owner: "DeviceServer",
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
         super().__init__(owner, reader, writer, True)
         #: Maps sensors to their samplers, for sensors that are being sampled
         self._samplers: Dict[sensor.Sensor, sensor.SensorSampler] = {}
@@ -83,7 +97,8 @@ class ClientConnection(connection.Connection):
     def sensor_update(self, s: sensor.Sensor, reading: sensor.Reading) -> None:
         """Report a new sensor value. This is used as the callback for the sampler."""
         msg = core.Message.inform(
-            'sensor-status', reading.timestamp, 1, s.name, reading.status, reading.value)
+            "sensor-status", reading.timestamp, 1, s.name, reading.status, reading.value
+        )
         self.write_message(msg)
 
 
@@ -97,13 +112,15 @@ class RequestContext:
     req
         The request itself
     """
+
     def __init__(self, conn: ClientConnection, req: core.Message) -> None:
         self.conn = conn
         self.req = req
         self._replied = False
         # Can't just wrap conn.logger, because LoggerAdapters can't be stacked
         self.logger = connection.ConnectionLoggerAdapter(
-            logger, dict(address=conn.address, req=req))
+            logger, dict(address=conn.address, req=req)
+        )
 
     @property
     def replied(self) -> bool:
@@ -124,7 +141,7 @@ class RequestContext:
             If the request has already been replied to.
         """
         if self._replied:
-            raise RuntimeError(f'request ?{self.req.name} has already been replied to')
+            raise RuntimeError(f"request ?{self.req.name} has already been replied to")
         msg = core.Message.reply_to_request(self.req, *args)
         self.conn.write_message(msg)
         self._replied = True
@@ -143,7 +160,7 @@ class RequestContext:
             If the request has already been replied to.
         """
         if self._replied:
-            raise RuntimeError(f'request ?{self.req.name} has already been replied to')
+            raise RuntimeError(f"request ?{self.req.name} has already been replied to")
         msg = core.Message.inform_reply(self.req, *args)
         self.conn.write_message(msg)
 
@@ -161,7 +178,7 @@ class RequestContext:
             If the request has already been replied to.
         """
         if self._replied:
-            raise RuntimeError(f'request ?{self.req.name} has already been replied to')
+            raise RuntimeError(f"request ?{self.req.name} has already been replied to")
         msgs = [core.Message.inform_reply(self.req, *inform) for inform in informs]
         if send_reply:
             msgs.append(core.Message.reply_to_request(self.req, core.Message.OK, len(msgs)))
@@ -180,16 +197,16 @@ class DeviceServerMeta(type):
         return connection.wrap_handler(name, value, 2)
 
     def __new__(mcs, name, bases, namespace, **kwds):
-        namespace.setdefault('_request_handlers', {})
+        namespace.setdefault("_request_handlers", {})
         for base in bases:
-            namespace['_request_handlers'].update(getattr(base, '_request_handlers', {}))
+            namespace["_request_handlers"].update(getattr(base, "_request_handlers", {}))
         result = type.__new__(mcs, name, bases, namespace)
-        request_handlers = getattr(result, '_request_handlers')
+        request_handlers = getattr(result, "_request_handlers")
         for key, value in namespace.items():
-            if key.startswith('request_') and inspect.isfunction(value):
-                request_name = key[8:].replace('_', '-')
+            if key.startswith("request_") and inspect.isfunction(value):
+                request_name = key[8:].replace("_", "-")
                 if value.__doc__ is None:
-                    raise TypeError(f'{key} must have a docstring')
+                    raise TypeError(f"{key} must have a docstring")
                 request_handlers[request_name] = mcs._wrap_request(request_name, value)
         return result
 
@@ -224,8 +241,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
 
     _request_handlers: Dict[str, _RequestHandler] = {}
 
-    VERSION = None           # type: str
-    BUILD_STATE = None       # type: str
+    VERSION = None  # type: str
+    BUILD_STATE = None  # type: str
 
     class LogHandler(logging.Handler):
         """Log handler that issues log messages as ``#log`` informs.
@@ -245,35 +262,48 @@ class DeviceServer(metaclass=DeviceServerMeta):
 
             logging.getLogger().addHandler(DeviceServer.LogHandler(server))
         """
-        def _self_filter(self, record: logging.LogRecord) -> bool:
-            return not record.name.startswith('aiokatcp.') \
-                and record.levelno >= self._server._log_level \
-                and self._server._log_level != core.LogLevel.OFF
 
-        def __init__(self, server: 'DeviceServer') -> None:
+        def _self_filter(self, record: logging.LogRecord) -> bool:
+            return (
+                not record.name.startswith("aiokatcp.")
+                and record.levelno >= self._server._log_level
+                and self._server._log_level != core.LogLevel.OFF
+            )
+
+        def __init__(self, server: "DeviceServer") -> None:
             super().__init__()
             self._server = server
             self.addFilter(self._self_filter)
-            self.setFormatter(logging.Formatter('%(filename)s:%(lineno)d: %(message)s'))
+            self.setFormatter(logging.Formatter("%(filename)s:%(lineno)d: %(message)s"))
 
         def emit(self, record: logging.LogRecord) -> None:
             try:
                 msg = self.format(record)
                 self._server.mass_inform(
-                    'log', core.LogLevel.from_python(record.levelno),
-                    record.created, record.name, msg)
+                    "log",
+                    core.LogLevel.from_python(record.levelno),
+                    record.created,
+                    record.name,
+                    msg,
+                )
             except Exception:
                 self.handleError(record)
 
-    def __init__(self, host: str, port: int, *,
-                 limit: int = connection.DEFAULT_LIMIT, max_pending: int = 100,
-                 max_backlog: int = None,
-                 loop: asyncio.AbstractEventLoop = None) -> None:
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        *,
+        limit: int = connection.DEFAULT_LIMIT,
+        max_pending: int = 100,
+        max_backlog: int = None,
+        loop: asyncio.AbstractEventLoop = None,
+    ) -> None:
         super().__init__()
         if not self.VERSION:
-            raise TypeError(f'{self.__class__.__name__} does not define VERSION')
+            raise TypeError(f"{self.__class__.__name__} does not define VERSION")
         if not self.BUILD_STATE:
-            raise TypeError(f'{self.__class__.__name__} does not define BUILD_STATE')
+            raise TypeError(f"{self.__class__.__name__} does not define BUILD_STATE")
         self._connections: Set[ClientConnection] = set()
         self._pending: Set[asyncio.Task] = set()
         self._pending_space = asyncio.Semaphore(value=max_pending)
@@ -292,7 +322,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
         self._service_tasks: List[asyncio.Task] = []
         self.sensors = sensor.SensorSet()
         self.sensors.add_remove_callback(
-            functools.partial(self._remove_sensor_callback, self._connections))
+            functools.partial(self._remove_sensor_callback, self._connections)
+        )
 
     @staticmethod
     def _remove_sensor_callback(connections: Set[ClientConnection], sensor: sensor.Sensor):
@@ -307,16 +338,16 @@ class DeviceServer(metaclass=DeviceServerMeta):
         RuntimeError
             if the server is already running
         """
+
         def factory():
             # Based on asyncio.start_server, but using ConvertCRProtocol
             reader = asyncio.StreamReader(limit=self._limit)
-            protocol = connection.ConvertCRProtocol(
-                reader, self._client_connected_cb)
+            protocol = connection.ConvertCRProtocol(reader, self._client_connected_cb)
             return protocol
 
         async with self._server_lock:
             if self._server is not None:
-                raise RuntimeError('Server is already running')
+                raise RuntimeError("Server is already running")
             self._stopped.clear()
             self._server = await self.loop.create_server(factory, self._host, self._port)
             self._stop_task = None
@@ -348,7 +379,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
                             if cancel and not task.done():
                                 task.cancel()
                         await asyncio.wait(list(self._pending))
-                    msg = core.Message.inform('disconnect', 'server shutting down')
+                    msg = core.Message.inform("disconnect", "server shutting down")
                     for client in list(self._connections):
                         client.write_message(msg)
                         client.close()
@@ -440,11 +471,11 @@ class DeviceServer(metaclass=DeviceServerMeta):
             remove = True
         except BaseException as exc:
             try:
-                name = f'task {task.get_name()!r}'  # type: ignore
+                name = f"task {task.get_name()!r}"  # type: ignore
             except AttributeError:
                 # Python 3.7 does not have task names
-                name = 'a task'
-            logger.warning('Halting the server because %s raised %s', name, exc)
+                name = "a task"
+            logger.warning("Halting the server because %s raised %s", name, exc)
             self.halt()
         if remove:
             # No exception to report during shutdown, so clean it up
@@ -480,13 +511,16 @@ class DeviceServer(metaclass=DeviceServerMeta):
         num_informs
             Number of informs sent
         """
-        version = f'aiokatcp-{aiokatcp.__version__}'
-        api_version = f'aiokatcp-{aiokatcp.minor_version()}'
-        ctx.informs([
-            ('katcp-protocol', '5.1-MIB'),
-            ('katcp-library', api_version, version),
-            ('katcp-device', self.VERSION, self.BUILD_STATE),
-        ], send_reply=send_reply)
+        version = f"aiokatcp-{aiokatcp.__version__}"
+        api_version = f"aiokatcp-{aiokatcp.minor_version()}"
+        ctx.informs(
+            [
+                ("katcp-protocol", "5.1-MIB"),
+                ("katcp-library", api_version, version),
+                ("katcp-device", self.VERSION, self.BUILD_STATE),
+            ],
+            send_reply=send_reply,
+        )
 
     def _write_async_message(self, conn: ClientConnection, msg: core.Message) -> None:
         conn.write_message(msg)
@@ -494,17 +528,19 @@ class DeviceServer(metaclass=DeviceServerMeta):
             transport = cast(asyncio.WriteTransport, conn.writer.transport)
             backlog = transport.get_write_buffer_size()
             if backlog > self.max_backlog:
-                conn.logger.warning('Disconnecting client because it is too slow')
+                conn.logger.warning("Disconnecting client because it is too slow")
                 transport.abort()
                 conn.close()
                 self._connections.discard(conn)
 
     async def _client_connected_cb(
-            self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
         async def cleanup():
             await conn.wait_closed()
             conn.close()
             self._connections.discard(conn)
+
         conn = ClientConnection(self, reader, writer)
         # Copy the connection list, to avoid mutation while iterating and to
         # exclude the new connection from it.
@@ -512,10 +548,10 @@ class DeviceServer(metaclass=DeviceServerMeta):
         self._connections.add(conn)
         self.loop.create_task(cleanup())
         # Make a fake request context for send_version_info
-        request = core.Message.request('version-connect')
+        request = core.Message.request("version-connect")
         ctx = RequestContext(conn, request)
         self.send_version_info(ctx, send_reply=False)
-        msg = core.Message.inform('client-connected', conn.address)
+        msg = core.Message.inform("client-connected", conn.address)
         for old_conn in connections:
             self._write_async_message(old_conn, msg)
 
@@ -532,9 +568,9 @@ class DeviceServer(metaclass=DeviceServerMeta):
             self._pending_space.release()
         if task.cancelled():
             if ctx.replied:
-                return     # Cancelled while draining the reply - not critical
-            ctx.logger.info('request %r cancelled', ctx.req.name)
-            error_msg = 'request cancelled'
+                return  # Cancelled while draining the reply - not critical
+            ctx.logger.info("request %r cancelled", ctx.req.name)
+            error_msg = "request cancelled"
         else:
             try:
                 task.result()
@@ -544,27 +580,29 @@ class DeviceServer(metaclass=DeviceServerMeta):
                 error_msg = str(error)
                 error_type = core.Message.INVALID
             except Exception:
-                ctx.logger.exception('uncaught exception while handling %r',
-                                     ctx.req.name, exc_info=True)
-                output = io.StringIO('uncaught exception:\n')
+                ctx.logger.exception(
+                    "uncaught exception while handling %r", ctx.req.name, exc_info=True
+                )
+                output = io.StringIO("uncaught exception:\n")
                 traceback.print_exc(file=output)
                 error_msg = output.getvalue()
         if not ctx.replied:
             if error_msg is None:
-                error_msg = 'request handler returned without replying'
+                error_msg = "request handler returned without replying"
             ctx.reply(error_type, error_msg)
         elif error_msg is not None:
             # We somehow replied before failing, so can't put the error
             # message in a reply - use an out-of-band inform instead.
-            ctx.conn.write_message(core.Message.inform(
-                'log', 'error', time.time(), __name__, error_msg))
+            ctx.conn.write_message(
+                core.Message.inform("log", "error", time.time(), __name__, error_msg)
+            )
 
     async def unhandled_request(self, ctx: RequestContext, req: core.Message) -> None:
         """Called when a request is received for which no handler is registered.
 
         Subclasses may override this to do dynamic handling.
         """
-        raise InvalidReply(f'unknown request {req.name}')
+        raise InvalidReply(f"unknown request {req.name}")
 
     async def _handle_request(self, ctx: RequestContext) -> None:
         """Task for handling an incoming request.
@@ -576,7 +614,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         handler = self._request_handlers.get(ctx.req.name, default)
         ret = await handler(self, ctx, ctx.req)
         if ctx.replied and ret is not None:
-            raise RuntimeError('handler both replied and returned a value')
+            raise RuntimeError("handler both replied and returned a value")
         if ret is None:
             ret = ()
         elif not isinstance(ret, tuple):
@@ -657,13 +695,15 @@ class DeviceServer(metaclass=DeviceServerMeta):
         """
         if name is None:
             # The cast is to keep mypy happy that __doc__ isn't None.
-            informs = [(key, cast(str, handler.__doc__).splitlines()[0])
-                       for key, handler in sorted(self._request_handlers.items())]
+            informs = [
+                (key, cast(str, handler.__doc__).splitlines()[0])
+                for key, handler in sorted(self._request_handlers.items())
+            ]
         else:
             try:
                 handler = self._request_handlers[name]
             except KeyError as error:
-                raise FailReply(f'request {name} is not known') from error
+                raise FailReply(f"request {name} is not known") from error
             informs = [(name, cast(str, handler.__doc__))]
         ctx.informs(informs)
 
@@ -755,7 +795,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         """
         if name is None:
             matched: Iterable[sensor.Sensor] = self.sensors.values()
-        elif name.startswith('/') and name.endswith('/') and len(name) > 1:
+        elif name.startswith("/") and name.endswith("/") and len(name) > 1:
             try:
                 name_re = re.compile(name[1:-1])
             except re.error as error:
@@ -764,7 +804,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         elif name not in self.sensors:
             # Do not change the wording: katcp.inspecting_client does a string
             # check for "Unknown sensor".
-            raise FailReply(f'Unknown sensor {name!r}')
+            raise FailReply(f"Unknown sensor {name!r}")
         else:
             matched = [self.sensors[name]]
         return sorted(matched, key=lambda sensor: sensor.name)
@@ -884,9 +924,12 @@ class DeviceServer(metaclass=DeviceServerMeta):
         ctx.informs((s.timestamp, 1, s.name, s.status, s.value) for s in sensors)
 
     async def request_sensor_sampling(
-            self, ctx: RequestContext, name: str,
-            strategy: sensor.SensorSampler.Strategy = None,
-            *args: bytes) -> tuple:
+        self,
+        ctx: RequestContext,
+        name: str,
+        strategy: sensor.SensorSampler.Strategy = None,
+        *args: bytes,
+    ) -> tuple:
         """Configure or query the way a sensor is sampled.
 
         Sampled values are reported asynchronously using the #sensor-status
@@ -942,15 +985,15 @@ class DeviceServer(metaclass=DeviceServerMeta):
             if strategy is None:
                 names = [name]  # comma-separation not supported with queries
             else:
-                names = name.split(',')
+                names = name.split(",")
                 if len(set(names)) != len(names):
-                    raise FailReply('Duplicate sensor name')
+                    raise FailReply("Duplicate sensor name")
             sensors = []
             for sensor_name in names:
                 try:
                     sensors.append(self.sensors[sensor_name])
                 except KeyError:
-                    raise FailReply(f'Unknown sensor {sensor_name!r}')
+                    raise FailReply(f"Unknown sensor {sensor_name!r}")
             if strategy is None:
                 sampler = ctx.conn.get_sampler(sensors[0])
             else:
@@ -982,7 +1025,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
                     for i, s in enumerate(sensors):
                         try:
                             sampler = sensor.SensorSampler.factory(
-                                s, None, self.loop, strategy, *args)
+                                s, None, self.loop, strategy, *args
+                            )
                         except (TypeError, ValueError) as error:
                             raise FailReply(str(error)) from error
                         samplers.append(sampler)
@@ -1048,7 +1092,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
         ctx.informs((conn.address,) for conn in self._connections)
 
     async def request_log_level(
-            self, ctx: RequestContext, level: core.LogLevel = None) -> core.LogLevel:
+        self, ctx: RequestContext, level: core.LogLevel = None
+    ) -> core.LogLevel:
         """Query or set the current logging level.
 
         Parameters

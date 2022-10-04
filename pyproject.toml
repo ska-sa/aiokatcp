@@ -2,5 +2,8 @@
 requires = ["setuptools", "wheel", "katversion", "setuptools_scm"]
 
 [tool.isort]
-multi_line_output = 5
-include_trailing_comma = false
+profile = "black"
+line_length = 100
+
+[tool.black]
+line-length = 100

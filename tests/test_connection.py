@@ -47,31 +47,31 @@ def event_loop():
 
 class TestReadMessage:
     async def test_read(self) -> None:
-        data = b'?help[123] foo\n#log info msg\n \t\n\n!help[123] bar\n\n'
+        data = b"?help[123] foo\n#log info msg\n \t\n\n!help[123] bar\n\n"
         reader = asyncio.StreamReader()
         reader.feed_data(data)
         reader.feed_eof()
         msg = await read_message(reader)
-        assert msg == Message.request('help', 'foo', mid=123)
+        assert msg == Message.request("help", "foo", mid=123)
         msg = await read_message(reader)
-        assert msg == Message.inform('log', 'info', 'msg')
+        assert msg == Message.inform("log", "info", "msg")
         msg = await read_message(reader)
-        assert msg == Message.reply('help', 'bar', mid=123)
+        assert msg == Message.reply("help", "bar", mid=123)
         msg = await read_message(reader)
         assert msg is None
 
     async def test_read_overrun(self) -> None:
-        data = b'!foo a_string_that_doesnt_fit_in_the_buffer\n!foo short_string\n'
+        data = b"!foo a_string_that_doesnt_fit_in_the_buffer\n!foo short_string\n"
         reader = asyncio.StreamReader(limit=25)
         reader.feed_data(data)
         reader.feed_eof()
         with pytest.raises(KatcpSyntaxError):
             await read_message(reader)
         msg = await read_message(reader)
-        assert msg == Message.reply('foo', 'short_string')
+        assert msg == Message.reply("foo", "short_string")
 
     async def test_read_overrun_eof(self) -> None:
-        data = b'!foo a_string_that_doesnt_fit_in_the_buffer'
+        data = b"!foo a_string_that_doesnt_fit_in_the_buffer"
         reader = asyncio.StreamReader(limit=25)
         reader.feed_data(data)
         reader.feed_eof()
@@ -81,7 +81,7 @@ class TestReadMessage:
         assert msg is None
 
     async def test_read_partial(self) -> None:
-        data = b'!foo nonewline'
+        data = b"!foo nonewline"
         reader = asyncio.StreamReader()
         reader.feed_data(data)
         reader.feed_eof()
@@ -98,7 +98,7 @@ def owner(event_loop):
 
 
 @pytest.fixture
-def connection_queue() -> 'asyncio.Queue[Tuple[asyncio.StreamReader, asyncio.StreamWriter]]':
+def connection_queue() -> "asyncio.Queue[Tuple[asyncio.StreamReader, asyncio.StreamWriter]]":
     return asyncio.Queue()
 
 
@@ -106,7 +106,8 @@ def connection_queue() -> 'asyncio.Queue[Tuple[asyncio.StreamReader, asyncio.Str
 async def server(connection_queue):
     server = await asyncio.start_server(
         lambda reader, writer: connection_queue.put_nowait((reader, writer)),
-        '::1', 7777
+        "::1",
+        7777,
     )
     yield server
     server.close()
@@ -125,7 +126,7 @@ async def _close_writer(writer):
 
 @pytest.fixture
 async def client_reader_writer(server):
-    reader, writer = await asyncio.open_connection('::1', 7777)
+    reader, writer = await asyncio.open_connection("::1", 7777)
     yield reader, writer
     await _close_writer(writer)
 
@@ -176,7 +177,7 @@ async def server_connection(owner, server_reader, server_writer):
 async def _ok_reply(conn, msg):
     # Give test code virtual time to run between request and reply.
     await asyncio.sleep(0.5)
-    conn.write_message(Message.reply_to_request(msg, 'ok'))
+    conn.write_message(Message.reply_to_request(msg, "ok"))
     await conn.drain()
 
 
@@ -186,20 +187,20 @@ async def _ok_handler(conn, msg):
 
 async def test_write_message(server_connection, client_reader) -> None:
     conn = server_connection
-    conn.write_message(Message.reply('ok', mid=1))
+    conn.write_message(Message.reply("ok", mid=1))
     await conn.drain()
     line = await client_reader.readline()
-    assert line == b'!ok[1]\n'
+    assert line == b"!ok[1]\n"
 
 
 async def test_run(owner, server_connection, client_reader, client_writer) -> None:
     conn = server_connection
-    client_writer.write(b'?watchdog[2]\n')
+    client_writer.write(b"?watchdog[2]\n")
     await client_writer.drain()
     await asyncio.sleep(1)
-    owner.handle_message.assert_called_with(conn, Message.request('watchdog', mid=2))
+    owner.handle_message.assert_called_with(conn, Message.request("watchdog", mid=2))
     reply = await client_reader.readline()
-    assert reply == b'!watchdog[2] ok\n'
+    assert reply == b"!watchdog[2] ok\n"
     # Check that it exits when the client disconnects its write end
     client_writer.write_eof()
     await client_writer.drain()
@@ -209,20 +210,17 @@ async def test_run(owner, server_connection, client_reader, client_writer) -> No
 
 async def test_disconnected(owner, server_connection, client_writer, caplog) -> None:
     conn = server_connection
-    client_writer.write(b'?watchdog[2]\n?watchdog[3]\n?watchdog[4]\n')
+    client_writer.write(b"?watchdog[2]\n?watchdog[3]\n?watchdog[4]\n")
     # Close the socket before the replies can be sent.
     client_writer.close()
-    with caplog.at_level(logging.WARNING, logger='aiokatcp.connection'):
+    with caplog.at_level(logging.WARNING, logger="aiokatcp.connection"):
         # Give time for the first two watchdogs and the close to go through
         await asyncio.sleep(1.25)
         await conn.wait_closed()
-    owner.handle_message.assert_called_with(conn, Message.request('watchdog', mid=4))
+    owner.handle_message.assert_called_with(conn, Message.request("watchdog", mid=4))
     # Note: should only be one warning, not two
     assert 1 == len(caplog.records)
-    assert re.fullmatch(
-        r'Connection closed .*: Connection lost \[.*\]',
-        caplog.records[0].message
-    )
+    assert re.fullmatch(r"Connection closed .*: Connection lost \[.*\]", caplog.records[0].message)
     # Allow the final watchdog to go through. This just provides test coverage
     # that Connection.write_message handles the writer having already gone away.
     await asyncio.sleep(10)
@@ -230,14 +228,14 @@ async def test_disconnected(owner, server_connection, client_writer, caplog) -> 
 
 async def test_malformed(owner, server_connection, client_writer, caplog) -> None:
     conn = server_connection
-    client_writer.write(b'malformed\n')
+    client_writer.write(b"malformed\n")
     client_writer.write_eof()
-    with caplog.at_level(logging.WARNING, 'aiokatcp.connection'):
+    with caplog.at_level(logging.WARNING, "aiokatcp.connection"):
         # Wait for the close to go through
         await conn.wait_closed()
         owner.handle_message.assert_not_called()
     assert len(caplog.records) == 1
-    assert re.match('Malformed message received', caplog.records[0].message)
+    assert re.match("Malformed message received", caplog.records[0].message)
 
 
 async def test_close_early(server_connection) -> None:
@@ -254,12 +252,12 @@ async def test_close(server_connection) -> None:
 
 
 async def test_exception(owner, server_connection, client_writer, caplog) -> None:
-    owner.handle_message.side_effect = RuntimeError('test error')
+    owner.handle_message.side_effect = RuntimeError("test error")
     conn = server_connection
-    client_writer.write(b'?watchdog[2]\n')
+    client_writer.write(b"?watchdog[2]\n")
     client_writer.close()
-    with caplog.at_level(logging.ERROR, 'aiokatcp.connection'):
+    with caplog.at_level(logging.ERROR, "aiokatcp.connection"):
         await conn.wait_closed()
     assert len(caplog.records) == 1
-    assert re.match('Exception in connection handler', caplog.records[0].message)
-    assert re.search('test error', caplog.text)
+    assert re.match("Exception in connection handler", caplog.records[0].message)
+    assert re.search("test error", caplog.text)
