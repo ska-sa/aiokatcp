@@ -721,7 +721,7 @@ class SensorSet(Mapping[str, Sensor]):
 class AggregateSensor(Sensor, metaclass=ABCMeta):
     """A Sensor with its reading determined by several other Sensors.
 
-    This is an abstract class, the user must implement :meth:`_update_aggregate`
+    This is an abstract class: the user must implement :meth:`_update_aggregate`
     in order to define the logic of how the aggregate sensor's reading will be
     determined by those of the sensor set to which it is targeted.
 
@@ -768,7 +768,7 @@ class AggregateSensor(Sensor, metaclass=ABCMeta):
     def _update_aggregate(self, updated_sensor: Sensor, reading: Reading):
         return
 
-    def _sensor_added(self, sensor: Sensor):
+    def _sensor_added(self, sensor: Sensor) -> None:
         """Add the update callback to a new sensor in the set."""
         if sensor is not self:
             sensor.attach(self._update_aggregate)
