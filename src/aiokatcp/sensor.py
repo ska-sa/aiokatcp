@@ -717,7 +717,6 @@ class SensorSet(Mapping[str, Sensor]):
     copy.__doc__ = dict.copy.__doc__
 
 
-# I'm ever so slightly nervous about inheritance and having a metaclass.
 class AggregateSensor(Sensor, metaclass=ABCMeta):
     """A Sensor with its reading determined by several other Sensors.
 
@@ -728,6 +727,13 @@ class AggregateSensor(Sensor, metaclass=ABCMeta):
     Parameters are all as per :class:`Sensor`, with the exception of
     `target`, which is the :class:`SensorSet` from which the aggregated sensor
     will determine its own reading.
+
+    Attributes
+    ----------
+    target : SensorSet
+        The set of sensors which will determine the reading of the aggregate
+        one. The aggregate sensor may be included in the set (e.g. in
+        `self.sensors` of a server) but it will not affect its own value.
     """
 
     def __init__(
@@ -737,8 +743,6 @@ class AggregateSensor(Sensor, metaclass=ABCMeta):
         name: str,
         description: str = "",
         units: str = "",
-        default: _T = None,
-        initial_status: Sensor.Status = Sensor.Status.UNKNOWN,
         *,
         status_func: Callable[[_T], Sensor.Status] = _default_status_func,
         auto_strategy: Optional["SensorSampler.Strategy"] = None,
@@ -750,8 +754,6 @@ class AggregateSensor(Sensor, metaclass=ABCMeta):
             name=name,
             description=description,
             units=units,
-            default=default,
-            initial_status=initial_status,
             status_func=status_func,
             auto_strategy=auto_strategy,
             auto_strategy_parameters=auto_strategy_parameters,
@@ -763,21 +765,24 @@ class AggregateSensor(Sensor, metaclass=ABCMeta):
 
         self.target.add_add_callback(self._sensor_added)
         self.target.add_remove_callback(self._sensor_removed)
+        # We need these in order to trigger the initial update.
+        # Their values don't actually matter.
+        dummy_sensor = Sensor(sensor_type, name)
+        dummy_reading = Reading(0, Sensor.Status.NOMINAL, 0)
+        self._update_aggregate(dummy_sensor, dummy_reading)
 
     @abstractmethod
-    def _update_aggregate(self, updated_sensor: Sensor, reading: Reading):
+    def _update_aggregate(self, updated_sensor: Sensor, reading: Reading) -> None:
         return
 
     def _sensor_added(self, sensor: Sensor) -> None:
         """Add the update callback to a new sensor in the set."""
         if sensor is not self:
             sensor.attach(self._update_aggregate)
-        # The new sensor might actually affect the aggregate reading.
-        self._update_aggregate(sensor, sensor.reading)
+            self._update_aggregate(sensor, sensor.reading)
 
-    def _sensor_removed(self, sensor: Sensor):
+    def _sensor_removed(self, sensor: Sensor) -> None:
         """Remove the update callback from a sensor no longer in the set."""
         if sensor is not self:
             sensor.detach(self._update_aggregate)
-        # The new sensor might actually affect the aggregate reading.
-        self._update_aggregate(sensor, sensor.reading)
+            self._update_aggregate(sensor, sensor.reading)
