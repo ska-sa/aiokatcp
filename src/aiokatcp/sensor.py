@@ -802,6 +802,24 @@ class AggregateSensor(Sensor, metaclass=ABCMeta):
         The user is required to override this function, which must return the
         updated :class:`Reading` (i.e. value, status and timestamp) which will
         be reflected in the `Reading` of the aggregated sensor.
+
+        Parameters
+        ----------
+        updated_sensor
+            The sensor in the target :class:`SensorSet` which has changed in
+            some way.
+        reading
+            The current reading of the `updated_sensor`. This is `None` if the
+            sensor is being removed from the set.
+        old_reading
+            The previous reading of the `updated_sensor`. This is `None` if the
+            sensor is being added to the set.
+
+        Returns
+        -------
+        Reading
+            The reading (value, status, timestamp) that should be shown by the
+            `AggregatedSensor` as a result of the change.
         """
         pass
 
