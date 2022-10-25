@@ -737,9 +737,10 @@ class SensorSet(Mapping[str, Sensor]):
 class AggregateSensor(Sensor, metaclass=ABCMeta):
     """A Sensor with its reading determined by several other Sensors.
 
-    This is an abstract class: the user must implement :meth:`_update_aggregate`
-    in order to define the logic of how the aggregate sensor's reading will be
-    determined by those of the sensor set to which it is targeted.
+    This is an abstract class: the user must implement :meth:`update_aggregate`.
+    This method is called whenever the target :class:`SensorSet` has a sensor
+    added, removed, or one of the sensors changes its reading. The user-defined
+    :meth:`update_aggregate` returns the new reading for the AggregateSensor.
 
     Parameters are all as per :class:`Sensor`, with the exception of
     `target`, which is the :class:`SensorSet` from which the aggregated sensor
