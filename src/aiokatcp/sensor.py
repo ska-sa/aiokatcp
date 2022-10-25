@@ -28,6 +28,7 @@
 import abc
 import asyncio
 import enum
+import inspect
 import time
 import warnings
 from abc import ABCMeta, abstractmethod
@@ -151,6 +152,7 @@ class Sensor(Generic[_T]):
         type_info = core.get_type(sensor_type)
         self.type_name = type_info.name
         self._classic_observers: Set[ClassicObserver] = set()
+        self._change_aware_observers: Set[ChangeAwareObserver] = set()
         self.name = name
         self.description = description
         self.units = units
@@ -167,15 +169,16 @@ class Sensor(Generic[_T]):
         self.auto_strategy_parameters = tuple(auto_strategy_parameters)
         # TODO: should validate the parameters against the strategy.
 
-    def notify(self, reading: Reading[_T]) -> None:
+    def notify(self, reading: Reading[_T], old_reading: Reading[_T]) -> None:
         """Notify all observers of changes to this sensor.
 
         Users should not usually call this directly. It is called automatically
         by :meth:`set_value`.
         """
-        for observer in self._classic_observers:
-            observer(self, reading)
-        # TODO: add notification for change-aware observers.
+        for classic_observer in self._classic_observers:
+            classic_observer(self, reading)
+        for change_aware_observer in self._change_aware_observers:
+            change_aware_observer(self, reading, old_reading)
 
     def set_value(self, value: _T, status: Status = None, timestamp: float = None) -> None:
         """Set the current value of the sensor.
@@ -198,8 +201,9 @@ class Sensor(Generic[_T]):
         if status is None:
             status = self.status_func(value)
         reading = Reading(timestamp, status, value)
+        old_reading = self._reading
         self._reading = reading
-        self.notify(reading)
+        self.notify(reading, old_reading)
 
     @property
     def value(self) -> _T:
@@ -233,12 +237,18 @@ class Sensor(Generic[_T]):
             return []
 
     def attach(self, observer: Observer) -> None:
-        # TODO: Add awareness for change-aware observers
-        self._classic_observers.add(observer)  # type: ignore
+        sig = inspect.signature(observer)
+        if "old_reading" in sig.parameters:
+            self._change_aware_observers.add(observer)  # type: ignore
+        else:
+            self._classic_observers.add(observer)  # type: ignore
 
     def detach(self, observer: Observer) -> None:
-        # TODO: Add awareness for change-aware observers
-        self._classic_observers.discard(observer)  # type: ignore
+        sig = inspect.signature(observer)
+        if "old_reading" in sig.parameters:
+            self._change_aware_observers.discard(observer)  # type: ignore
+        else:
+            self._classic_observers.discard(observer)  # type: ignore
 
 
 class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
@@ -776,7 +786,7 @@ class AggregateSensor(Sensor, metaclass=ABCMeta):
         # Their values don't actually matter.
         dummy_sensor = Sensor(sensor_type, name)
         dummy_reading = Reading(0, Sensor.Status.NOMINAL, 0)
-        self._update_aggregate(dummy_sensor, dummy_reading)
+        self._update_aggregate(dummy_sensor, dummy_reading, dummy_reading)
 
     def __del__(self):
         self.target.remove_add_callback(self._sensor_added)
@@ -786,22 +796,32 @@ class AggregateSensor(Sensor, metaclass=ABCMeta):
                 sensor.detach(self._update_aggregate)
 
     @abstractmethod
+    def update_aggregate(self, updated_sensor, reading, old_reading) -> Reading:
+        """Update the aggregated sensor.
+
+        The user is required to override this function, which must return the
+        updated :class:`Reading` (i.e. value, status and timestamp) which will
+        be reflected in the `Reading` of the aggregated sensor.
+        """
+        pass
+
     def _update_aggregate(
         self,
         updated_sensor: Sensor,
-        reading: Optional[Reading] = None,
-        old_reading: Optional[Reading] = None,
+        reading: Optional[Reading],
+        old_reading: Optional[Reading],
     ) -> None:
-        return
+        updated_reading = self.update_aggregate(updated_sensor, reading, old_reading)
+        self.set_value(updated_reading.value, updated_reading.status, updated_reading.timestamp)
 
     def _sensor_added(self, sensor: Sensor) -> None:
         """Add the update callback to a new sensor in the set."""
         if sensor is not self:
             sensor.attach(self._update_aggregate)
-            self._update_aggregate(sensor, sensor.reading)
+            self._update_aggregate(sensor, sensor.reading, None)
 
     def _sensor_removed(self, sensor: Sensor) -> None:
         """Remove the update callback from a sensor no longer in the set."""
         if sensor is not self:
             sensor.detach(self._update_aggregate)
-            self._update_aggregate(sensor, sensor.reading)
+            self._update_aggregate(sensor, None, sensor.reading)
