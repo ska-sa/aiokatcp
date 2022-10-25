@@ -766,8 +766,7 @@ class AggregateSensor(Sensor, metaclass=ABCMeta):
         auto_strategy: Optional["SensorSampler.Strategy"] = None,
         auto_strategy_parameters: Iterable[Any] = (),
     ) -> None:
-        Sensor.__init__(
-            self,
+        super().__init__(
             sensor_type=sensor_type,
             name=name,
             description=description,
