@@ -34,7 +34,7 @@ import unittest
 
 import pytest
 
-from aiokatcp.sensor import AggregateSensor, Sensor, SensorSampler, SensorSet
+from aiokatcp.sensor import AggregateSensor, Reading, Sensor, SensorSampler, SensorSet
 
 
 @pytest.mark.parametrize(
@@ -266,7 +266,7 @@ class TestSensorSet:
 
 class MyAgg(AggregateSensor):
     def update_aggregate(self, updated_sensor, reading, old_reading):
-        pass
+        return Reading(0, Sensor.Status.NOMINAL, 7)
 
 
 def test_aggregate_sensor(mocker, ss, sensors):
@@ -277,21 +277,32 @@ def test_aggregate_sensor(mocker, ss, sensors):
     is called at all appropriate occasions.
     """
 
+    # Check that creation happens properly, and correct initial value is set.
     my_agg = MyAgg(target=ss, sensor_type=int, name="good-bad-ugly")
-    assert my_agg.target == ss
+    assert my_agg.target is ss
+    assert my_agg.reading.timestamp == 0
+    assert my_agg.reading.status == Sensor.Status.NOMINAL
+    assert my_agg.reading.value == 7
 
-    # Check that update function is called with appropriate arguments for a
-    # newly-added sensor,
-    mocker.patch.object(my_agg, "update_aggregate")
+    # Mock out update_aggregate so we can check it's called appropriately.
+    def side_effect(*args, **kwargs):
+        """Return an arbitrary Reading."""
+        return Reading(0, Sensor.Status.WARN, 8)
+
+    mocker.patch.object(my_agg, "update_aggregate", side_effect=side_effect)
+
+    # Check that update function is called when a sensor is added.
     ss.add(sensors[1])
     my_agg.update_aggregate.assert_called_with(sensors[1], sensors[1].reading, None)
+    assert my_agg.reading.timestamp == 0
+    assert my_agg.reading.status == Sensor.Status.WARN
+    assert my_agg.reading.value == 8
 
-    # Check that it's called with appropriate arguments for a removed sensor,
+    # Check that it's called for a removed sensor,
     ss.remove(sensors[0])
     my_agg.update_aggregate.assert_called_with(sensors[0], None, sensors[0].reading)
 
-    # Check that it's called with appropriate arguments for a sensor whose value
-    # has changed.
+    # Check that it's called for a sensor whose value has changed.
     old_reading = sensors[1].reading
     sensors[1].set_value(7, Sensor.Status.WARN)
     my_agg.update_aggregate.assert_called_with(sensors[1], sensors[1].reading, old_reading)
