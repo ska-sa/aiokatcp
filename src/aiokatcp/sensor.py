@@ -57,6 +57,10 @@ from . import core
 
 _T = TypeVar("_T")
 
+ClassicObserver = Callable[["Sensor[_T]", "Reading[_T]"], None]
+ChangeAwareObserver = Callable[["Sensor[_T]", "Reading[_T]", "Reading[_T]"], None]
+Observer = Union[ClassicObserver, ChangeAwareObserver]
+
 
 class Reading(Generic[_T]):
     """Sensor reading
@@ -146,7 +150,7 @@ class Sensor(Generic[_T]):
         self.stype = sensor_type
         type_info = core.get_type(sensor_type)
         self.type_name = type_info.name
-        self._observers: Set[Callable[[Sensor[_T], Reading[_T]], None]] = set()
+        self._classic_observers: Set[ClassicObserver] = set()
         self.name = name
         self.description = description
         self.units = units
@@ -169,8 +173,9 @@ class Sensor(Generic[_T]):
         Users should not usually call this directly. It is called automatically
         by :meth:`set_value`.
         """
-        for observer in self._observers:
+        for observer in self._classic_observers:
             observer(self, reading)
+        # TODO: add notification for change-aware observers.
 
     def set_value(self, value: _T, status: Status = None, timestamp: float = None) -> None:
         """Set the current value of the sensor.
@@ -227,11 +232,13 @@ class Sensor(Generic[_T]):
         else:
             return []
 
-    def attach(self, observer: Callable[["Sensor[_T]", Reading[_T]], None]) -> None:
-        self._observers.add(observer)
+    def attach(self, observer: Observer) -> None:
+        # TODO: Add awareness for change-aware observers
+        self._classic_observers.add(observer)  # type: ignore
 
-    def detach(self, observer: Callable[["Sensor[_T]", Reading[_T]], None]) -> None:
-        self._observers.discard(observer)
+    def detach(self, observer: Observer) -> None:
+        # TODO: Add awareness for change-aware observers
+        self._classic_observers.discard(observer)  # type: ignore
 
 
 class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
@@ -771,8 +778,20 @@ class AggregateSensor(Sensor, metaclass=ABCMeta):
         dummy_reading = Reading(0, Sensor.Status.NOMINAL, 0)
         self._update_aggregate(dummy_sensor, dummy_reading)
 
+    def __del__(self):
+        self.target.remove_add_callback(self._sensor_added)
+        self.target.remove_remove_callback(self._sensor_removed)
+        for sensor in self.target.values():
+            if sensor is not self:
+                sensor.detach(self._update_aggregate)
+
     @abstractmethod
-    def _update_aggregate(self, updated_sensor: Sensor, reading: Reading) -> None:
+    def _update_aggregate(
+        self,
+        updated_sensor: Sensor,
+        reading: Optional[Reading] = None,
+        old_reading: Optional[Reading] = None,
+    ) -> None:
         return
 
     def _sensor_added(self, sensor: Sensor) -> None:
