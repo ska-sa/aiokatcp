@@ -44,6 +44,7 @@ from typing import (
     List,
     Mapping,
     Optional,
+    Protocol,
     Set,
     Tuple,
     Type,
@@ -58,8 +59,13 @@ from . import core
 
 _T = TypeVar("_T")
 
-ClassicObserver = Callable[["Sensor[_T]", "Reading[_T]"], None]
-ChangeAwareObserver = Callable[["Sensor[_T]", "Reading[_T]", "Reading[_T]"], None]
+
+class ChangeAwareObserver(Protocol):
+    def __call__(self, sensor: "Sensor[_T]", reading: "Reading[_T]", *, old_reading: "Reading[_T]"):
+        ...
+
+
+ClassicObserver = Callable[[Optional["Sensor[_T]"], Optional["Reading[_T]"]], None]
 Observer = Union[ClassicObserver, ChangeAwareObserver]
 
 
@@ -178,7 +184,7 @@ class Sensor(Generic[_T]):
         for classic_observer in self._classic_observers:
             classic_observer(self, reading)
         for change_aware_observer in self._change_aware_observers:
-            change_aware_observer(self, reading, old_reading)
+            change_aware_observer(self, reading, old_reading=old_reading)
 
     def set_value(self, value: _T, status: Status = None, timestamp: float = None) -> None:
         """Set the current value of the sensor.
@@ -245,11 +251,8 @@ class Sensor(Generic[_T]):
             self._classic_observers.add(observer)  # type: ignore
 
     def detach(self, observer: Observer) -> None:
-        sig = inspect.signature(observer)
-        if "old_reading" in sig.parameters:
-            self._change_aware_observers.discard(observer)  # type: ignore
-        else:
-            self._classic_observers.discard(observer)  # type: ignore
+        self._change_aware_observers.discard(observer)  # type: ignore
+        self._classic_observers.discard(observer)  # type: ignore
 
 
 class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
@@ -763,7 +766,6 @@ class AggregateSensor(Sensor, metaclass=ABCMeta):
         description: str = "",
         units: str = "",
         *,
-        status_func: Callable[[_T], Sensor.Status] = _default_status_func,
         auto_strategy: Optional["SensorSampler.Strategy"] = None,
         auto_strategy_parameters: Iterable[Any] = (),
     ) -> None:
@@ -772,7 +774,6 @@ class AggregateSensor(Sensor, metaclass=ABCMeta):
             name=name,
             description=description,
             units=units,
-            status_func=status_func,
             auto_strategy=auto_strategy,
             auto_strategy_parameters=auto_strategy_parameters,
         )
@@ -783,11 +784,7 @@ class AggregateSensor(Sensor, metaclass=ABCMeta):
 
         self.target.add_add_callback(self._sensor_added)
         self.target.add_remove_callback(self._sensor_removed)
-        # We need these in order to trigger the initial update.
-        # Their values don't actually matter.
-        dummy_sensor = Sensor(sensor_type, name)
-        dummy_reading = Reading(0, Sensor.Status.NOMINAL, 0)
-        self._update_aggregate(dummy_sensor, dummy_reading, dummy_reading)
+        self._update_aggregate(None, None, None)  # type: ignore
 
     def __del__(self):
         self.target.remove_add_callback(self._sensor_added)
@@ -797,7 +794,12 @@ class AggregateSensor(Sensor, metaclass=ABCMeta):
                 sensor.detach(self._update_aggregate)
 
     @abstractmethod
-    def update_aggregate(self, updated_sensor, reading, old_reading) -> Reading:
+    def update_aggregate(
+        self,
+        updated_sensor: Optional[Sensor],
+        reading: Optional[Reading],
+        old_reading: Optional[Reading],
+    ) -> Reading:
         """Update the aggregated sensor.
 
         The user is required to override this function, which must return the
@@ -826,7 +828,7 @@ class AggregateSensor(Sensor, metaclass=ABCMeta):
 
     def _update_aggregate(
         self,
-        updated_sensor: Sensor,
+        updated_sensor: Optional[Sensor],
         reading: Optional[Reading],
         old_reading: Optional[Reading],
     ) -> None:
