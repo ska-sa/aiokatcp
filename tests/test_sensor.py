@@ -31,6 +31,7 @@ in :mod:`aiokatcp.test.test_server`.
 
 import gc
 import unittest
+from unittest.mock import create_autospec
 
 import pytest
 
@@ -65,6 +66,49 @@ def test_sensor_status_func():
     assert sensor.status == Sensor.Status.ERROR
     sensor.set_value(1, Sensor.Status.NOMINAL)
     assert sensor.status == Sensor.Status.NOMINAL
+
+
+@pytest.fixture
+def classic_observer():
+    def classic(sensor, reading):
+        pass
+
+    return create_autospec(classic)
+
+
+@pytest.fixture
+def change_aware_observer():
+    def change_aware(sensor, reading, old_reading):
+        pass
+
+    return create_autospec(change_aware)
+
+
+def test_observer_sorting(classic_observer, change_aware_observer):
+    """Check whether change-aware and classic ovserver callbacks are sorted appropriately."""
+    sensor = Sensor(int, "my-sensor")
+    sensor.value = 7
+
+    sensor.attach(classic_observer)
+    sensor.attach(change_aware_observer)
+
+    old_reading = sensor.reading
+    sensor.value = 12
+    new_reading = sensor.reading
+
+    classic_observer.assert_called_with(sensor, new_reading)
+    change_aware_observer.assert_called_with(sensor, new_reading, old_reading)
+
+    classic_observer.reset_mock()
+    change_aware_observer.reset_mock()
+
+    sensor.detach(classic_observer)
+    sensor.detach(change_aware_observer)
+
+    sensor.value = 42
+
+    classic_observer.assert_not_called()
+    change_aware_observer.assert_not_called()
 
 
 async def test_unclosed_sampler(event_loop):
