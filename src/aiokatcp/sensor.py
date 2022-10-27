@@ -68,7 +68,11 @@ class ChangeAwareObserver(Protocol[_T]):
         ...
 
 
-ClassicObserver = Callable[["Sensor[_T]", "Reading[_T]"], None]
+class ClassicObserver(Protocol[_T]):
+    def __call__(self, __sensor: "Sensor[_T]", __reading: "Reading[_T]") -> None:
+        ...
+
+
 Observer = Union[ClassicObserver[_T], ChangeAwareObserver[_T]]
 
 
