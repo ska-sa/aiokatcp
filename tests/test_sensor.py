@@ -265,52 +265,64 @@ class TestSensorSet:
 
 
 class MyAgg(AggregateSensor):
-    def update_aggregate(self, updated_sensor, reading, old_reading):
+    """A simple AggregateSensor subclass for testing."""
+
+    def update_aggregate(self, updated_sensor: Sensor, reading: Reading, old_reading: Reading):
+        """Return a known Reading."""
         return Reading(0, Sensor.Status.NOMINAL, 7)
 
 
-def test_aggregate_sensor(mocker, ss, sensors):
-    """Test operation of AggregateSensor.
+@pytest.fixture
+def agg_sensor(mocker, ss):
+    """Mock out update_aggregate so we can check it's called appropriately."""
 
-    From a simple derived class, mock out the _update_aggregate function, and
-    test that (1) the target is properly assigned, and (2) the update function
-    is called at all appropriate occasions.
-    """
-
-    # Check that creation happens properly, and correct initial value is set.
-    my_agg = MyAgg(target=ss, sensor_type=int, name="good-bad-ugly")
-    assert my_agg.target is ss
-    assert my_agg.reading.timestamp == 0
-    assert my_agg.reading.status == Sensor.Status.NOMINAL
-    assert my_agg.reading.value == 7
-
-    # Mock out update_aggregate so we can check it's called appropriately.
-    def side_effect(*args, **kwargs):
+    def return_a_reading(*args, **kwargs):
         """Return an arbitrary Reading."""
         return Reading(0, Sensor.Status.WARN, 8)
 
-    mocker.patch.object(my_agg, "update_aggregate", side_effect=side_effect)
+    my_agg = MyAgg(target=ss, sensor_type=int, name="good-bad-ugly")
+    mocker.patch.object(my_agg, "update_aggregate", side_effect=return_a_reading)
+    return my_agg
 
-    # Check that update function is called when a sensor is added.
-    ss.add(sensors[1])
-    my_agg.update_aggregate.assert_called_with(sensors[1], sensors[1].reading, None)
-    assert my_agg.reading.timestamp == 0
-    assert my_agg.reading.status == Sensor.Status.WARN
-    assert my_agg.reading.value == 8
 
-    # Check that it's called for a removed sensor,
-    ss.remove(sensors[0])
-    my_agg.update_aggregate.assert_called_with(sensors[0], None, sensors[0].reading)
+class TestAggregateSensor:
+    """Test operation of AggregateSensor."""
 
-    # Check that it's called for a sensor whose value has changed.
-    old_reading = sensors[1].reading
-    sensors[1].set_value(7, Sensor.Status.WARN)
-    my_agg.update_aggregate.assert_called_with(sensors[1], sensors[1].reading, old_reading)
+    def test_creation(self, agg_sensor, ss, sensors):
+        """Check that creation happens properly, and correct initial value is set."""
+        assert agg_sensor.target is ss
+        assert agg_sensor.reading.timestamp == 0
+        assert agg_sensor.reading.status == Sensor.Status.NOMINAL
+        assert agg_sensor.reading.value == 7
 
-    # Check that the aggregate sensor gets excluded if it's in the set itself.
-    mocker.patch.object(my_agg, "attach")
-    mocker.patch.object(my_agg, "detach")
-    ss.add(my_agg)
-    my_agg.attach.assert_not_called()
-    ss.remove(my_agg)
-    my_agg.detach.assert_not_called()
+    def test_sensor_added(self, agg_sensor, ss, sensors):
+        """Check that the update function is called when a sensor is added."""
+        ss.add(sensors[1])
+        agg_sensor.update_aggregate.assert_called_with(sensors[1], sensors[1].reading, None)
+        assert agg_sensor.reading.timestamp == 0
+        assert agg_sensor.reading.status == Sensor.Status.WARN
+        assert agg_sensor.reading.value == 8
+
+    def test_sensor_removed(self, agg_sensor, ss, sensors):
+        """Check that the update function is called for a removed sensor."""
+        ss.remove(sensors[0])
+        agg_sensor.update_aggregate.assert_called_with(sensors[0], None, sensors[0].reading)
+        # Reset the counters to check subsequent changes do nothing.
+        agg_sensor.update_aggregate.reset_mock()
+        sensors[0].set_value(5, Sensor.Status.ERROR)
+        agg_sensor.update_aggregate.assert_not_called()
+
+    def test_sensor_value_changed(self, agg_sensor, ss, sensors):
+        """Check that the update function is called for a sensor whose value has changed."""
+        old_reading = sensors[0].reading
+        sensors[0].set_value(7, Sensor.Status.WARN)
+        agg_sensor.update_aggregate.assert_called_with(sensors[0], sensors[0].reading, old_reading)
+
+    def test_aggregate_sensor_excluded(self, agg_sensor, mocker, ss, sensors):
+        """Check that the aggregate sensor gets excluded if it's in the set itself."""
+        mocker.patch.object(agg_sensor, "attach")
+        mocker.patch.object(agg_sensor, "detach")
+        ss.add(agg_sensor)
+        agg_sensor.attach.assert_not_called()
+        ss.remove(agg_sensor)
+        agg_sensor.detach.assert_not_called()
