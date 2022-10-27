@@ -58,15 +58,18 @@ from typing import (
 from . import core
 
 _T = TypeVar("_T")
+_U = TypeVar("_U")
 
 
-class ChangeAwareObserver(Protocol):
-    def __call__(self, sensor: "Sensor[_T]", reading: "Reading[_T]", *, old_reading: "Reading[_T]"):
+class ChangeAwareObserver(Protocol[_T]):
+    def __call__(
+        self, __sensor: "Sensor[_T]", __reading: "Reading[_T]", *, old_reading: "Reading[_T]"
+    ) -> None:
         ...
 
 
-ClassicObserver = Callable[[Optional["Sensor[_T]"], Optional["Reading[_T]"]], None]
-Observer = Union[ClassicObserver, ChangeAwareObserver]
+ClassicObserver = Callable[["Sensor[_T]", "Reading[_T]"], None]
+Observer = Union[ClassicObserver[_T], ChangeAwareObserver[_T]]
 
 
 class Reading(Generic[_T]):
@@ -157,8 +160,8 @@ class Sensor(Generic[_T]):
         self.stype = sensor_type
         type_info = core.get_type(sensor_type)
         self.type_name = type_info.name
-        self._classic_observers: Set[ClassicObserver] = set()
-        self._change_aware_observers: Set[ChangeAwareObserver] = set()
+        self._classic_observers: Set[ClassicObserver[_T]] = set()
+        self._change_aware_observers: Set[ChangeAwareObserver[_T]] = set()
         self.name = name
         self.description = description
         self.units = units
@@ -242,7 +245,7 @@ class Sensor(Generic[_T]):
         else:
             return []
 
-    def attach(self, observer: Observer) -> None:
+    def attach(self, observer: Observer[_T]) -> None:
         sig = inspect.signature(observer)
         print(sig)
         if "old_reading" in sig.parameters:
@@ -250,7 +253,7 @@ class Sensor(Generic[_T]):
         else:
             self._classic_observers.add(observer)  # type: ignore
 
-    def detach(self, observer: Observer) -> None:
+    def detach(self, observer: Observer[_T]) -> None:
         self._change_aware_observers.discard(observer)  # type: ignore
         self._classic_observers.discard(observer)  # type: ignore
 
@@ -738,7 +741,7 @@ class SensorSet(Mapping[str, Sensor]):
     copy.__doc__ = dict.copy.__doc__
 
 
-class AggregateSensor(Sensor, metaclass=ABCMeta):
+class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
     """A Sensor with its reading determined by several other Sensors.
 
     This is an abstract class: the user must implement :meth:`update_aggregate`.
@@ -796,10 +799,10 @@ class AggregateSensor(Sensor, metaclass=ABCMeta):
     @abstractmethod
     def update_aggregate(
         self,
-        updated_sensor: Optional[Sensor],
-        reading: Optional[Reading],
-        old_reading: Optional[Reading],
-    ) -> Reading:
+        updated_sensor: Optional[Sensor[_U]],
+        reading: Optional[Reading[_U]],
+        old_reading: Optional[Reading[_U]],
+    ) -> Reading[_T]:
         """Update the aggregated sensor.
 
         The user is required to override this function, which must return the
@@ -828,9 +831,9 @@ class AggregateSensor(Sensor, metaclass=ABCMeta):
 
     def _update_aggregate(
         self,
-        updated_sensor: Optional[Sensor],
-        reading: Optional[Reading],
-        old_reading: Optional[Reading],
+        updated_sensor: Optional[Sensor[_U]],
+        reading: Optional[Reading[_U]],
+        old_reading: Optional[Reading[_U]],
     ) -> None:
         updated_reading = self.update_aggregate(updated_sensor, reading, old_reading)
         self.set_value(updated_reading.value, updated_reading.status, updated_reading.timestamp)

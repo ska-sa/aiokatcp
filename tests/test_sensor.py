@@ -31,6 +31,7 @@ in :mod:`aiokatcp.test.test_server`.
 
 import gc
 import unittest
+from typing import Optional
 from unittest.mock import create_autospec
 
 import pytest
@@ -311,7 +312,12 @@ class TestSensorSet:
 class MyAgg(AggregateSensor):
     """A simple AggregateSensor subclass for testing."""
 
-    def update_aggregate(self, updated_sensor: Sensor, reading: Reading, old_reading: Reading):
+    def update_aggregate(
+        self,
+        updated_sensor: Optional[Sensor],
+        reading: Optional[Reading],
+        old_reading: Optional[Reading],
+    ) -> Reading:
         """Return a known Reading."""
         return Reading(0, Sensor.Status.NOMINAL, 7)
 
