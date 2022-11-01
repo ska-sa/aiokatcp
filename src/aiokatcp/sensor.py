@@ -44,7 +44,6 @@ from typing import (
     List,
     Mapping,
     Optional,
-    Protocol,
     Set,
     Tuple,
     Type,
@@ -54,6 +53,12 @@ from typing import (
     cast,
     overload,
 )
+
+try:
+    from typing import Protocol
+except ImportError:
+    # In Python 3.7 it's elsewhere. Mypy after 3.7 doesn't like this.
+    from typing_extensions import Protocol  # type: ignore
 
 from . import core
 
