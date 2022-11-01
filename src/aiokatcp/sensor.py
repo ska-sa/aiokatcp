@@ -62,7 +62,7 @@ _T = TypeVar("_T")
 _U = TypeVar("_U")
 
 
-class ChangeAwareObserver(Protocol[_T]):
+class DeltaObserver(Protocol[_T]):
     def __call__(
         self, __sensor: "Sensor[_T]", __reading: "Reading[_T]", *, old_reading: "Reading[_T]"
     ) -> None:
@@ -74,7 +74,7 @@ class ClassicObserver(Protocol[_T]):
         ...
 
 
-Observer = Union[ClassicObserver[_T], ChangeAwareObserver[_T]]
+Observer = Union[ClassicObserver[_T], DeltaObserver[_T]]
 
 
 class Reading(Generic[_T]):
@@ -166,7 +166,7 @@ class Sensor(Generic[_T]):
         type_info = core.get_type(sensor_type)
         self.type_name = type_info.name
         self._classic_observers: Set[ClassicObserver[_T]] = set()
-        self._change_aware_observers: Set[ChangeAwareObserver[_T]] = set()
+        self._delta_observers: Set[DeltaObserver[_T]] = set()
         self.name = name
         self.description = description
         self.units = units
@@ -191,8 +191,8 @@ class Sensor(Generic[_T]):
         """
         for classic_observer in self._classic_observers:
             classic_observer(self, reading)
-        for change_aware_observer in self._change_aware_observers:
-            change_aware_observer(self, reading, old_reading=old_reading)
+        for delta_observer in self._delta_observers:
+            delta_observer(self, reading, old_reading=old_reading)
 
     def set_value(self, value: _T, status: Status = None, timestamp: float = None) -> None:
         """Set the current value of the sensor.
@@ -254,13 +254,13 @@ class Sensor(Generic[_T]):
         sig = inspect.signature(observer)
         print(sig)
         if "old_reading" in sig.parameters:
-            self._change_aware_observers.add(observer)  # type: ignore
+            self._delta_observers.add(observer)  # type: ignore
         else:
             self._classic_observers.add(observer)  # type: ignore
 
     def detach(self, observer: Observer[_T]) -> None:
         # It's simpler to just discard from both sets (and ignore the type) than to do inspection.
-        self._change_aware_observers.discard(observer)  # type: ignore
+        self._delta_observers.discard(observer)  # type: ignore
         self._classic_observers.discard(observer)  # type: ignore
 
 
