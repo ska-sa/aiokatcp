@@ -54,11 +54,7 @@ from typing import (
     overload,
 )
 
-try:
-    from typing import Protocol
-except ImportError:
-    # In Python 3.7 it's elsewhere. Mypy after 3.7 doesn't like this.
-    from typing_extensions import Protocol  # type: ignore
+from typing_extensions import Protocol
 
 from . import core
 
@@ -797,7 +793,7 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
 
         self.target.add_add_callback(self._sensor_added)
         self.target.add_remove_callback(self._sensor_removed)
-        self._update_aggregate(None, None, None)  # type: ignore
+        self._update_aggregate(None, None, None)
 
     def __del__(self):
         self.target.remove_add_callback(self._sensor_added)
@@ -837,7 +833,7 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
             The reading (value, status, timestamp) that should be shown by the
             `AggregatedSensor` as a result of the change.
         """
-        pass
+        pass  # pragma: nocover
 
     def filter_aggregate(self, sensor: Sensor) -> bool:
         """Decide whether another sensor is part of the aggregation.
