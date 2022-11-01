@@ -840,7 +840,7 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
         pass
 
     def filter_aggregate(self, sensor: Sensor) -> bool:
-        """Check that a sensor isn't this aggregate sensor.
+        """Decide whether another sensor is part of the aggregation.
 
         Users can override this function to exclude certain categories of
         sensors, such as other aggregates, to prevent circular references.
@@ -860,7 +860,8 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
         old_reading: Optional[Reading[_U]],
     ) -> None:
         updated_reading = self.update_aggregate(updated_sensor, reading, old_reading)
-        self.set_value(updated_reading.value, updated_reading.status, updated_reading.timestamp)
+        if updated_reading is not None:
+            self.set_value(updated_reading.value, updated_reading.status, updated_reading.timestamp)
 
     def _sensor_added(self, sensor: Sensor) -> None:
         """Add the update callback to a new sensor in the set."""
