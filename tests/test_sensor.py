@@ -86,7 +86,7 @@ def change_aware_observer():
 
 
 def test_observer_sorting(classic_observer, change_aware_observer):
-    """Check whether change-aware and classic ovserver callbacks are sorted appropriately."""
+    """Check whether change-aware and classic observer callbacks are classified appropriately."""
     sensor = Sensor(int, "my-sensor")
     sensor.value = 7
 
