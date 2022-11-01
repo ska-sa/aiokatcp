@@ -252,7 +252,6 @@ class Sensor(Generic[_T]):
 
     def attach(self, observer: Observer[_T]) -> None:
         sig = inspect.signature(observer)
-        print(sig)
         if "old_reading" in sig.parameters:
             self._delta_observers.add(observer)  # type: ignore
         else:
