@@ -263,6 +263,7 @@ class Sensor(Generic[_T]):
             self._classic_observers.add(observer)  # type: ignore
 
     def detach(self, observer: Observer[_T]) -> None:
+        # It's simpler to just discard from both sets (and ignore the type) than to do inspection.
         self._change_aware_observers.discard(observer)  # type: ignore
         self._classic_observers.discard(observer)  # type: ignore
 
