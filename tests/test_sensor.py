@@ -31,6 +31,7 @@ in :mod:`aiokatcp.test.test_server`.
 
 import gc
 import unittest
+import weakref
 from typing import Optional
 from unittest.mock import create_autospec
 
@@ -384,3 +385,17 @@ class TestAggregateSensor:
         agg_sensor.attach.assert_not_called()
         ss.remove(agg_sensor)
         agg_sensor.detach.assert_not_called()
+
+    def test_garbage_collection(self, ss, sensors):
+        # Don't use the agg_sensor fixture, because pytest will hold its own
+        # references to it.
+        my_agg = MyAgg(target=ss, sensor_type=int, name="garbage")
+        ss.add(sensors[1])
+        weak = weakref.ref(my_agg)
+        del my_agg
+        # Some Python implementations need multiple rounds to garbage-collect
+        # everything.
+        for _ in range(5):
+            gc.collect()
+        assert weak() is None  # i.e. my_agg was garbage-collected
+        sensors[0].value = 12  # Check that it doesn't fail

@@ -28,9 +28,11 @@
 import abc
 import asyncio
 import enum
+import functools
 import inspect
 import time
 import warnings
+import weakref
 from abc import ABCMeta, abstractmethod
 from typing import (
     Any,
@@ -746,6 +748,49 @@ class SensorSet(Mapping[str, Sensor]):
     copy.__doc__ = dict.copy.__doc__
 
 
+class _weak_callback:
+    """Method decorator that makes it hold only a weak reference to self.
+
+    Calling the method will be a no-op if the object has been deleted.
+
+    The return value is cached, so accessing it multiple times will yield the
+    same wrapper object each time. However, this is *not* thread-safe.
+    """
+
+    def __init__(self, func: Callable) -> None:
+        self._func = func
+        self._name: Optional[str] = None
+        self.__doc__ = func.__doc__
+
+    def __set_name__(self, owner: type, name: str) -> None:
+        self._name = name
+
+    def __get__(self, instance: object, owner: type = None):
+        # __get__ is magic in Python: it makes this class a "descriptor".
+        # Refer to the language guide for an explanation of what that means.
+        # In short, when one calls `obj.method` where `method` was
+        # decorated with this descriptor, it's resolved with
+        # `__get__(obj, type(obj))`.
+        if instance is None:
+            return self
+        if self._name is None:
+            raise TypeError("name was not set for weak callback")
+        cache = instance.__dict__
+        weak_instance = weakref.ref(instance)
+
+        @functools.wraps(self._func)
+        def wrapper(*args, **kwargs):
+            strong_instance = weak_instance()
+            if strong_instance is not None:
+                return self._func(strong_instance, *args, **kwargs)
+
+        # Note: this overrides the descriptor, so that future accesses
+        # will use the value directly.
+        assert self._name not in cache
+        cache[self._name] = wrapper
+        return wrapper
+
+
 class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
     """A Sensor with its reading determined by several other Sensors.
 
@@ -788,18 +833,26 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
         self.target = target
         for sensor in self.target.values():
             if self.filter_aggregate(sensor):
-                sensor.attach(self._update_aggregate)
+                sensor.attach(self._update_aggregate_callback)
+                # We don't use weakref.finalize to detach, because that
+                # finalizer will live until `self` is destroyed and thus keep,
+                # even `sensor` alive, even if `sensor` is removed from the
+                # sensor set and could otherwise be destroyed. Instead,
+                # __del__ cleans up the attachments.
 
         self.target.add_add_callback(self._sensor_added)
+        weakref.finalize(self, self.target.remove_add_callback, self._sensor_added)
         self.target.add_remove_callback(self._sensor_removed)
+        weakref.finalize(self, self.target.remove_remove_callback, self._sensor_removed)
         self._update_aggregate(None, None, None)
 
     def __del__(self):
-        self.target.remove_add_callback(self._sensor_added)
-        self.target.remove_remove_callback(self._sensor_removed)
-        for sensor in self.target.values():
-            if sensor is not self:
-                sensor.detach(self._update_aggregate)
+        # Protect against an exception early in __init__
+        if getattr(self, "target", None) is not None:
+            for sensor in self.target.values():
+                # Could use filter_aggregate, but it might not work during
+                # destruction, and its a no-op if there is no attachment.
+                sensor.detach(self._update_aggregate_callback)
 
     @abstractmethod
     def update_aggregate(
@@ -858,14 +911,21 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
         if updated_reading is not None:
             self.set_value(updated_reading.value, updated_reading.status, updated_reading.timestamp)
 
+    # We create a separate name for the _weak_callback version rather than
+    # decorating _update_aggregate. This lets us call the original directly
+    # without incurring the decorator overheads.
+    _update_aggregate_callback = _weak_callback(_update_aggregate)
+
+    @_weak_callback
     def _sensor_added(self, sensor: Sensor) -> None:
         """Add the update callback to a new sensor in the set."""
         if self.filter_aggregate(sensor):
-            sensor.attach(self._update_aggregate)
+            sensor.attach(self._update_aggregate_callback)
             self._update_aggregate(sensor, sensor.reading, None)
 
+    @_weak_callback
     def _sensor_removed(self, sensor: Sensor) -> None:
         """Remove the update callback from a sensor no longer in the set."""
         if self.filter_aggregate(sensor):
-            sensor.detach(self._update_aggregate)
+            sensor.detach(self._update_aggregate_callback)
             self._update_aggregate(sensor, None, sensor.reading)
