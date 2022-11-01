@@ -791,7 +791,7 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
         )
         self.target = target
         for sensor in self.target.values():
-            if sensor is not self:  # This sensor might be in the set.
+            if self.filter_aggregate(sensor):
                 sensor.attach(self._update_aggregate)
 
         self.target.add_add_callback(self._sensor_added)
@@ -838,6 +838,20 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
         """
         pass
 
+    def filter_aggregate(self, sensor: Sensor) -> bool:
+        """Check that a sensor isn't this aggregate sensor.
+
+        Users can override this function to exclude certain categories of
+        sensors, such as other aggregates, to prevent circular references.
+
+        Returns
+        -------
+        bool
+            True if `sensor` should be included in calculation of the
+            aggregate, False if not.
+        """
+        return sensor is not self
+
     def _update_aggregate(
         self,
         updated_sensor: Optional[Sensor[_U]],
@@ -849,12 +863,12 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
 
     def _sensor_added(self, sensor: Sensor) -> None:
         """Add the update callback to a new sensor in the set."""
-        if sensor is not self:
+        if self.filter_aggregate(sensor):
             sensor.attach(self._update_aggregate)
             self._update_aggregate(sensor, sensor.reading, None)
 
     def _sensor_removed(self, sensor: Sensor) -> None:
         """Remove the update callback from a sensor no longer in the set."""
-        if sensor is not self:
+        if self.filter_aggregate(sensor):
             sensor.detach(self._update_aggregate)
             self._update_aggregate(sensor, None, sensor.reading)
