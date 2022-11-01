@@ -319,7 +319,7 @@ class MyAgg(AggregateSensor):
         old_reading: Optional[Reading],
     ) -> Reading:
         """Return a known Reading."""
-        return Reading(0, Sensor.Status.NOMINAL, 7)
+        pass
 
 
 @pytest.fixture
@@ -327,7 +327,10 @@ def agg_sensor(mocker, ss):
     """Mock out update_aggregate so we can check it's called appropriately."""
 
     mocker.patch.object(
-        MyAgg, "update_aggregate", side_effect=MyAgg.update_aggregate, autospec=True
+        MyAgg,
+        "update_aggregate",
+        autospec=True,
+        return_value=Reading(0, Sensor.Status.NOMINAL, 7),
     )
     my_agg = MyAgg(target=ss, sensor_type=int, name="good-bad-ugly")
     return my_agg
@@ -345,13 +348,14 @@ class TestAggregateSensor:
 
     def test_sensor_added(self, agg_sensor, ss, sensors):
         """Check that the update function is called when a sensor is added."""
+        MyAgg.update_aggregate.return_value = Reading(7, Sensor.Status.WARN, 42)
         ss.add(sensors[1])
         agg_sensor.update_aggregate.assert_called_with(
             agg_sensor, sensors[1], sensors[1].reading, None
         )
-        assert agg_sensor.reading.timestamp == 0
-        assert agg_sensor.reading.status == Sensor.Status.NOMINAL
-        assert agg_sensor.reading.value == 7
+        assert agg_sensor.reading.timestamp == 7
+        assert agg_sensor.reading.status == Sensor.Status.WARN
+        assert agg_sensor.reading.value == 42
 
     def test_sensor_removed(self, agg_sensor, ss, sensors):
         """Check that the update function is called for a removed sensor."""
