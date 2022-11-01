@@ -216,6 +216,46 @@ assignments that do not change the value will still be reported). This default
 can be changed by passing `auto_strategy` and `auto_strategy_parameters` when
 constructing the sensor.
 
+Aggregate Sensors
+-----------------
+To provide a sensor which has its reading derived from that of a set of other
+sensors, such as a total, average or general "device status" sensor, the
+:class:`.AggregateSensor` class allows the user to implement this. The user
+should subclass :class:`.AggregateSensor`, and implement
+:func:`.~AggregateSensor.update_aggregate` in order to define the logic which will
+be used.
+
+For example:
+
+.. code:: python
+
+    class Total(AggregateSensor):
+        def __init__(self, target):
+            super().__init__(target=target, sensor_type=int, name="total")
+
+        def update_aggregate(self, updated_sensor, reading, old_reading):
+            if update_sensor is None:
+                # Instantiation, set a fresh value.
+                return Reading(time.time(), Sensor.Status.NOMINAL, 0)
+            if reading is None:
+                # The sensor is being removed from the set.
+                return Reading(updated_sensor.timestamp, Sensor.Status.Nominal, self.value - updated_sensor.value)
+            if old_reading is None:
+                # The sensor is being added to the set.
+                return Reading(updated_sensor.timestamp, Sensor.Status.Nominal, self.value + updated_sensor.value)
+            # Otherwise, it's just a change.
+            return Reading(updated_sensor.timestamp, Sensor.Status.Nominal, self.value - old_reading.value + reading.value)
+
+
+In the ``__init__()`` method of the :class:`.DeviceServer` subclass being
+created, you'd include a few lines like this:
+
+.. code:: python
+
+    self.total_sensor = Total(self.sensors)
+    self.sensors.add(self.total_sensors)
+
+
 Cancellation
 ------------
 It is important that request handlers operate gracefully if cancelled (refer
