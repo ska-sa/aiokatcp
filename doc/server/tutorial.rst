@@ -221,7 +221,7 @@ Aggregate sensors
 To provide a sensor which has its reading derived from that of a set of other
 sensors, such as a total, average or general "device status" sensor, subclass
 :class:`.AggregateSensor`, and implement
-:func:`.~AggregateSensor.update_aggregate` to compute the sensor reading from
+:func:`.!update_aggregate` to compute the sensor reading from
 changes in sensor values.
 In order to avoid circular references, a :func:`!filter_aggregate` method is
 provided which excludes the aggregate sensor itself from operations that happen
