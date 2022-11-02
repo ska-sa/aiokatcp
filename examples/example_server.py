@@ -53,32 +53,20 @@ class Total(aiokatcp.AggregateSensor):
                 sensor.value for sensor in self.target.values() if self.filter_aggregate(sensor)
             )
             return aiokatcp.Reading(time.time(), aiokatcp.Sensor.Status.NOMINAL, total)
-        if reading is None:
-            # The sensor is being removed from the set.
-            return aiokatcp.Reading(
-                updated_sensor.timestamp,
-                aiokatcp.Sensor.Status.NOMINAL,
-                self.value - updated_sensor.value,
-            )
-        if old_reading is None:
-            # The sensor is being added to the set.
-            return aiokatcp.Reading(
-                updated_sensor.timestamp,
-                aiokatcp.Sensor.Status.NOMINAL,
-                self.value + updated_sensor.value,
-            )
-        # Otherwise, it's just a change.
+        new_value = self.value
+        if old_reading is not None:  # Will be None if this is a new sensor being added
+            new_value -= old_reading.value  # Remove the previous value from the sum
+        if reading is not None:  # Will be None if this is a sensor being removed
+            new_value += reading.value  # Add the new value to the sum
         return aiokatcp.Reading(
             updated_sensor.timestamp,
             aiokatcp.Sensor.Status.NOMINAL,
-            self.value - old_reading.value + reading.value,
+            new_value,
         )
 
     def filter_aggregate(self, sensor):
         """Return true for int sensors which aren't self."""
-        if sensor.stype is int and sensor is not self:
-            return True
-        return False
+        return sensor.stype is int and sensor is not self
 
 
 class Server(aiokatcp.DeviceServer):
@@ -133,7 +121,8 @@ class Server(aiokatcp.DeviceServer):
         """Example service task that adds and removes a fixed sensor.
 
         This demonstrate's the aggregate sensor's ability to add and remove
-        values from its total."""
+        values from its total.
+        """
         await asyncio.sleep(10)
         self.mass_inform("add", "I'm going to add a fixed sensor")
         sensor = aiokatcp.Sensor(int, "fixed-value", default=7)
