@@ -216,14 +216,13 @@ assignments that do not change the value will still be reported). This default
 can be changed by passing `auto_strategy` and `auto_strategy_parameters` when
 constructing the sensor.
 
-Aggregate Sensors
+Aggregate sensors
 -----------------
 To provide a sensor which has its reading derived from that of a set of other
-sensors, such as a total, average or general "device status" sensor, the
-:class:`.AggregateSensor` class allows the user to implement this. The user
-should subclass :class:`.AggregateSensor`, and implement
-:func:`.~AggregateSensor.update_aggregate` in order to define the logic which will
-be used.
+sensors, such as a total, average or general "device status" sensor, subclass
+:class:`.AggregateSensor`, and implement
+:func:`.~AggregateSensor.update_aggregate` to compute the sensor reading from
+changes in sensor values.
 
 For example:
 
@@ -247,13 +246,13 @@ For example:
             return Reading(updated_sensor.timestamp, Sensor.Status.Nominal, self.value - old_reading.value + reading.value)
 
 
-In the ``__init__()`` method of the :class:`.DeviceServer` subclass being
+In the :meth:`!__init__` method of the :class:`.DeviceServer` subclass being
 created, you'd include a few lines like this:
 
 .. code:: python
 
     self.total_sensor = Total(self.sensors)
-    self.sensors.add(self.total_sensors)
+    self.sensors.add(self.total_sensor)
 
 
 Cancellation

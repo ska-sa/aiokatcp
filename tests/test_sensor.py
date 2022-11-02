@@ -85,7 +85,7 @@ def change_aware_observer():
     return create_autospec(change_aware)
 
 
-def test_observer_sorting(classic_observer, change_aware_observer):
+def test_observer_sorting(classic_observer, delta_observer):
     """Check whether change-aware and classic observer callbacks are classified appropriately."""
     sensor = Sensor(int, "my-sensor")
     sensor.value = 7
