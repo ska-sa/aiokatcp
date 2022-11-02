@@ -836,9 +836,9 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
             if self.filter_aggregate(sensor):
                 sensor.attach(self._update_aggregate_callback)
                 # We don't use weakref.finalize to detach, because that
-                # finalizer will live until `self` is destroyed and thus keep,
-                # even `sensor` alive, even if `sensor` is removed from the
-                # sensor set and could otherwise be destroyed. Instead,
+                # finalizer would live until `self` is destroyed and thus
+                # keep that `sensor` alive, even if `sensor` is removed from
+                # the sensor set and could otherwise be destroyed. Instead,
                 # __del__ cleans up the attachments.
 
         self.target.add_add_callback(self._sensor_added)
