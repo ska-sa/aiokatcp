@@ -409,7 +409,7 @@ class TestAggregateSensor:
         # "local variable '_my_agg' is assigned to but never used"
         # (we need to give it a name just to keep it alive)
         ss = SensorSet()
-        MyAgg(target=ss, sensor_type=int, name="agg")  # noqa: F841
+        my_agg = MyAgg(target=ss, sensor_type=int, name="agg")  # noqa: F841
         sensor = Sensor(int, "rubbish")
         ss.add(sensor)
         ss.remove(sensor)

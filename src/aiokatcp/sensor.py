@@ -777,12 +777,13 @@ class _weak_callback:
             raise TypeError("name was not set for weak callback")
         cache = instance.__dict__
         weak_instance = weakref.ref(instance)
+        func = self._func
 
         @functools.wraps(self._func)
         def wrapper(*args, **kwargs):
             strong_instance = weak_instance()
             if strong_instance is not None:
-                return self._func(strong_instance, *args, **kwargs)
+                return func(strong_instance, *args, **kwargs)
 
         # Note: this overrides the descriptor, so that future accesses
         # will use the value directly.
