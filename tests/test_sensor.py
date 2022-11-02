@@ -31,12 +31,20 @@ in :mod:`aiokatcp.test.test_server`.
 
 import gc
 import unittest
+import weakref
 from typing import Optional
 from unittest.mock import create_autospec
 
 import pytest
 
-from aiokatcp.sensor import AggregateSensor, Reading, Sensor, SensorSampler, SensorSet
+from aiokatcp.sensor import (
+    AggregateSensor,
+    Reading,
+    Sensor,
+    SensorSampler,
+    SensorSet,
+    _weak_callback,
+)
 
 
 @pytest.mark.parametrize(
@@ -384,3 +392,46 @@ class TestAggregateSensor:
         agg_sensor.attach.assert_not_called()
         ss.remove(agg_sensor)
         agg_sensor.detach.assert_not_called()
+
+    def test_aggregate_garbage_collection(self, ss, sensors):
+        """Check that the aggregate can be garbage collected."""
+        # Don't use the agg_sensor fixture, because pytest will hold its own
+        # references to it.
+        my_agg = MyAgg(target=ss, sensor_type=int, name="garbage")
+        ss.add(sensors[1])
+        weak = weakref.ref(my_agg)
+        del my_agg
+        # Some Python implementations need multiple rounds to garbage-collect
+        # everything.
+        for _ in range(5):
+            gc.collect()
+        assert weak() is None  # i.e. my_agg was garbage-collected
+        sensors[0].value = 12  # Check that it doesn't fail
+
+    def test_sensor_garbage_collection(self):
+        """Check that sensors can be garbage-collected once removed from the aggregate."""
+        # Don't use the fixtures, because they have mocks that might
+        # record things and keep them alive.
+        # The noqa is to suppress
+        # "local variable 'my_agg' is assigned to but never used"
+        # (we need to give it a name just to keep it alive)
+        ss = SensorSet()
+        my_agg = MyAgg(target=ss, sensor_type=int, name="agg")  # noqa: F841
+        sensor = Sensor(int, "rubbish")
+        ss.add(sensor)
+        ss.remove(sensor)
+        weak = weakref.ref(sensor)
+        del sensor
+        # Some Python implementations need multiple rounds to garbage-collect
+        # everything.
+        for _ in range(5):
+            gc.collect()
+        assert weak() is None
+
+    def test_weak_callback_failures(self, agg_sensor, monkeypatch):
+        """Ensure code coverage of :class:`._weak_callback`."""
+        assert isinstance(MyAgg._sensor_added, _weak_callback)
+        wc = _weak_callback(lambda x: x)
+        monkeypatch.setattr(MyAgg, "bad_weak_callback", wc, raising=False)
+        with pytest.raises(TypeError):
+            agg_sensor.bad_weak_callback
