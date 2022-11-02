@@ -386,7 +386,8 @@ class TestAggregateSensor:
         ss.remove(agg_sensor)
         agg_sensor.detach.assert_not_called()
 
-    def test_garbage_collection(self, ss, sensors):
+    def test_aggregate_garbage_collection(self, ss, sensors):
+        """Check that the aggregate can be garbage collected."""
         # Don't use the agg_sensor fixture, because pytest will hold its own
         # references to it.
         my_agg = MyAgg(target=ss, sensor_type=int, name="garbage")
@@ -399,3 +400,23 @@ class TestAggregateSensor:
             gc.collect()
         assert weak() is None  # i.e. my_agg was garbage-collected
         sensors[0].value = 12  # Check that it doesn't fail
+
+    def test_sensor_garbage_collection(self):
+        """Check that sensors can be garbage-collected once removed from the aggregate."""
+        # Don't use the fixtures, because they have mocks that might
+        # record things and keep them alive.
+        # The noqa is to suppress
+        # "local variable '_my_agg' is assigned to but never used"
+        # (we need to give it a name just to keep it alive)
+        ss = SensorSet()
+        MyAgg(target=ss, sensor_type=int, name="agg")  # noqa: F841
+        sensor = Sensor(int, "rubbish")
+        ss.add(sensor)
+        ss.remove(sensor)
+        weak = weakref.ref(sensor)
+        del sensor
+        # Some Python implementations need multiple rounds to garbage-collect
+        # everything.
+        for _ in range(5):
+            gc.collect()
+        assert weak() is None
