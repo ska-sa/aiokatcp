@@ -860,7 +860,7 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
         updated_sensor: Optional[Sensor[_U]],
         reading: Optional[Reading[_U]],
         old_reading: Optional[Reading[_U]],
-    ) -> Reading[_T]:
+    ) -> Optional[Reading[_T]]:
         """Update the aggregated sensor.
 
         The user is required to override this function, which must return the
@@ -881,9 +881,10 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
 
         Returns
         -------
-        Reading
+        Optional[Reading]
             The reading (value, status, timestamp) that should be shown by the
-            `AggregatedSensor` as a result of the change.
+            `AggregatedSensor` as a result of the change. If None is returned,
+            the sensor's reading is not modified.
         """
         pass  # pragma: nocover
 

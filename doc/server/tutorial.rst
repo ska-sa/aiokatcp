@@ -223,6 +223,11 @@ sensors, such as a total, average or general "device status" sensor, subclass
 :class:`.AggregateSensor`, and implement
 :func:`.~AggregateSensor.update_aggregate` to compute the sensor reading from
 changes in sensor values.
+In order to avoid circular references, a :func:`!filter_aggregate` method is
+provided which excludes the aggregate sensor itself from operations that happen
+on the target sensor set. However, the user may wish to include more complex
+logic than this, such as to include only integer datatypes or to exclude other
+aggregate sensors. In this case, the method can be overridden.
 
 For example:
 
@@ -234,16 +239,24 @@ For example:
 
         def update_aggregate(self, updated_sensor, reading, old_reading):
             if update_sensor is None:
-                # Instantiation, set a fresh value.
-                return Reading(time.time(), Sensor.Status.NOMINAL, 0)
+                # Instantiation, calculate total for sensors already in target.
+                ...
+                return Reading(...)
             if reading is None:
                 # The sensor is being removed from the set.
-                return Reading(updated_sensor.timestamp, Sensor.Status.Nominal, self.value - updated_sensor.value)
+                ...
+                return Reading(...)
             if old_reading is None:
                 # The sensor is being added to the set.
-                return Reading(updated_sensor.timestamp, Sensor.Status.Nominal, self.value + updated_sensor.value)
+                ...
+                return Reading(...)
             # Otherwise, it's just a change.
-            return Reading(updated_sensor.timestamp, Sensor.Status.Nominal, self.value - old_reading.value + reading.value)
+            ...
+            return Reading(...)
+
+         def filter_aggregate(self, sensor):
+            ...
+            return True
 
 
 In the :meth:`!__init__` method of the :class:`.DeviceServer` subclass being
