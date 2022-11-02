@@ -221,13 +221,15 @@ Aggregate sensors
 To provide a sensor which has its reading derived from that of a set of other
 sensors, such as a total, average or general "device status" sensor, subclass
 :class:`.AggregateSensor`, and implement
-:func:`.!update_aggregate` to compute the sensor reading from
+:meth:`~.AggregateSensor.update_aggregate` to compute the sensor reading from
 changes in sensor values.
-In order to avoid circular references, a :func:`!filter_aggregate` method is
-provided which excludes the aggregate sensor itself from operations that happen
-on the target sensor set. However, the user may wish to include more complex
-logic than this, such as to include only integer datatypes or to exclude other
-aggregate sensors. In this case, the method can be overridden.
+
+In order to avoid circular references, a
+:meth:`~.AggregateSensor.filter_aggregate` method is provided which excludes the
+aggregate sensor itself from operations that happen on the target sensor set.
+However, the user may wish to include more complex logic than this, such as to
+include only integer datatypes or to exclude other aggregate sensors. In this
+case, the method can be overridden.
 
 For example:
 
