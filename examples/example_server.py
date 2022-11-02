@@ -124,13 +124,13 @@ class Server(aiokatcp.DeviceServer):
         values from its total.
         """
         await asyncio.sleep(10)
-        self.mass_inform("add", "I'm going to add a fixed sensor")
         sensor = aiokatcp.Sensor(int, "fixed-value", default=7)
+        self.mass_inform("interface-changed", "sensor", "fixed-value", "added")
         self.sensors.add(sensor)
 
         await asyncio.sleep(10)
-        self.mass_inform("remove", "I'm going to remove the fixed sensor")
         self.sensors.remove(sensor)
+        self.mass_inform("interface-changed", "sensor", "fixed-value", "removed")
 
 
 async def main():
