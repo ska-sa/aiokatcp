@@ -413,7 +413,7 @@ class TestAggregateSensor:
         # Don't use the fixtures, because they have mocks that might
         # record things and keep them alive.
         # The noqa is to suppress
-        # "local variable '_my_agg' is assigned to but never used"
+        # "local variable 'my_agg' is assigned to but never used"
         # (we need to give it a name just to keep it alive)
         ss = SensorSet()
         my_agg = MyAgg(target=ss, sensor_type=int, name="agg")  # noqa: F841
