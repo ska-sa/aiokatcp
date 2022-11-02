@@ -37,7 +37,14 @@ from unittest.mock import create_autospec
 
 import pytest
 
-from aiokatcp.sensor import AggregateSensor, Reading, Sensor, SensorSampler, SensorSet
+from aiokatcp.sensor import (
+    AggregateSensor,
+    Reading,
+    Sensor,
+    SensorSampler,
+    SensorSet,
+    _weak_callback,
+)
 
 
 @pytest.mark.parametrize(
@@ -420,3 +427,11 @@ class TestAggregateSensor:
         for _ in range(5):
             gc.collect()
         assert weak() is None
+
+    def test_weak_callback_failures(self, agg_sensor, monkeypatch):
+        """Ensure code coverage of :class:`._weak_callback`."""
+        assert isinstance(MyAgg._sensor_added, _weak_callback)
+        wc = _weak_callback(lambda x: x)
+        monkeypatch.setattr(MyAgg, "bad_weak_callback", wc, raising=False)
+        with pytest.raises(TypeError):
+            agg_sensor.bad_weak_callback
