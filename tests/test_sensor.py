@@ -86,11 +86,11 @@ def classic_observer():
 
 
 @pytest.fixture
-def change_aware_observer():
-    def change_aware(sensor, reading, old_reading):
+def delta_observer():
+    def delta(sensor, reading, old_reading):
         pass
 
-    return create_autospec(change_aware)
+    return create_autospec(delta)
 
 
 def test_observer_sorting(classic_observer, delta_observer):
@@ -99,25 +99,25 @@ def test_observer_sorting(classic_observer, delta_observer):
     sensor.value = 7
 
     sensor.attach(classic_observer)
-    sensor.attach(change_aware_observer)
+    sensor.attach(delta_observer)
 
     old_reading = sensor.reading
     sensor.value = 12
     new_reading = sensor.reading
 
     classic_observer.assert_called_with(sensor, new_reading)
-    change_aware_observer.assert_called_with(sensor, new_reading, old_reading)
+    delta_observer.assert_called_with(sensor, new_reading, old_reading)
 
     classic_observer.reset_mock()
-    change_aware_observer.reset_mock()
+    delta_observer.reset_mock()
 
     sensor.detach(classic_observer)
-    sensor.detach(change_aware_observer)
+    sensor.detach(delta_observer)
 
     sensor.value = 42
 
     classic_observer.assert_not_called()
-    change_aware_observer.assert_not_called()
+    delta_observer.assert_not_called()
 
 
 async def test_unclosed_sampler(event_loop):
@@ -349,6 +349,7 @@ class TestAggregateSensor:
 
     def test_creation(self, agg_sensor, ss, sensors):
         """Check that creation happens properly, and correct initial value is set."""
+        agg_sensor.update_aggregate.assert_called_with(agg_sensor, None, None, None)
         assert agg_sensor.target is ss
         assert agg_sensor.reading.timestamp == 0
         assert agg_sensor.reading.status == Sensor.Status.NOMINAL
@@ -383,6 +384,13 @@ class TestAggregateSensor:
         agg_sensor.update_aggregate.assert_called_with(
             agg_sensor, sensors[0], sensors[0].reading, old_reading
         )
+
+    def test_sensor_value_unchanged(self, agg_sensor, ss, sensors):
+        """Check that the update function is called for a sensor whose value has changed."""
+        old_reading = agg_sensor.reading
+        MyAgg.update_aggregate.return_value = None
+        sensors[0].set_value(7, Sensor.Status.WARN)
+        assert agg_sensor.reading is old_reading
 
     def test_aggregate_sensor_excluded(self, agg_sensor, mocker, ss, sensors):
         """Check that the aggregate sensor gets excluded if it's in the set itself."""

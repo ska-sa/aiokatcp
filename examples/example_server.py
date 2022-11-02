@@ -130,7 +130,10 @@ class Server(aiokatcp.DeviceServer):
             self.mass_inform("hello", "Hi I am a service task")
 
     async def _alter_sensors(self) -> None:
-        """Example service task that adds and removes a fixed sensor."""
+        """Example service task that adds and removes a fixed sensor.
+
+        This demonstrate's the aggregate sensor's ability to add and remove
+        values from its total."""
         await asyncio.sleep(10)
         self.mass_inform("add", "I'm going to add a fixed sensor")
         sensor = aiokatcp.Sensor(int, "fixed-value", default=7)
