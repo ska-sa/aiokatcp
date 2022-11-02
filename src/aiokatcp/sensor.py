@@ -849,11 +849,10 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
 
     def __del__(self):
         # Protect against an exception early in __init__
-        if getattr(self, "target", None) is not None:
-            for sensor in self.target.values():
-                # Could use filter_aggregate, but it might not work during
-                # destruction, and its a no-op if there is no attachment.
-                sensor.detach(self._update_aggregate_callback)
+        for sensor in getattr(self, "target", []).values():
+            # Could use filter_aggregate, but it might not work during
+            # destruction, and its a no-op if there is no attachment.
+            sensor.detach(self._update_aggregate_callback)
 
     @abstractmethod
     def update_aggregate(
