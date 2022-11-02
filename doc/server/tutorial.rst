@@ -217,7 +217,7 @@ can be changed by passing `auto_strategy` and `auto_strategy_parameters` when
 constructing the sensor.
 
 Aggregate sensors
------------------
+^^^^^^^^^^^^^^^^^
 To provide a sensor which has its reading derived from that of a set of other
 sensors, such as a total, average or general "device status" sensor, subclass
 :class:`.AggregateSensor`, and implement
