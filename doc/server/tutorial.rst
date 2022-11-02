@@ -240,26 +240,26 @@ For example:
             super().__init__(target=target, sensor_type=int, name="total")
 
         def update_aggregate(self, updated_sensor, reading, old_reading):
-            if update_sensor is None:
+            if updated_sensor is None:
                 # Instantiation, calculate total for sensors already in target.
-                ...
-                return Reading(...)
-            if reading is None:
-                # The sensor is being removed from the set.
-                ...
-                return Reading(...)
-            if old_reading is None:
-                # The sensor is being added to the set.
-                ...
-                return Reading(...)
-            # Otherwise, it's just a change.
-            ...
-            return Reading(...)
+                total = sum(
+                    sensor.value for sensor in self.target.values() if self.filter_aggregate(sensor)
+                )
+                return Reading(time.time(), Sensor.Status.NOMINAL, total)
+            new_value = self.value
+            if old_reading is not None:  # Will be None if this is a new sensor being added
+                new_value -= old_reading.value  # Remove the previous value from the sum
+            if reading is not None:  # Will be None if this is a sensor being removed
+                new_value += reading.value  # Add the new value to the sum
+            return Reading(
+                updated_sensor.timestamp,
+                Sensor.Status.NOMINAL,
+                new_value,
+            )
 
-         def filter_aggregate(self, sensor):
-            ...
-            return True
-
+        def filter_aggregate(self, sensor):
+            """Return true for int sensors which aren't self."""
+            return sensor.stype is int and sensor is not self
 
 In the :meth:`!__init__` method of the :class:`.DeviceServer` subclass being
 created, you'd include a few lines like this:
