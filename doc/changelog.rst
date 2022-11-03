@@ -1,6 +1,13 @@
 Changelog
 =========
 
+.. rubric:: Version 1.4.0
+
+- Replace ``None`` with ``''`` for a default sensor description. If no description
+  is given, the ``?sensor-list`` request would fail. This is now fixed.
+- Add :class:`AggregateSensor` functionality, an abstract class of sensors which
+  depend on the readings of others for their values.
+
 .. rubric:: Version 1.3.1
 
 - Fix a resource leak that prevented full cleanup of client state on the
