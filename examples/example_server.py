@@ -31,6 +31,7 @@ import asyncio
 import enum
 import logging
 import signal
+import time
 from typing import Tuple
 
 import aiokatcp
@@ -39,6 +40,33 @@ import aiokatcp
 class Foo(enum.Enum):
     ABC_DEF = 1
     GHI_K = 2
+
+
+class Total(aiokatcp.AggregateSensor):
+    def __init__(self, target):
+        super().__init__(target=target, sensor_type=int, name="total")
+
+    def update_aggregate(self, updated_sensor, reading, old_reading):
+        if updated_sensor is None:
+            # Instantiation, calculate total for sensors already in target.
+            total = sum(
+                sensor.value for sensor in self.target.values() if self.filter_aggregate(sensor)
+            )
+            return aiokatcp.Reading(time.time(), aiokatcp.Sensor.Status.NOMINAL, total)
+        new_value = self.value
+        if old_reading is not None:  # Will be None if this is a new sensor being added
+            new_value -= old_reading.value  # Remove the previous value from the sum
+        if reading is not None:  # Will be None if this is a sensor being removed
+            new_value += reading.value  # Add the new value to the sum
+        return aiokatcp.Reading(
+            updated_sensor.timestamp,
+            aiokatcp.Sensor.Status.NOMINAL,
+            new_value,
+        )
+
+    def filter_aggregate(self, sensor):
+        """Return true for int sensors which aren't self."""
+        return sensor.stype is int and sensor is not self
 
 
 class Server(aiokatcp.DeviceServer):
@@ -58,6 +86,10 @@ class Server(aiokatcp.DeviceServer):
         sensor = aiokatcp.Sensor(Foo, "foo", "nonsense")
         self.sensors.add(sensor)
         self.add_service_task(asyncio.create_task(self._service_task()))
+
+        total_sensor = Total(self.sensors)
+        self.sensors.add(total_sensor)
+        self.add_service_task(asyncio.create_task(self._alter_sensors()))
 
     async def request_echo(self, ctx, *args: str) -> Tuple:
         """Return the arguments to the caller"""
@@ -80,10 +112,25 @@ class Server(aiokatcp.DeviceServer):
         self.sensors["counter-queries"].value += 1
 
     async def _service_task(self) -> None:
-        """Example service task that just broadcasts to clients."""
+        """Example service task that broadcasts to clients."""
         while True:
             await asyncio.sleep(10)
             self.mass_inform("hello", "Hi I am a service task")
+
+    async def _alter_sensors(self) -> None:
+        """Example service task that adds and removes a fixed sensor.
+
+        This demonstrate's the aggregate sensor's ability to add and remove
+        values from its total.
+        """
+        await asyncio.sleep(10)
+        sensor = aiokatcp.Sensor(int, "fixed-value", default=7)
+        self.mass_inform("interface-changed", "sensor", "fixed-value", "added")
+        self.sensors.add(sensor)
+
+        await asyncio.sleep(10)
+        self.sensors.remove(sensor)
+        self.mass_inform("interface-changed", "sensor", "fixed-value", "removed")
 
 
 async def main():

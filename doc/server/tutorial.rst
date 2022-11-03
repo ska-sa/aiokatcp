@@ -216,6 +216,60 @@ assignments that do not change the value will still be reported). This default
 can be changed by passing `auto_strategy` and `auto_strategy_parameters` when
 constructing the sensor.
 
+Aggregate sensors
+^^^^^^^^^^^^^^^^^
+To provide a sensor which has its reading derived from that of a set of other
+sensors, such as a total, average or general "device status" sensor, subclass
+:class:`.AggregateSensor`, and implement
+:meth:`~.AggregateSensor.update_aggregate` to compute the sensor reading from
+changes in sensor values.
+
+In order to avoid circular references, a
+:meth:`~.AggregateSensor.filter_aggregate` method is provided which excludes the
+aggregate sensor itself from operations that happen on the target sensor set.
+However, the user may wish to include more complex logic than this, such as to
+include only integer datatypes or to exclude other aggregate sensors. In this
+case, the method can be overridden.
+
+For example:
+
+.. code:: python
+
+    class Total(AggregateSensor):
+        def __init__(self, target):
+            super().__init__(target=target, sensor_type=int, name="total")
+
+        def update_aggregate(self, updated_sensor, reading, old_reading):
+            if updated_sensor is None:
+                # Instantiation, calculate total for sensors already in target.
+                total = sum(
+                    sensor.value for sensor in self.target.values() if self.filter_aggregate(sensor)
+                )
+                return Reading(time.time(), Sensor.Status.NOMINAL, total)
+            new_value = self.value
+            if old_reading is not None:  # Will be None if this is a new sensor being added
+                new_value -= old_reading.value  # Remove the previous value from the sum
+            if reading is not None:  # Will be None if this is a sensor being removed
+                new_value += reading.value  # Add the new value to the sum
+            return Reading(
+                updated_sensor.timestamp,
+                Sensor.Status.NOMINAL,
+                new_value,
+            )
+
+        def filter_aggregate(self, sensor):
+            """Return true for int sensors which aren't self."""
+            return sensor.stype is int and sensor is not self
+
+In the :meth:`!__init__` method of the :class:`.DeviceServer` subclass being
+created, you'd include a few lines like this:
+
+.. code:: python
+
+    self.total_sensor = Total(self.sensors)
+    self.sensors.add(self.total_sensor)
+
+
 Cancellation
 ------------
 It is important that request handlers operate gracefully if cancelled (refer

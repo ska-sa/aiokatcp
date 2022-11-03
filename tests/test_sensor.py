@@ -31,10 +31,20 @@ in :mod:`aiokatcp.test.test_server`.
 
 import gc
 import unittest
+import weakref
+from typing import Optional
+from unittest.mock import create_autospec
 
 import pytest
 
-from aiokatcp.sensor import Sensor, SensorSampler, SensorSet
+from aiokatcp.sensor import (
+    AggregateSensor,
+    Reading,
+    Sensor,
+    SensorSampler,
+    SensorSet,
+    _weak_callback,
+)
 
 
 @pytest.mark.parametrize(
@@ -65,6 +75,49 @@ def test_sensor_status_func():
     assert sensor.status == Sensor.Status.ERROR
     sensor.set_value(1, Sensor.Status.NOMINAL)
     assert sensor.status == Sensor.Status.NOMINAL
+
+
+@pytest.fixture
+def classic_observer():
+    def classic(sensor, reading):
+        pass
+
+    return create_autospec(classic)
+
+
+@pytest.fixture
+def delta_observer():
+    def delta(sensor, reading, old_reading):
+        pass
+
+    return create_autospec(delta)
+
+
+def test_observer_sorting(classic_observer, delta_observer):
+    """Check whether delta and classic observer callbacks are classified appropriately."""
+    sensor = Sensor(int, "my-sensor")
+    sensor.value = 7
+
+    sensor.attach(classic_observer)
+    sensor.attach(delta_observer)
+
+    old_reading = sensor.reading
+    sensor.value = 12
+    new_reading = sensor.reading
+
+    classic_observer.assert_called_with(sensor, new_reading)
+    delta_observer.assert_called_with(sensor, new_reading, old_reading)
+
+    classic_observer.reset_mock()
+    delta_observer.reset_mock()
+
+    sensor.detach(classic_observer)
+    sensor.detach(delta_observer)
+
+    sensor.value = 42
+
+    classic_observer.assert_not_called()
+    delta_observer.assert_not_called()
 
 
 async def test_unclosed_sampler(event_loop):
@@ -262,3 +315,131 @@ class TestSensorSet:
         ss.remove(sensors[0])
         remove_callback.assert_not_called()
         add_callback.assert_not_called()
+
+
+class MyAgg(AggregateSensor):
+    """A simple AggregateSensor subclass for testing."""
+
+    def update_aggregate(
+        self,
+        updated_sensor: Optional[Sensor],
+        reading: Optional[Reading],
+        old_reading: Optional[Reading],
+    ) -> Reading:
+        """Return a known Reading."""
+        pass
+
+
+@pytest.fixture
+def agg_sensor(mocker, ss):
+    """Mock out update_aggregate so we can check it's called appropriately."""
+
+    mocker.patch.object(
+        MyAgg,
+        "update_aggregate",
+        autospec=True,
+        return_value=Reading(0, Sensor.Status.NOMINAL, 7),
+    )
+    my_agg = MyAgg(target=ss, sensor_type=int, name="good-bad-ugly")
+    return my_agg
+
+
+class TestAggregateSensor:
+    """Test operation of AggregateSensor."""
+
+    def test_creation(self, agg_sensor, ss, sensors):
+        """Check that creation happens properly, and correct initial value is set."""
+        agg_sensor.update_aggregate.assert_called_with(agg_sensor, None, None, None)
+        assert agg_sensor.target is ss
+        assert agg_sensor.reading.timestamp == 0
+        assert agg_sensor.reading.status == Sensor.Status.NOMINAL
+        assert agg_sensor.reading.value == 7
+
+    def test_sensor_added(self, agg_sensor, ss, sensors):
+        """Check that the update function is called when a sensor is added."""
+        MyAgg.update_aggregate.return_value = Reading(7, Sensor.Status.WARN, 42)
+        ss.add(sensors[1])
+        agg_sensor.update_aggregate.assert_called_with(
+            agg_sensor, sensors[1], sensors[1].reading, None
+        )
+        assert agg_sensor.reading.timestamp == 7
+        assert agg_sensor.reading.status == Sensor.Status.WARN
+        assert agg_sensor.reading.value == 42
+
+    def test_sensor_removed(self, agg_sensor, ss, sensors):
+        """Check that the update function is called for a removed sensor."""
+        ss.remove(sensors[0])
+        agg_sensor.update_aggregate.assert_called_with(
+            agg_sensor, sensors[0], None, sensors[0].reading
+        )
+        # Reset the counters to check subsequent changes do nothing.
+        agg_sensor.update_aggregate.reset_mock()
+        sensors[0].set_value(5, Sensor.Status.ERROR)
+        agg_sensor.update_aggregate.assert_not_called()
+
+    def test_sensor_value_changed(self, agg_sensor, ss, sensors):
+        """Check that the update function is called for a sensor whose value has changed."""
+        old_reading = sensors[0].reading
+        sensors[0].set_value(7, Sensor.Status.WARN)
+        agg_sensor.update_aggregate.assert_called_with(
+            agg_sensor, sensors[0], sensors[0].reading, old_reading
+        )
+
+    def test_sensor_value_unchanged(self, agg_sensor, ss, sensors):
+        """Check that the update function is called for a sensor whose value has changed."""
+        old_reading = agg_sensor.reading
+        MyAgg.update_aggregate.return_value = None
+        sensors[0].set_value(7, Sensor.Status.WARN)
+        assert agg_sensor.reading is old_reading
+
+    def test_aggregate_sensor_excluded(self, agg_sensor, mocker, ss, sensors):
+        """Check that the aggregate sensor gets excluded if it's in the set itself."""
+        mocker.patch.object(agg_sensor, "attach")
+        mocker.patch.object(agg_sensor, "detach")
+        ss.add(agg_sensor)
+        agg_sensor.attach.assert_not_called()
+        ss.remove(agg_sensor)
+        agg_sensor.detach.assert_not_called()
+
+    def test_aggregate_garbage_collection(self, ss, sensors):
+        """Check that the aggregate can be garbage collected."""
+        # Don't use the agg_sensor fixture, because pytest will hold its own
+        # references to it.
+        my_agg = MyAgg(target=ss, sensor_type=int, name="garbage")
+        ss.add(sensors[1])
+        weak = weakref.ref(my_agg)
+        del my_agg
+        # Some Python implementations need multiple rounds to garbage-collect
+        # everything.
+        for _ in range(5):
+            gc.collect()
+        assert weak() is None  # i.e. my_agg was garbage-collected
+        sensors[0].value = 12  # Check that it doesn't fail
+
+    def test_sensor_garbage_collection(self):
+        """Check that sensors can be garbage-collected once removed from the aggregate."""
+        # Don't use the fixtures, because they have mocks that might
+        # record things and keep them alive.
+        # The noqa is to suppress
+        # "local variable 'my_agg' is assigned to but never used"
+        # (we need to give it a name just to keep it alive)
+        ss = SensorSet()
+        my_agg = MyAgg(target=ss, sensor_type=int, name="agg")  # noqa: F841
+        sensor = Sensor(int, "rubbish")
+        ss.add(sensor)
+        ss.remove(sensor)
+        weak = weakref.ref(sensor)
+        del sensor
+        # Some Python implementations need multiple rounds to garbage-collect
+        # everything.
+        for _ in range(5):
+            gc.collect()
+        assert weak() is None
+
+    def test_weak_callback_failures(self, agg_sensor, monkeypatch):
+        """Ensure code coverage of :class:`._weak_callback`."""
+        assert isinstance(MyAgg._sensor_added, _weak_callback)
+        wc = _weak_callback(lambda x: x)
+        monkeypatch.setattr(MyAgg, "bad_weak_callback", wc, raising=False)
+        with pytest.raises(TypeError):
+            agg_sensor.bad_weak_callback

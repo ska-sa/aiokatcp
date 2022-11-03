@@ -58,7 +58,7 @@ from .core import (  # noqa: F401
     get_type,
     register_type,
 )
-from .sensor import Reading, Sensor, SensorSampler, SensorSet  # noqa: F401
+from .sensor import AggregateSensor, Reading, Sensor, SensorSampler, SensorSet  # noqa: F401
 from .server import DeviceServer, RequestContext  # noqa: F401
 
 

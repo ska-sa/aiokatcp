@@ -28,8 +28,12 @@
 import abc
 import asyncio
 import enum
+import functools
+import inspect
 import time
 import warnings
+import weakref
+from abc import ABCMeta, abstractmethod
 from typing import (
     Any,
     Callable,
@@ -52,9 +56,27 @@ from typing import (
     overload,
 )
 
+from typing_extensions import Protocol
+
 from . import core
 
 _T = TypeVar("_T")
+_U = TypeVar("_U")
+
+
+class DeltaObserver(Protocol[_T]):
+    def __call__(
+        self, __sensor: "Sensor[_T]", __reading: "Reading[_T]", *, old_reading: "Reading[_T]"
+    ) -> None:
+        ...
+
+
+class ClassicObserver(Protocol[_T]):
+    def __call__(self, __sensor: "Sensor[_T]", __reading: "Reading[_T]") -> None:
+        ...
+
+
+Observer = Union[ClassicObserver[_T], DeltaObserver[_T]]
 
 
 class Reading(Generic[_T]):
@@ -116,7 +138,7 @@ class Sensor(Generic[_T]):
         Parameters to use with `auto_strategy`. They must be already-decoded values.
     """
 
-    class Status(enum.Enum):
+    class Status(enum.IntEnum):
         UNKNOWN = 0
         NOMINAL = 1
         WARN = 2
@@ -145,7 +167,8 @@ class Sensor(Generic[_T]):
         self.stype = sensor_type
         type_info = core.get_type(sensor_type)
         self.type_name = type_info.name
-        self._observers: Set[Callable[[Sensor[_T], Reading[_T]], None]] = set()
+        self._classic_observers: Set[ClassicObserver[_T]] = set()
+        self._delta_observers: Set[DeltaObserver[_T]] = set()
         self.name = name
         self.description = description
         self.units = units
@@ -162,14 +185,16 @@ class Sensor(Generic[_T]):
         self.auto_strategy_parameters = tuple(auto_strategy_parameters)
         # TODO: should validate the parameters against the strategy.
 
-    def notify(self, reading: Reading[_T]) -> None:
+    def notify(self, reading: Reading[_T], old_reading: Reading[_T]) -> None:
         """Notify all observers of changes to this sensor.
 
         Users should not usually call this directly. It is called automatically
         by :meth:`set_value`.
         """
-        for observer in self._observers:
-            observer(self, reading)
+        for classic_observer in self._classic_observers:
+            classic_observer(self, reading)
+        for delta_observer in self._delta_observers:
+            delta_observer(self, reading, old_reading=old_reading)
 
     def set_value(self, value: _T, status: Status = None, timestamp: float = None) -> None:
         """Set the current value of the sensor.
@@ -192,8 +217,9 @@ class Sensor(Generic[_T]):
         if status is None:
             status = self.status_func(value)
         reading = Reading(timestamp, status, value)
+        old_reading = self._reading
         self._reading = reading
-        self.notify(reading)
+        self.notify(reading, old_reading)
 
     @property
     def value(self) -> _T:
@@ -226,11 +252,17 @@ class Sensor(Generic[_T]):
         else:
             return []
 
-    def attach(self, observer: Callable[["Sensor[_T]", Reading[_T]], None]) -> None:
-        self._observers.add(observer)
+    def attach(self, observer: Observer[_T]) -> None:
+        sig = inspect.signature(observer)
+        if "old_reading" in sig.parameters:
+            self._delta_observers.add(observer)  # type: ignore
+        else:
+            self._classic_observers.add(observer)  # type: ignore
 
-    def detach(self, observer: Callable[["Sensor[_T]", Reading[_T]], None]) -> None:
-        self._observers.discard(observer)
+    def detach(self, observer: Observer[_T]) -> None:
+        # It's simpler to just discard from both sets (and ignore the type) than to do inspection.
+        self._delta_observers.discard(observer)  # type: ignore
+        self._classic_observers.discard(observer)  # type: ignore
 
 
 class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
@@ -714,3 +746,187 @@ class SensorSet(Mapping[str, Sensor]):
     values.__doc__ = dict.values.__doc__
     items.__doc__ = dict.items.__doc__
     copy.__doc__ = dict.copy.__doc__
+
+
+class _weak_callback:
+    """Method decorator that makes it hold only a weak reference to self.
+
+    Calling the method will be a no-op if the object has been deleted.
+
+    The return value is cached, so accessing it multiple times will yield the
+    same wrapper object each time. However, this is *not* thread-safe.
+    """
+
+    def __init__(self, func: Callable) -> None:
+        self._func = func
+        self._name: Optional[str] = None
+        self.__doc__ = func.__doc__
+
+    def __set_name__(self, owner: type, name: str) -> None:
+        self._name = name
+
+    def __get__(self, instance: object, owner: type = None):
+        # __get__ is magic in Python: it makes this class a "descriptor".
+        # Refer to the language guide for an explanation of what that means.
+        # In short, when one calls `obj.method` where `method` was
+        # decorated with this descriptor, it's resolved with
+        # `__get__(obj, type(obj))`.
+        if instance is None:
+            return self
+        if self._name is None:
+            raise TypeError("name was not set for weak callback")
+        cache = instance.__dict__
+        weak_instance = weakref.ref(instance)
+        func = self._func
+
+        @functools.wraps(self._func)
+        def wrapper(*args, **kwargs):
+            strong_instance = weak_instance()
+            if strong_instance is not None:
+                return func(strong_instance, *args, **kwargs)
+
+        # Note: this overrides the descriptor, so that future accesses
+        # will use the value directly.
+        assert self._name not in cache
+        cache[self._name] = wrapper
+        return wrapper
+
+
+class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
+    """A Sensor with its reading determined by several other Sensors.
+
+    This is an abstract class: the user must implement :meth:`update_aggregate`.
+    This method is called whenever the target :class:`SensorSet` has a sensor
+    added, removed, or one of the sensors changes its reading. The user-defined
+    :meth:`update_aggregate` returns the new reading for the AggregateSensor.
+
+    Parameters are all as per :class:`Sensor`, with the exception of
+    `target`, which is the :class:`SensorSet` from which the aggregated sensor
+    will determine its own reading.
+
+    Attributes
+    ----------
+    target : SensorSet
+        The set of sensors which will determine the reading of the aggregate
+        one. The aggregate sensor may be included in the set (e.g. in
+        `self.sensors` of a server) but it will not affect its own value.
+    """
+
+    def __init__(
+        self,
+        target: SensorSet,
+        sensor_type: Type[_T],
+        name: str,
+        description: str = "",
+        units: str = "",
+        *,
+        auto_strategy: Optional["SensorSampler.Strategy"] = None,
+        auto_strategy_parameters: Iterable[Any] = (),
+    ) -> None:
+        super().__init__(
+            sensor_type=sensor_type,
+            name=name,
+            description=description,
+            units=units,
+            auto_strategy=auto_strategy,
+            auto_strategy_parameters=auto_strategy_parameters,
+        )
+        self.target = target
+        for sensor in self.target.values():
+            if self.filter_aggregate(sensor):
+                sensor.attach(self._update_aggregate_callback)
+                # We don't use weakref.finalize to detach, because that
+                # finalizer would live until `self` is destroyed and thus
+                # keep that `sensor` alive, even if `sensor` is removed from
+                # the sensor set and could otherwise be destroyed. Instead,
+                # __del__ cleans up the attachments.
+
+        self.target.add_add_callback(self._sensor_added)
+        weakref.finalize(self, self.target.remove_add_callback, self._sensor_added)
+        self.target.add_remove_callback(self._sensor_removed)
+        weakref.finalize(self, self.target.remove_remove_callback, self._sensor_removed)
+        self._update_aggregate(None, None, None)
+
+    def __del__(self):
+        # Protect against an exception early in __init__
+        for sensor in getattr(self, "target", []).values():
+            # Could use filter_aggregate, but it might not work during
+            # destruction, and its a no-op if there is no attachment.
+            sensor.detach(self._update_aggregate_callback)
+
+    @abstractmethod
+    def update_aggregate(
+        self,
+        updated_sensor: Optional[Sensor[_U]],
+        reading: Optional[Reading[_U]],
+        old_reading: Optional[Reading[_U]],
+    ) -> Optional[Reading[_T]]:
+        """Update the aggregated sensor.
+
+        The user is required to override this function, which must return the
+        updated :class:`Reading` (i.e. value, status and timestamp) which will
+        be reflected in the `Reading` of the aggregated sensor.
+
+        Parameters
+        ----------
+        updated_sensor
+            The sensor in the target :class:`SensorSet` which has changed in
+            some way.
+        reading
+            The current reading of the `updated_sensor`. This is `None` if the
+            sensor is being removed from the set.
+        old_reading
+            The previous reading of the `updated_sensor`. This is `None` if the
+            sensor is being added to the set.
+
+        Returns
+        -------
+        Optional[Reading]
+            The reading (value, status, timestamp) that should be shown by the
+            `AggregatedSensor` as a result of the change. If None is returned,
+            the sensor's reading is not modified.
+        """
+        pass  # pragma: nocover
+
+    def filter_aggregate(self, sensor: Sensor) -> bool:
+        """Decide whether another sensor is part of the aggregation.
+
+        Users can override this function to exclude certain categories of
+        sensors, such as other aggregates, to prevent circular references.
+
+        Returns
+        -------
+        bool
+            True if `sensor` should be included in calculation of the
+            aggregate, False if not.
+        """
+        return sensor is not self
+
+    def _update_aggregate(
+        self,
+        updated_sensor: Optional[Sensor[_U]],
+        reading: Optional[Reading[_U]],
+        old_reading: Optional[Reading[_U]],
+    ) -> None:
+        updated_reading = self.update_aggregate(updated_sensor, reading, old_reading)
+        if updated_reading is not None:
+            self.set_value(updated_reading.value, updated_reading.status, updated_reading.timestamp)
+
+    # We create a separate name for the _weak_callback version rather than
+    # decorating _update_aggregate. This lets us call the original directly
+    # without incurring the decorator overheads.
+    _update_aggregate_callback = _weak_callback(_update_aggregate)
+
+    @_weak_callback
+    def _sensor_added(self, sensor: Sensor) -> None:
+        """Add the update callback to a new sensor in the set."""
+        if self.filter_aggregate(sensor):
+            sensor.attach(self._update_aggregate_callback)
+            self._update_aggregate(sensor, sensor.reading, None)
+
+    @_weak_callback
+    def _sensor_removed(self, sensor: Sensor) -> None:
+        """Remove the update callback from a sensor no longer in the set."""
+        if self.filter_aggregate(sensor):
+            sensor.detach(self._update_aggregate_callback)
+            self._update_aggregate(sensor, None, sensor.reading)
