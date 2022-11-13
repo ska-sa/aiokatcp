@@ -32,7 +32,8 @@ in :mod:`aiokatcp.test.test_server`.
 import gc
 import unittest
 import weakref
-from typing import Optional
+from typing import List, Optional
+from unittest import mock
 from unittest.mock import create_autospec
 
 import pytest
@@ -43,6 +44,7 @@ from aiokatcp.sensor import (
     Sensor,
     SensorSampler,
     SensorSet,
+    SimpleAggregateSensor,
     _weak_callback,
 )
 
@@ -443,3 +445,89 @@ class TestAggregateSensor:
         monkeypatch.setattr(MyAgg, "bad_weak_callback", wc, raising=False)
         with pytest.raises(TypeError):
             agg_sensor.bad_weak_callback
+
+
+class MySimpleAgg(SimpleAggregateSensor[int]):
+    """Example sensor that collects the sum of valid readings."""
+
+    def __init__(self, *args, **kwargs):
+        self._total = 0
+        super().__init__(*args, **kwargs)
+
+    def aggregate_add(self, sensor, reading):
+        if reading.status.valid_value():
+            self._total += reading.value
+            return True
+        return False
+
+    def aggregate_remove(self, sensor, reading):
+        if reading.status.valid_value():
+            self._total -= reading.value
+            return True
+        return False
+
+    def aggregate_value(self):
+        return self._total
+
+    def aggregate_status(self):
+        return Sensor.Status.NOMINAL if self._total <= 10 else Sensor.Status.WARN
+
+
+class TestSimpleAggregateSensor:
+    @pytest.fixture
+    def mock_time(self, mocker) -> mock.Mock:
+        return mocker.patch("time.time", return_value=1234567890.0)
+
+    @pytest.fixture
+    def agg(self, mock_time, sensors: List[Sensor], ss: SensorSet) -> MySimpleAgg:
+        sensors[0].set_value(3, timestamp=1234512345.0)
+        return MySimpleAgg(ss, int, "simple-agg", "Test sensor")
+
+    def test_initial_state(self, agg: MySimpleAgg, mock_time: mock.Mock) -> None:
+        assert agg.value == 3
+        assert agg.timestamp == mock_time.return_value
+        assert agg.status == Sensor.Status.NOMINAL
+
+    def test_update_sensor(self, agg: MySimpleAgg, sensors: List[Sensor]) -> None:
+        sensors[0].set_value(11, timestamp=1234512346.0)
+        assert agg.value == 11
+        assert agg.timestamp == 1234567890.0  # Time must not go backwards
+        assert agg.status == Sensor.Status.WARN
+        # Set to invalid state - should effectively remove the reading
+        sensors[0].set_value(12, timestamp=1400567891.0, status=Sensor.Status.UNKNOWN)
+        assert agg.value == 0
+        assert agg.timestamp == 1400567891.0
+        assert agg.status == Sensor.Status.NOMINAL
+        # Return to a valid state
+        sensors[0].set_value(5, timestamp=1400567892.0)
+        assert agg.value == 5
+        assert agg.timestamp == 1400567892.0
+        assert agg.status == Sensor.Status.NOMINAL
+
+    def test_add_remove_sensor(
+        self, agg: MySimpleAgg, sensors: List[Sensor], ss: SensorSet, mock_time: mock.Mock
+    ) -> None:
+        mock_time.return_value = 1234567891.5
+        sensors[1].set_value(8, timestamp=1400567890.0)
+        ss.add(sensors[1])
+        assert agg.value == 11
+        assert agg.timestamp == mock_time.return_value
+        assert agg.status == Sensor.Status.WARN
+
+        mock_time.return_value = 1234567892.0
+        ss.remove(sensors[0])
+        assert agg.value == 8
+        assert agg.timestamp == mock_time.return_value
+        assert agg.status == Sensor.Status.NOMINAL
+
+    def test_filter_updates(self, agg: MySimpleAgg, sensors: List[Sensor]) -> None:
+        sensors[0].set_value(5, timestamp=1400567890.0, status=Sensor.Status.UNKNOWN)
+        assert agg.value == 0
+        assert agg.timestamp == 1400567890.0
+        # Make an update that doesn't change anything
+        callback = mock.Mock()
+        agg.attach(callback)
+        sensors[0].set_value(6, timestamp=1400567891.0, status=Sensor.Status.UNKNOWN)
+        assert agg.value == 0
+        assert agg.timestamp == 1400567890.0
+        callback.assert_not_called()
