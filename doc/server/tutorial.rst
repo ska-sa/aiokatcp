@@ -220,42 +220,51 @@ Aggregate sensors
 ^^^^^^^^^^^^^^^^^
 To provide a sensor which has its reading derived from that of a set of other
 sensors, such as a total, average or general "device status" sensor, subclass
-:class:`.AggregateSensor`, and implement
-:meth:`~.AggregateSensor.update_aggregate` to compute the sensor reading from
-changes in sensor values.
+:class:`.SimpleAggregateSensor`, and implement
+:meth:`~.SimpleAggregateSensor.aggregate_add`,
+:meth:`~.SimpleAggregateSensor.aggregate_remove`
+and :meth:`~.SimpleAggregateSensor.aggregate_compute` to compute the aggregate
+value and status from changes in sensor values. Alternatively, if you need more
+control (particularly over the timestamp of the aggregate), subclass
+:class:`.AggregateSensor` and implement
+:meth:`~.AggregateSensor.update_aggregate`.
 
 In order to avoid circular references, a
 :meth:`~.AggregateSensor.filter_aggregate` method is provided which excludes the
 aggregate sensor itself from operations that happen on the target sensor set.
 However, the user may wish to include more complex logic than this, such as to
 include only integer datatypes or to exclude other aggregate sensors. In this
-case, the method can be overridden.
+case, the method can be overridden. The method should only consider the
+identity of the sensor and *not* its status or value.
 
-For example:
+Here is an example of a sensor whose value is the sum of all the other
+integer sensors. Note that it does not consider that the other sensors might
+have statuses such as :attr:`~.Status.FAILURE` that make the value invalid. The
+subclass does not need to distinguish between existing sensors, added sensors,
+removals, and updates. It simply responds to readings being added to or removed
+from a set of currently-active readings. Note that the internal state
+(:attr:`!_total`) needs to be initialised *before* calling the superclass
+constructor, as that constructor will call
+:meth:`~.SimpleAggregateSensor.aggregate_add` for sensors that already exist in
+the target set.
 
 .. code:: python
 
-    class Total(AggregateSensor):
+    class Total(SimpleAggregateSensor):
         def __init__(self, target):
+            self._total = 0
             super().__init__(target=target, sensor_type=int, name="total")
 
-        def update_aggregate(self, updated_sensor, reading, old_reading):
-            if updated_sensor is None:
-                # Instantiation, calculate total for sensors already in target.
-                total = sum(
-                    sensor.value for sensor in self.target.values() if self.filter_aggregate(sensor)
-                )
-                return Reading(time.time(), Sensor.Status.NOMINAL, total)
-            new_value = self.value
-            if old_reading is not None:  # Will be None if this is a new sensor being added
-                new_value -= old_reading.value  # Remove the previous value from the sum
-            if reading is not None:  # Will be None if this is a sensor being removed
-                new_value += reading.value  # Add the new value to the sum
-            return Reading(
-                updated_sensor.timestamp,
-                Sensor.Status.NOMINAL,
-                new_value,
-            )
+        def aggregate_add(self, updated_sensor, reading):
+            self._total += reading.value
+            return True
+
+        def aggregate_remove(self, updated_sensor, reading):
+            self._total -= reading.value
+            return True
+
+        def aggregate_compute(self):
+            return (Sensor.Status.NOMINAL, self._total)
 
         def filter_aggregate(self, sensor):
             """Return true for int sensors which aren't self."""
