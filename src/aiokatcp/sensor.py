@@ -943,8 +943,7 @@ class SimpleAggregateSensor(AggregateSensor[_T]):
       which is updated by adding or removing readings.
 
     Subclasses must override :meth:`aggregate_add`, :meth:`aggregate_remove`,
-    :meth:`aggregate_value` and optionally :meth:`aggregate_status` and
-    :meth:`filter_aggregate`.
+    :meth:`aggregate_value` and optionally :meth:`filter_aggregate`.
 
     Currently, the timestamp will be set to the larger of the last sensor
     update time (using the sensor timestamp) and the last addition or removal
@@ -975,12 +974,8 @@ class SimpleAggregateSensor(AggregateSensor[_T]):
         """
 
     @abstractmethod
-    def aggregate_value(self) -> _T:
-        """Compute aggregate value from the internal state."""
-
-    def aggregate_status(self) -> Sensor.Status:
-        """Compute aggregate sensor state from the internal state."""
-        return Sensor.Status.NOMINAL
+    def aggregate_value(self) -> Tuple[_T, Sensor.Status]:
+        """Compute aggregate value and status from the internal state."""
 
     def update_aggregate(
         self,
@@ -1010,4 +1005,5 @@ class SimpleAggregateSensor(AggregateSensor[_T]):
             else:
                 timestamp = time.time()
         timestamp = max(timestamp, self.timestamp)  # Ensure time doesn't go backwards
-        return Reading(timestamp, self.aggregate_status(), self.aggregate_value())
+        value, status = self.aggregate_value()
+        return Reading(timestamp, status, value)
