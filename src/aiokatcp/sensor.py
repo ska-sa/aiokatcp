@@ -970,7 +970,7 @@ class SimpleAggregateSensor(AggregateSensor[_T]):
         Returns
         -------
         bool
-            True if the removing the reading should result in a state update.
+            True if removing the reading should result in a state update.
         """
 
     @abstractmethod
@@ -992,9 +992,9 @@ class SimpleAggregateSensor(AggregateSensor[_T]):
         else:
             # Update the internal state
             update = False
-            if old_reading is not None and old_reading.status.valid_value():
+            if old_reading is not None:
                 update |= self.aggregate_remove(updated_sensor, old_reading)
-            if reading is not None and reading.status.valid_value():
+            if reading is not None:
                 update |= self.aggregate_add(updated_sensor, reading)
             if not update:
                 return None
