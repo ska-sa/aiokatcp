@@ -466,8 +466,8 @@ class MySimpleAgg(SimpleAggregateSensor[int]):
             return True
         return False
 
-    def aggregate_value(self):
-        return (self._total, Sensor.Status.NOMINAL if self._total <= 10 else Sensor.Status.WARN)
+    def aggregate_compute(self):
+        return (Sensor.Status.NOMINAL if self._total <= 10 else Sensor.Status.WARN, self._total)
 
 
 class TestSimpleAggregateSensor:
