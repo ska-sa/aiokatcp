@@ -157,7 +157,7 @@ class Sensor(Generic[_T]):
         name: str,
         description: str = "",
         units: str = "",
-        default: _T = None,
+        default: Optional[_T] = None,
         initial_status: Status = Status.UNKNOWN,
         *,
         status_func: Callable[[_T], Status] = _default_status_func,
@@ -196,7 +196,9 @@ class Sensor(Generic[_T]):
         for delta_observer in self._delta_observers:
             delta_observer(self, reading, old_reading=old_reading)
 
-    def set_value(self, value: _T, status: Status = None, timestamp: float = None) -> None:
+    def set_value(
+        self, value: _T, status: Optional[Status] = None, timestamp: Optional[float] = None
+    ) -> None:
         """Set the current value of the sensor.
 
         Parameters
@@ -316,7 +318,7 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
         loop: asyncio.AbstractEventLoop,
         difference: Optional[_T] = None,
         shortest: core.Timestamp = core.Timestamp(0),
-        longest: core.Timestamp = None,
+        longest: Optional[core.Timestamp] = None,
         *,
         always_update: bool = False,
         is_auto: bool = False,
@@ -703,7 +705,7 @@ class SensorSet(Mapping[str, Sensor]):
     def get(self, name: str, default: Union[Sensor, _T]) -> Union[Sensor, _T]:
         ...
 
-    def get(self, name: str, default: object = None) -> object:  # noqa: F811
+    def get(self, name: str, default: Optional[object] = None) -> object:  # noqa: F811
         return self._sensors.get(name, default)
 
     def __contains__(self, s: object) -> bool:
@@ -765,7 +767,7 @@ class _weak_callback:
     def __set_name__(self, owner: type, name: str) -> None:
         self._name = name
 
-    def __get__(self, instance: object, owner: type = None):
+    def __get__(self, instance: object, owner: Optional[type] = None):
         # __get__ is magic in Python: it makes this class a "descriptor".
         # Refer to the language guide for an explanation of what that means.
         # In short, when one calls `obj.method` where `method` was

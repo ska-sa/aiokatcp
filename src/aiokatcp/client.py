@@ -152,7 +152,7 @@ class Client(metaclass=ClientMeta):
         *,
         auto_reconnect: bool = True,
         limit: int = connection.DEFAULT_LIMIT,
-        loop: asyncio.AbstractEventLoop = None,
+        loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> None:
         if loop is None:
             loop = asyncio.get_event_loop()
@@ -506,7 +506,7 @@ class Client(metaclass=ClientMeta):
         *,
         auto_reconnect: bool = True,
         limit: int = connection.DEFAULT_LIMIT,
-        loop: asyncio.AbstractEventLoop = None,
+        loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> "Client":
         """Factory function that creates a client and waits until it is connected.
 

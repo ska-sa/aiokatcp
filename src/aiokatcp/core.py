@@ -54,7 +54,7 @@ class Address:
     _IPV4_RE = re.compile(r"^(?P<host>[^:]+)(:(?P<port>\d+))?$")
     _IPV6_RE = re.compile(r"^\[(?P<host>[^]]+)\](:(?P<port>\d+))?$")
 
-    def __init__(self, host: _IPAddress, port: int = None) -> None:
+    def __init__(self, host: _IPAddress, port: Optional[int] = None) -> None:
         self._host = host
         self._port = port
 
@@ -203,7 +203,7 @@ def register_type(
     name: str,
     encode: Callable[[_T], bytes],
     decode: Callable[[Type[_T], bytes], _T],
-    default: Callable[[Type[_T]], _T] = None,
+    default: Optional[Callable[[Type[_T]], _T]] = None,
 ) -> None:
     """Register a type for encoding and decoding in messages.
 
@@ -413,7 +413,7 @@ def decode(cls: Any, value: bytes) -> Any:
 class KatcpSyntaxError(ValueError):
     """Raised by parsers when encountering a syntax error."""
 
-    def __init__(self, message: str, raw: bytes = None) -> None:
+    def __init__(self, message: str, raw: Optional[bytes] = None) -> None:
         super().__init__(message)
         self.raw = raw
 
@@ -461,7 +461,7 @@ class Message:
     FAIL = b"fail"
     INVALID = b"invalid"
 
-    def __init__(self, mtype: Type, name: str, *arguments: Any, mid: int = None) -> None:
+    def __init__(self, mtype: Type, name: str, *arguments: Any, mid: Optional[int] = None) -> None:
         self.mtype = mtype
         if not self._NAME_RE.match(name):
             raise ValueError(f"name {name} is invalid")
@@ -473,15 +473,15 @@ class Message:
         self.mid = mid
 
     @classmethod
-    def request(cls, name: str, *arguments: Any, mid: int = None) -> "Message":
+    def request(cls, name: str, *arguments: Any, mid: Optional[int] = None) -> "Message":
         return cls(cls.Type.REQUEST, name, *arguments, mid=mid)
 
     @classmethod
-    def reply(cls, name: str, *arguments: Any, mid: int = None) -> "Message":
+    def reply(cls, name: str, *arguments: Any, mid: Optional[int] = None) -> "Message":
         return cls(cls.Type.REPLY, name, *arguments, mid=mid)
 
     @classmethod
-    def inform(cls, name: str, *arguments: Any, mid: int = None) -> "Message":
+    def inform(cls, name: str, *arguments: Any, mid: Optional[int] = None) -> "Message":
         return cls(cls.Type.INFORM, name, *arguments, mid=mid)
 
     @classmethod

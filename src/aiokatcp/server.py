@@ -296,8 +296,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
         *,
         limit: int = connection.DEFAULT_LIMIT,
         max_pending: int = 100,
-        max_backlog: int = None,
-        loop: asyncio.AbstractEventLoop = None,
+        max_backlog: Optional[int] = None,
+        loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> None:
         super().__init__()
         if not self.VERSION:
