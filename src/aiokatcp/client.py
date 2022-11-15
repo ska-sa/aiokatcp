@@ -261,7 +261,9 @@ class Client(metaclass=ClientMeta):
     def _warn_failed_connect(self, exc: Exception) -> None:
         self.logger.warning("Failed to connect to %s:%s: %s", self.host, self.port, exc)
 
-    def inform_version_connect(self, api: str, version: str, build_state: str = None) -> None:
+    def inform_version_connect(
+        self, api: str, version: str, build_state: Optional[str] = None
+    ) -> None:
         if api == "katcp-protocol":
             match = re.match(r"^(\d+)\.(\d+)(?:-(.+))?$", version)
             error = None
@@ -388,7 +390,10 @@ class Client(metaclass=ClientMeta):
         except OSError as error:
             self._on_failed_connect(error)
             return False
-        writer = asyncio.StreamWriter(transport, protocol, reader, self.loop)
+        # Ignore due to https://github.com/python/typeshed/issues/9199
+        writer = asyncio.StreamWriter(
+            transport, protocol, reader, self.loop  # type: ignore[arg-type]
+        )
         conn = connection.Connection(self, reader, writer, False)
         self._set_connection(conn)
         # Process replies until connection closes. _on_connected is

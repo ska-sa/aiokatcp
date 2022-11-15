@@ -355,7 +355,7 @@ def encode(value: Any) -> bytes:
     return get_type(type(value)).encode(value)
 
 
-def _union_args(cls: Any) -> Optional[Tuple[Type]]:
+def _union_args(cls: Any) -> Optional[Tuple[Type, ...]]:
     """Convert ``Union[T1, T2]`` to (T1, T2).
 
     Returns ``None`` if `cls` is not a specific :class:`typing.Union` type.
@@ -393,9 +393,19 @@ def decode(cls: Any, value: bytes) -> Any:
     :func:`register_type`
     """
     union_args = _union_args(cls)
+    # Allows arguments like 'foo: Optional[str] = None' to exist, where None
+    # indicates that the argument was not passed at all. More generally, this
+    # allows Union[A, B, None] to behave like Union[A, B].
+    if union_args is not None:
+        union_args = tuple(arg for arg in union_args if arg is not type(None))  # noqa: E721
+        if len(union_args) == 1:  # Flatten Optional[T] to T
+            cls = union_args[0]
+            union_args = None
     if union_args is not None:
         values: List[Any] = []
         for type_ in union_args:
+            if type_ is None:
+                pass
             try:
                 values.append(decode(type_, value))
             except ValueError:
