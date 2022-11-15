@@ -31,12 +31,18 @@ import ipaddress
 import logging
 import numbers
 import re
+import sys
 from typing import Any, Callable, Dict, Generic, List, Match, Optional, Tuple, Type, TypeVar, Union
 
 _T = TypeVar("_T")
 _T_contra = TypeVar("_T_contra", contravariant=True)
 _E = TypeVar("_E", bound=enum.Enum)
 _IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
+if sys.version_info >= (3, 10):
+    # Union[A, B] and A | B have different classes, even though they behave similarly
+    _UnionTypes = (type(Union[int, float]), type(int | float))
+else:
+    _UnionTypes = (type(Union[int, float]),)
 
 
 class Address:
@@ -360,10 +366,9 @@ def _union_args(cls: Any) -> Optional[Tuple[Type, ...]]:
 
     Returns ``None`` if `cls` is not a specific :class:`typing.Union` type.
     """
-    if not isinstance(cls, type(Union[int, float])):
+    if not isinstance(cls, _UnionTypes):
         return None
-    args = cls.__args__  # type: ignore
-    return args
+    return cls.__args__  # type: ignore
 
 
 def decode(cls: Any, value: bytes) -> Any:
