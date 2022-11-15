@@ -29,7 +29,6 @@
 
 import argparse
 import asyncio
-import contextlib
 import logging
 import signal
 
@@ -47,7 +46,38 @@ class CmdClient(aiokatcp.Client):
         print(text(msg), end="")
 
 
-async def async_main(args, host, port) -> int:
+async def async_main() -> int:
+    logging.basicConfig(level=logging.WARNING)
+
+    parser = argparse.ArgumentParser(
+        description="Send a single katcp request and print the reply",
+        usage="%(prog)s host:port command [args...]",
+    )
+    parser.add_argument("endpoint")
+    parser.add_argument("command")
+    parser.add_argument("args", nargs="*")
+    parser.add_argument(
+        "--connect-timeout",
+        type=float,
+        metavar="TIME",
+        default=30,
+        help="Time to wait for a connection to be established",
+    )
+    parser.add_argument(
+        "--request-timeout",
+        type=float,
+        metavar="TIME",
+        help="Time to wait for the request to complete",
+    )
+    args = parser.parse_args()
+    host_port = args.endpoint.rsplit(":", 1)
+    if len(host_port) != 2:
+        parser.error(f"missing port number in {host_port}")
+    host, port = host_port
+
+    current_task = asyncio.current_task()
+    assert current_task is not None
+    asyncio.get_event_loop().add_signal_handler(signal.SIGINT, current_task.cancel)
     try:
         with async_timeout.timeout(args.connect_timeout):
             client = await CmdClient.connect(host, port, auto_reconnect=False)
@@ -75,38 +105,7 @@ async def async_main(args, host, port) -> int:
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.WARNING)
-
-    parser = argparse.ArgumentParser(
-        description="Send a single katcp request and print the reply",
-        usage="%(prog)s host:port command [args...]",
-    )
-    parser.add_argument("endpoint")
-    parser.add_argument("command")
-    parser.add_argument("args", nargs="*")
-    parser.add_argument(
-        "--connect-timeout",
-        type=float,
-        metavar="TIME",
-        default=30,
-        help="Time to wait for a connection to be established",
-    )
-    parser.add_argument(
-        "--request-timeout",
-        type=float,
-        metavar="TIME",
-        help="Time to wait for the request to complete",
-    )
-    args = parser.parse_args()
-    host_port = args.endpoint.rsplit(":", 1)
-    if len(host_port) != 2:
-        parser.error(f"missing port number in {host_port}")
-
-    loop = asyncio.get_event_loop()
-    with contextlib.closing(loop):
-        main_task = loop.create_task(async_main(args, *host_port))
-        loop.add_signal_handler(signal.SIGINT, main_task.cancel)
-        try:
-            return loop.run_until_complete(main_task)
-        except asyncio.CancelledError:
-            return 1
+    try:
+        return asyncio.run(async_main())
+    except asyncio.CancelledError:
+        return 1

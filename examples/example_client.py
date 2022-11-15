@@ -35,6 +35,8 @@ import aiokatcp
 
 
 async def main():
+    logging.basicConfig(level=logging.INFO)
+    asyncio.get_event_loop().add_signal_handler(signal.SIGINT, asyncio.current_task().cancel)
     client = await aiokatcp.Client.connect("localhost", 4444)
     async with client:
         while True:
@@ -45,13 +47,7 @@ async def main():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    loop = asyncio.get_event_loop()
-    loop.set_debug(True)
-    main_task = loop.create_task(main())
-    loop.add_signal_handler(signal.SIGINT, main_task.cancel)
     try:
-        loop.run_until_complete(main_task)
+        asyncio.run(main(), debug=True)
     except asyncio.CancelledError:
         pass
-    loop.close()
