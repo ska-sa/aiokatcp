@@ -327,9 +327,9 @@ class MyAgg(AggregateSensor):
         updated_sensor: Optional[Sensor],
         reading: Optional[Reading],
         old_reading: Optional[Reading],
-    ) -> Reading:
+    ) -> Optional[Reading]:
         """Return a known Reading."""
-        pass
+        return None
 
 
 @pytest.fixture

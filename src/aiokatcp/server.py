@@ -296,8 +296,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
         *,
         limit: int = connection.DEFAULT_LIMIT,
         max_pending: int = 100,
-        max_backlog: int = None,
-        loop: asyncio.AbstractEventLoop = None,
+        max_backlog: Optional[int] = None,
+        loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> None:
         super().__init__()
         if not self.VERSION:
@@ -652,7 +652,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         for conn in list(self._connections):
             self._write_async_message(conn, msg)
 
-    async def request_help(self, ctx: RequestContext, name: str = None) -> None:
+    async def request_help(self, ctx: RequestContext, name: Optional[str] = None) -> None:
         """Return help on the available requests.
 
         Return a description of the available requests using a sequence of
@@ -809,7 +809,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             matched = [self.sensors[name]]
         return sorted(matched, key=lambda sensor: sensor.name)
 
-    async def request_sensor_list(self, ctx: RequestContext, name: str = None) -> int:
+    async def request_sensor_list(self, ctx: RequestContext, name: Optional[str] = None) -> int:
         r"""Request the list of sensors.
 
         The list of sensors is sent as a sequence of #sensor-list informs.
@@ -869,7 +869,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             ctx.inform(s.name, s.description, s.units, s.type_name, *s.params)
         return len(sensors)
 
-    async def request_sensor_value(self, ctx: RequestContext, name: str = None) -> None:
+    async def request_sensor_value(self, ctx: RequestContext, name: Optional[str] = None) -> None:
         """Request the value of a sensor or sensors.
 
         A list of sensor values as a sequence of #sensor-value informs.
@@ -927,7 +927,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         self,
         ctx: RequestContext,
         name: str,
-        strategy: sensor.SensorSampler.Strategy = None,
+        strategy: Optional[sensor.SensorSampler.Strategy] = None,
         *args: bytes,
     ) -> tuple:
         """Configure or query the way a sensor is sampled.
@@ -1092,7 +1092,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         ctx.informs((conn.address,) for conn in self._connections)
 
     async def request_log_level(
-        self, ctx: RequestContext, level: core.LogLevel = None
+        self, ctx: RequestContext, level: Optional[core.LogLevel] = None
     ) -> core.LogLevel:
         """Query or set the current logging level.
 
