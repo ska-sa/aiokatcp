@@ -1,6 +1,21 @@
 Changelog
 =========
 
+.. rubric:: Version 1.5.0
+
+- Add :class:`SimpleAggregateSensor` class to simplify common use cases for
+  aggregate sensors.
+- Improve error reporting when requests are made with too few arguments,
+  particularly when the handler is wrapped in a decorator.
+- Allow handler arguments to be annotated as :class:`Optional[T]`. It's not
+  possible to provide a ``None`` value on the wire, but this allows the
+  default value to be ``None`` while complying with mypy's strict mode.
+- Update :program:`katcpcmd` and the examples to use :func:`asyncio.run`
+  instead of manually running the event loop. This eliminates some deprecation
+  warnings.
+- Update pre-commit hook to point to flake8's new Github URL.
+- Test on Python 3.11.
+
 .. rubric:: Version 1.4.0
 
 - Replace ``None`` with ``''`` for a default sensor description. If no description
