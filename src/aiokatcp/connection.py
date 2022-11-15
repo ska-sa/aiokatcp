@@ -32,8 +32,7 @@ import ipaddress
 import logging
 import re
 import time
-import types
-from typing import Callable, Iterable, Optional, TypeVar, cast
+from typing import Callable, Iterable, Optional, TypeVar
 
 import decorator
 from typing_extensions import Protocol
@@ -294,10 +293,7 @@ def wrap_handler(name: str, handler: Callable, fixed: int) -> Callable:
     if len(pos) < fixed:
         raise TypeError(f"Handler must accept at least {fixed} positional argument(s)")
 
-    # Exclude transferring __annotations__ from the wrapped function,
-    # because the decorator does not preserve signature.
-    @functools.wraps(handler, assigned=["__module__", "__name__", "__qualname__", "__doc__"])
-    def wrapper(*args):
+    def transform_args(args) -> list:
         assert len(args) == fixed + 1
         msg = args[-1]
         args = list(args[:-1])
@@ -315,13 +311,32 @@ def wrap_handler(name: str, handler: Callable, fixed: int) -> Callable:
                 args.append(core.decode(hint, argument))
             except ValueError as error:
                 raise FailReply(str(error)) from error
+        # Validate the arguments against sig. We could catch TypeError when
+        # we invoke the function, but then we would also catch TypeErrors
+        # raised from inside the implementation.
         try:
-            return handler(*args)
+            sig.bind(*args)
         except TypeError as error:
             raise FailReply(str(error)) from error  # e.g. too few arguments
+        return args
 
     if inspect.iscoroutinefunction(handler):
-        wrapper = cast(Callable, types.coroutine(wrapper))
+
+        async def wrapper(*args):
+            args = transform_args(args)
+            return await handler(*args)
+
+    else:
+
+        def wrapper(*args):
+            args = transform_args(args)
+            return handler(*args)
+
+    # Exclude transferring __annotations__ from the wrapped function,
+    # because the decorator does not preserve signature.
+    functools.update_wrapper(
+        wrapper, handler, assigned=["__module__", "__name__", "__qualname__", "__doc__"]
+    )
 
     wrapper_parameters = pos[:fixed]
     wrapper_parameters.append(
