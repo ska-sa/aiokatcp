@@ -930,3 +930,80 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
         if self.filter_aggregate(sensor):
             sensor.detach(self._update_aggregate_callback)
             self._update_aggregate(sensor, None, sensor.reading)
+
+
+class SimpleAggregateSensor(AggregateSensor[_T]):
+    """A simplified version of :class:`AggregateSensor` for common use cases.
+
+    This class is suitable when:
+
+    - You don't need direct control of the returned timestamp. It will be
+      determined automatically.
+    - The aggregate value and status can be determined from an internal state
+      which is updated by adding or removing readings.
+
+    Subclasses must override :meth:`aggregate_add`, :meth:`aggregate_remove`,
+    :meth:`aggregate_compute` and optionally :meth:`filter_aggregate`.
+
+    Currently, the timestamp will be set to the larger of the last sensor
+    update time (using the sensor timestamp) and the last addition or removal
+    time (wallclock time). This may be changed in future releases based on
+    implementation experience. This class is best suited to cases where child
+    sensors are only added on startup and removed on teardown, rather than
+    continuously added and removed.
+    """
+
+    @abstractmethod
+    def aggregate_add(self, sensor: Sensor[_U], reading: Reading[_U]) -> bool:
+        """Update internal state with an additional reading.
+
+        Returns
+        -------
+        bool
+            True if the new reading should result in a state update.
+        """
+
+    @abstractmethod
+    def aggregate_remove(self, sensor: Sensor[_U], reading: Reading[_U]) -> bool:
+        """Update internal state by removing a reading.
+
+        Returns
+        -------
+        bool
+            True if removing the reading should result in a state update.
+        """
+
+    @abstractmethod
+    def aggregate_compute(self) -> Tuple[Sensor.Status, _T]:
+        """Compute aggregate status and value from the internal state."""
+
+    def update_aggregate(
+        self,
+        updated_sensor: Optional[Sensor[_U]],
+        reading: Optional[Reading[_U]],
+        old_reading: Optional[Reading[_U]],
+    ) -> Optional[Reading[_T]]:
+        if updated_sensor is None:
+            # We're being called from the constructor. Add any existing sensors.
+            for s in self.target.values():
+                if self.filter_aggregate(s) and s.reading.status.valid_value():
+                    self.aggregate_add(s, s.reading)
+            timestamp = time.time()
+        else:
+            # Update the internal state
+            update = False
+            if old_reading is not None:
+                update |= self.aggregate_remove(updated_sensor, old_reading)
+            if reading is not None:
+                update |= self.aggregate_add(updated_sensor, reading)
+            if not update:
+                return None
+
+            # Calculate the timestamp
+            if old_reading is not None and reading is not None:
+                timestamp = reading.timestamp
+            else:
+                timestamp = time.time()
+        timestamp = max(timestamp, self.timestamp)  # Ensure time doesn't go backwards
+        status, value = self.aggregate_compute()
+        return Reading(timestamp, status, value)

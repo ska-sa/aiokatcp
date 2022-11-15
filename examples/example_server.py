@@ -31,7 +31,6 @@ import asyncio
 import enum
 import logging
 import signal
-import time
 from typing import Tuple
 
 import aiokatcp
@@ -42,27 +41,21 @@ class Foo(enum.Enum):
     GHI_K = 2
 
 
-class Total(aiokatcp.AggregateSensor):
+class Total(aiokatcp.SimpleAggregateSensor):
     def __init__(self, target):
+        self._total = 0
         super().__init__(target=target, sensor_type=int, name="total")
 
-    def update_aggregate(self, updated_sensor, reading, old_reading):
-        if updated_sensor is None:
-            # Instantiation, calculate total for sensors already in target.
-            total = sum(
-                sensor.value for sensor in self.target.values() if self.filter_aggregate(sensor)
-            )
-            return aiokatcp.Reading(time.time(), aiokatcp.Sensor.Status.NOMINAL, total)
-        new_value = self.value
-        if old_reading is not None:  # Will be None if this is a new sensor being added
-            new_value -= old_reading.value  # Remove the previous value from the sum
-        if reading is not None:  # Will be None if this is a sensor being removed
-            new_value += reading.value  # Add the new value to the sum
-        return aiokatcp.Reading(
-            updated_sensor.timestamp,
-            aiokatcp.Sensor.Status.NOMINAL,
-            new_value,
-        )
+    def aggregate_add(self, updated_sensor, reading):
+        self._total += reading.value
+        return True
+
+    def aggregate_remove(self, updated_sensor, reading):
+        self._total -= reading.value
+        return False
+
+    def aggregate_compute(self):
+        return (aiokatcp.Sensor.Status.NOMINAL, self._total)
 
     def filter_aggregate(self, sensor):
         """Return true for int sensors which aren't self."""
@@ -123,14 +116,15 @@ class Server(aiokatcp.DeviceServer):
         This demonstrate's the aggregate sensor's ability to add and remove
         values from its total.
         """
-        await asyncio.sleep(10)
-        sensor = aiokatcp.Sensor(int, "fixed-value", default=7)
-        self.mass_inform("interface-changed", "sensor", "fixed-value", "added")
-        self.sensors.add(sensor)
+        while True:
+            await asyncio.sleep(10)
+            sensor = aiokatcp.Sensor(int, "fixed-value", default=7)
+            self.mass_inform("interface-changed", "sensor", "fixed-value", "added")
+            self.sensors.add(sensor)
 
-        await asyncio.sleep(10)
-        self.sensors.remove(sensor)
-        self.mass_inform("interface-changed", "sensor", "fixed-value", "removed")
+            await asyncio.sleep(10)
+            self.sensors.remove(sensor)
+            self.mass_inform("interface-changed", "sensor", "fixed-value", "removed")
 
 
 async def main():
