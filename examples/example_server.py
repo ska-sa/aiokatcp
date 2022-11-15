@@ -128,6 +128,7 @@ class Server(aiokatcp.DeviceServer):
 
 
 async def main():
+    logging.basicConfig(level=logging.INFO)
     server = Server("localhost", 4444)
     handler = Server.LogHandler(server)
     logging.getLogger().addHandler(handler)
@@ -137,8 +138,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    loop = asyncio.get_event_loop()
-    loop.set_debug(True)
-    loop.run_until_complete(main())
-    loop.close()
+    asyncio.run(main(), debug=True)
