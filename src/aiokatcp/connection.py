@@ -212,7 +212,9 @@ class Connection:
             else:
                 if msg is None:  # EOF received
                     break
-                self.logger.debug("Received message %r", bytes(msg))
+                if self.logger.isEnabledFor(logging.DEBUG):
+                    # Check isEnabledFor because bytes(msg) can be expensive
+                    self.logger.debug("Received message %r", bytes(msg))
                 await self.owner.handle_message(self, msg)
 
     def _done_callback(self, task: asyncio.Future) -> None:
