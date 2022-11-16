@@ -31,12 +31,18 @@ import ipaddress
 import logging
 import numbers
 import re
+import sys
 from typing import Any, Callable, Dict, Generic, List, Match, Optional, Tuple, Type, TypeVar, Union
 
 _T = TypeVar("_T")
 _T_contra = TypeVar("_T_contra", contravariant=True)
 _E = TypeVar("_E", bound=enum.Enum)
 _IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
+if sys.version_info >= (3, 10):
+    # Union[A, B] and A | B have different classes, even though they behave similarly
+    _UnionTypes = (type(Union[int, float]), type(int | float))
+else:
+    _UnionTypes = (type(Union[int, float]),)
 
 
 class Address:
@@ -360,10 +366,9 @@ def _union_args(cls: Any) -> Optional[Tuple[Type, ...]]:
 
     Returns ``None`` if `cls` is not a specific :class:`typing.Union` type.
     """
-    if not isinstance(cls, type(Union[int, float])):
+    if not isinstance(cls, _UnionTypes):
         return None
-    args = cls.__args__  # type: ignore
-    return args
+    return cls.__args__  # type: ignore
 
 
 def decode(cls: Any, value: bytes) -> Any:
@@ -446,11 +451,10 @@ class Message:
     _REVERSE_TYPE_SYMBOLS = {value: key for (key, value) in _TYPE_SYMBOLS.items()}
 
     _NAME_RE = re.compile("^[A-Za-z][A-Za-z0-9-]*$", re.ASCII)
-    _WHITESPACE_RE = re.compile(rb"[ \t]+")
     _HEADER_RE = re.compile(rb"^[!#?]([A-Za-z][A-Za-z0-9-]*)(?:\[([1-9][0-9]*)\])?$")
     #: Characters that must be escaped in an argument
     _ESCAPE_RE = re.compile(rb"[\\ \0\n\r\x1b\t]")
-    _UN_ESCAPE_RE = re.compile(rb"\\(.)")
+    _UNESCAPE_RE = re.compile(rb"\\(.)?")  # ? so that it also matches trailing backslash
     #: Characters not allowed to appear in an argument
     # (space, tab are omitted because they are split on already)
     _SPECIAL_RE = re.compile(rb"[\0\r\n\x1b]")
@@ -513,7 +517,9 @@ class Message:
         try:
             return cls._ESCAPE_LOOKUP[char]
         except KeyError:
-            raise KatcpSyntaxError(f"invalid escape character {char!r}")
+            if char is None:
+                raise KatcpSyntaxError("argument ends with backslash") from None
+            raise KatcpSyntaxError(f"invalid escape character {char!r}") from None
 
     @classmethod
     def escape_argument(cls, arg: bytes) -> bytes:
@@ -526,12 +532,10 @@ class Message:
     @classmethod
     def unescape_argument(cls, arg: bytes) -> bytes:
         """Reverse of :func:`escape_argument`"""
-        if arg.endswith(b"\\"):
-            raise KatcpSyntaxError("argument ends with backslash")
-        match = cls._SPECIAL_RE.search(arg)
-        if match:
-            raise KatcpSyntaxError(f"unescaped special {match.group()!r}")
-        return cls._UN_ESCAPE_RE.sub(cls._unescape_match, arg)
+        # For performance reasons this function is no longer used internally
+        # (it's faster to inline it), but it is kept because it is part of
+        # the public API.
+        return cls._UNESCAPE_RE.sub(cls._unescape_match, arg)
 
     @classmethod
     def parse(cls, raw) -> "Message":
@@ -552,7 +556,13 @@ class Message:
                 raise KatcpSyntaxError("message does not start with message type")
             if raw[-1:] not in (b"\r", b"\n"):
                 raise KatcpSyntaxError("message does not end with newline")
-            parts = cls._WHITESPACE_RE.split(raw[:-1])
+            clean = raw[:-1].replace(b"\t", b" ")
+            match = cls._SPECIAL_RE.search(clean)
+            if match:
+                raise KatcpSyntaxError(f"unescaped special {match.group()!r}")
+            # NB: don't use split() without an argument, as it will also split
+            # on whitespace other than space or tab (e.g. form feed).
+            parts = [part for part in clean.split(b" ") if part]
             match = cls._HEADER_RE.match(parts[0])
             if not match:
                 raise KatcpSyntaxError("could not parse name and message ID")
@@ -562,14 +572,15 @@ class Message:
                 mid = int(mid_raw)
             else:
                 mid = None
-            mtype = cls._REVERSE_TYPE_SYMBOLS[raw[:1]]
+            mtype = cls._REVERSE_TYPE_SYMBOLS[clean[:1]]
             # Create the message first without arguments, to avoid the argument
             # encoding and let us store raw bytes.
             msg = cls(mtype, name, mid=mid)
-            # Trailing whitespace causes split to add an empty argument
-            if parts[-1] == b"":
-                del parts[-1]
-            msg.arguments = [cls.unescape_argument(arg) for arg in parts[1:]]
+            # Performance: copy functions to local variables to avoid doing
+            # attribute lookup for every element of parts.
+            sub = cls._UNESCAPE_RE.sub
+            unescape_match = cls._unescape_match
+            msg.arguments = [sub(unescape_match, arg) for arg in parts[1:]]
             return msg
         except KatcpSyntaxError as error:
             error.raw = raw

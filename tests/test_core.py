@@ -339,6 +339,10 @@ class TestMessage:
         msg = Message.parse(b"?test message  \n")
         assert msg == Message.request("test", b"message")
 
+    def test_parse_other_whitespace(self) -> None:
+        msg = Message.parse(b"?test message\fwith\vwhitespace\n")
+        assert msg == Message.request("test", b"message\fwith\vwhitespace")
+
     def test_parse_mid(self) -> None:
         msg = Message.parse(b"?test[222] message \\0\\n\\r\\t\\e\\_binary\n")
         assert msg == Message.request("test", b"message", b"\0\n\r\t\x1b binary", mid=222)
@@ -349,6 +353,8 @@ class TestMessage:
         "msg",
         [
             pytest.param(b"", id="Empty message"),
+            pytest.param(b"\n", id="Empty message with newline"),
+            pytest.param(b"\t \t\n", id="Only whitespace"),
             pytest.param(b" !ok\n", id="Leading whitespace"),
             pytest.param(b"?bad_name message", id="Underscore in name"),
             pytest.param(b"? message", id="Empty name"),
