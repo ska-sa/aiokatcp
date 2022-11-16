@@ -1,6 +1,11 @@
 Changelog
 =========
 
+.. rubric:: Version 1.5.1
+
+- Make PEP 604 union syntax work in handler annotations.
+- Speed up message parsing, particularly for messages with thousands of arguments.
+
 .. rubric:: Version 1.5.0
 
 - Add :class:`SimpleAggregateSensor` class to simplify common use cases for
