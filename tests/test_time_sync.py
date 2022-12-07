@@ -48,8 +48,8 @@ def updater(sensors: SensorSet) -> TimeSyncUpdater:
     return TimeSyncUpdater({sensor.name[4:]: sensor for sensor in sensors.values()})
 
 
-@pytest.fixture
-def mock_adjtimex(mocker) -> None:
+@pytest.fixture(params=[False, True])
+def mock_adjtimex(mocker, request) -> None:
     """Replace get_adjtimex with a mock version with known values."""
     timex = aiokatcp.adjtimex.Timex()
     timex.modes = 0
@@ -57,6 +57,9 @@ def mock_adjtimex(mocker) -> None:
     timex.maxerror = 4567
     timex.time.tv_sec = 1234567890
     timex.time.tv_usec = 654321
+    if request.param:
+        timex.status |= aiokatcp.adjtimex.STA_NANO
+        timex.time.tv_usec *= 1000
     return_value = (aiokatcp.adjtimex.TIME_OK, timex)
     mocker.patch("aiokatcp.adjtimex.get_adjtimex", return_value=return_value)
 
@@ -70,6 +73,11 @@ def test_smoke(sensors: SensorSet, updater: TimeSyncUpdater) -> None:
     for sensor in sensors.values():
         # Check that it actually got updated
         assert sensor.status == Sensor.Status.NOMINAL
+
+
+def test_bad_key(sensors) -> None:
+    with pytest.raises(KeyError, match="Key 'foo' is not valid"):
+        TimeSyncUpdater({"foo": sensors["ntp.esterror"]})
 
 
 def test_mocked(sensors: SensorSet, updater: TimeSyncUpdater, mock_adjtimex) -> None:
