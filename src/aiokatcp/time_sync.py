@@ -34,7 +34,6 @@ time is being kept synchronised, and (at least on Linux) is accessible from
 inside a container with no privileges required.
 """
 
-import asyncio
 from enum import Enum
 from typing import Mapping
 
@@ -98,13 +97,3 @@ class TimeSyncUpdater:
                 value = getattr(timex, key)
             value = _TRANSFORMS[key](value)
             sensor.set_value(value, timestamp=now)
-
-    async def run(self, period: float) -> None:
-        """Run until cancelled, updating the sensors every `period` seconds.
-
-        In the current implementation the `period` won't be exact, because it
-        doesn't account for the time spent performing the update.
-        """
-        while True:
-            self.update()
-            await asyncio.sleep(period)
