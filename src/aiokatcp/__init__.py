@@ -47,6 +47,7 @@ from .client import (  # noqa: F401
 from .connection import Connection, FailReply, InvalidReply  # noqa: F401
 from .core import (  # noqa: F401
     Address,
+    DeviceStatus,
     KatcpSyntaxError,
     Message,
     Now,

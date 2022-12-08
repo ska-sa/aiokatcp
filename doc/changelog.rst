@@ -1,6 +1,10 @@
 Changelog
 =========
 
+.. rubric:: Development version
+
+- Add DeviceStatus enum for discrete device-status sensors.
+
 .. rubric:: Version 1.5.1
 
 - Make PEP 604 union syntax work in handler annotations.
