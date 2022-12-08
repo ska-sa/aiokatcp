@@ -182,6 +182,14 @@ class LogLevel(enum.IntEnum):
             return member
 
 
+class DeviceStatus(enum.Enum):
+    """Discrete `device-status` readings."""
+
+    OK = 1
+    DEGRADED = 2
+    FAIL = 3
+
+
 class TypeInfo(Generic[_T_contra]):
     """Type database entry. Refer to :func:`register_type` for details."""
 
