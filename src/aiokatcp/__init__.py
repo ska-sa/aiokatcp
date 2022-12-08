@@ -68,6 +68,7 @@ from .sensor import (  # noqa: F401
     SimpleAggregateSensor,
 )
 from .server import DeviceServer, RequestContext  # noqa: F401
+from .time_sync import ClockState, TimeSyncUpdater  # noqa: F401
 
 
 def minor_version():
