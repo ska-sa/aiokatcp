@@ -35,7 +35,7 @@ inside a container with no privileges required.
 """
 
 from enum import Enum
-from typing import Mapping
+from typing import Callable, Mapping
 
 from . import adjtimex
 from .sensor import Sensor
@@ -55,7 +55,7 @@ def _us_to_s(value):
     return 1e-6 * value
 
 
-_TRANSFORMS = {
+_TRANSFORMS: Mapping[str, Callable] = {
     "maxerror": _us_to_s,
     "esterror": _us_to_s,
     "state": ClockState,
