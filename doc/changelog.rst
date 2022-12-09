@@ -1,6 +1,11 @@
 Changelog
 =========
 
+.. rubric:: Version 1.6.1
+
+- Workaround to prevent old versions of mypy (0.780) from throwing an internal
+  error.
+
 .. rubric:: Version 1.6.0
 
 - Add :class:`.DeviceStatus` enum for discrete device-status sensors.
