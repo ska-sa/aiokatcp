@@ -70,8 +70,10 @@ from .sensor import (  # noqa: F401
     SimpleAggregateSensor,
 )
 from .server import DeviceServer, RequestContext  # noqa: F401
-if sys.platform == 'linux':
+
+if sys.platform == "linux":
     from .time_sync import ClockState, TimeSyncUpdater  # noqa: F401
+
 
 def minor_version():
     return ".".join(__version__.split(".")[:2])
