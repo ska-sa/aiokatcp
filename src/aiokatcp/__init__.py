@@ -37,6 +37,8 @@ else:
     __version__ = _katversion.get_version(__path__[0])
 # END VERSION CHECK
 
+import sys
+
 from .client import (  # noqa: F401
     AbstractSensorWatcher,
     Client,
@@ -68,7 +70,9 @@ from .sensor import (  # noqa: F401
     SimpleAggregateSensor,
 )
 from .server import DeviceServer, RequestContext  # noqa: F401
-from .time_sync import ClockState, TimeSyncUpdater  # noqa: F401
+
+if sys.platform == "linux":
+    from .time_sync import ClockState, TimeSyncUpdater  # noqa: F401
 
 
 def minor_version():
