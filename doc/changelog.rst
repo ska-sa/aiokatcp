@@ -1,6 +1,12 @@
 Changelog
 =========
 
+.. rubric:: Version 1.6.2
+
+- Make things work on MacOS again.
+- CI: Update certifi to a newer version.
+- Add a type annotation to prevent an internal error in old versions of mypy.
+
 .. rubric:: Version 1.6.1
 
 - Workaround to prevent old versions of mypy (0.780) from throwing an internal
