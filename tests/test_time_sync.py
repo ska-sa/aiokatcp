@@ -27,12 +27,18 @@
 
 """Tests for :mod:`aiokatcp.time_sync` and (indirectly) :mod:`aiokatcp.adjtimex`."""
 
+import sys
+
 import pytest
 
-import aiokatcp.adjtimex
 from aiokatcp import Sensor, SensorSet
-from aiokatcp.time_sync import ClockState, TimeSyncUpdater
 
+if sys.platform == 'linux':
+    import aiokatcp.adjtimex
+    from aiokatcp.time_sync import ClockState, TimeSyncUpdater
+else:
+    ClockState = TimeSyncUpdater = None
+    pytestmark = pytest.mark.skip('adjtimex-based time sync only works on Linux')
 
 @pytest.fixture
 def sensors() -> SensorSet:
