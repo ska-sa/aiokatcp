@@ -33,12 +33,13 @@ import pytest
 
 from aiokatcp import Sensor, SensorSet
 
-if sys.platform == 'linux':
+if sys.platform == "linux":
     import aiokatcp.adjtimex
     from aiokatcp.time_sync import ClockState, TimeSyncUpdater
 else:
     ClockState = TimeSyncUpdater = None
-    pytestmark = pytest.mark.skip('adjtimex-based time sync only works on Linux')
+    pytestmark = pytest.mark.skip("adjtimex-based time sync only works on Linux")
+
 
 @pytest.fixture
 def sensors() -> SensorSet:
