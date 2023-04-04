@@ -31,14 +31,12 @@ import sys
 
 import pytest
 
-from aiokatcp import Sensor, SensorSet
+if sys.platform != "linux":
+    pytest.skip("skipping Linux-only tests based on adjtimex", allow_module_level=True)
 
-if sys.platform == "linux":
-    import aiokatcp.adjtimex
-    from aiokatcp.time_sync import ClockState, TimeSyncUpdater
-else:
-    ClockState = TimeSyncUpdater = None
-    pytestmark = pytest.mark.skip("adjtimex-based time sync only works on Linux")
+import aiokatcp.adjtimex
+from aiokatcp import Sensor, SensorSet
+from aiokatcp.time_sync import ClockState, TimeSyncUpdater
 
 
 @pytest.fixture
