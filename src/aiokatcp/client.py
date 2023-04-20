@@ -737,12 +737,21 @@ class SensorWatcher(AbstractSensorWatcher):
             key = tuple(core.encode(value) for value in enum_type.__members__.values())
             self._enum_cache[key] = enum_type
 
-    def rewrite_name(self, name: str) -> str:
+    def rewrite_name(self, name: str) -> Union[str, Sequence[str]]:
         """Convert name of incoming sensor to name to use in the sensor set.
 
-        This defaults to the identity, but can be overridden to provide name mangling.
+        This defaults to the identity, but can be overridden to provide name
+        mangling. It may also return a sequence of names, in which case the
+        original sensor is replicated under each of those names.
         """
         return name
+
+    def _rewritten_names(self, name: str) -> Sequence[str]:
+        names = self.rewrite_name(name)
+        if isinstance(names, str):
+            return [names]
+        else:
+            return names
 
     def make_type(self, type_name: str, parameters: Sequence[bytes]) -> type:
         """Get the sensor type for a given type name"""
@@ -769,34 +778,37 @@ class SensorWatcher(AbstractSensorWatcher):
             self.logger.warning("Type %s is not recognised, skipping sensor %s", type_name, name)
             return
         stype = self.make_type(type_name, args)
-        s: sensor.Sensor = sensor.Sensor(stype, self.rewrite_name(name), description, units)
-        self.sensors.add(s)
+        for new_name in self._rewritten_names(name):
+            s: sensor.Sensor = sensor.Sensor(stype, new_name, description, units)
+            self.sensors.add(s)
 
     def sensor_removed(self, name: str) -> None:
-        self.sensors.pop(self.rewrite_name(name), None)
+        for new_name in self._rewritten_names(name):
+            self.sensors.pop(new_name, None)
 
     def sensor_updated(
         self, name: str, value: bytes, status: sensor.Sensor.Status, timestamp: float
     ) -> None:
-        try:
-            sensor = self.sensors[self.rewrite_name(name)]
-        except KeyError:
-            self.logger.warning("Received update for unknown sensor %s", name)
-            return
+        for new_name in self._rewritten_names(name):
+            try:
+                sensor = self.sensors[new_name]
+            except KeyError:
+                self.logger.warning("Received update for unknown sensor %s", name)
+                continue
 
-        try:
-            decoded = core.decode(sensor.stype, value)
-        except ValueError as exc:
-            self.logger.warning(
-                "Sensor %s: value %r does not match type %s: %s",
-                name,
-                value,
-                sensor.type_name,
-                exc,
-            )
-            return
+            try:
+                decoded = core.decode(sensor.stype, value)
+            except ValueError as exc:
+                self.logger.warning(
+                    "Sensor %s: value %r does not match type %s: %s",
+                    name,
+                    value,
+                    sensor.type_name,
+                    exc,
+                )
+                continue
 
-        sensor.set_value(decoded, status=status, timestamp=timestamp)
+            sensor.set_value(decoded, status=status, timestamp=timestamp)
 
     def state_updated(self, state: SyncState) -> None:
         if state == SyncState.DISCONNECTED:
