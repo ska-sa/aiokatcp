@@ -1,7 +1,7 @@
 Changelog
 =========
 
-.. rubric:: Development version
+.. rubric:: Version 1.7.0
 
 - Extend :class:`.SensorWatcher` to allow incoming sensors to be replicated
   under multiple names.
