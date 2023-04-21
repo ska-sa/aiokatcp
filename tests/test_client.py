@@ -32,7 +32,7 @@ import logging
 import re
 import unittest
 import unittest.mock
-from typing import AsyncGenerator, Tuple, Type, Union, cast
+from typing import AsyncGenerator, Sequence, Tuple, Type, Union, cast
 from unittest.mock import call
 
 import async_solipsism
@@ -629,7 +629,9 @@ class TestSensorMonitor:
 
 
 class DummySensorWatcher(SensorWatcher):
-    def rewrite_name(self, name: str) -> str:
+    def rewrite_name(self, name: str) -> Union[str, Sequence[str]]:
+        if name == "bar":
+            return ["test_bar1", "test_bar2"]
         return "test_" + name
 
 
@@ -658,14 +660,22 @@ class TestSensorWatcher:
     def test_sensor_added(self, watcher: DummySensorWatcher) -> None:
         watcher.batch_start()
         watcher.sensor_added("foo", "A sensor", "F", "float")
+        watcher.sensor_added("bar", "A duplicated sensor", "s", "integer")
         watcher.batch_stop()
-        assert len(watcher.sensors) == 1
+        assert len(watcher.sensors) == 3
         sensor = watcher.sensors["test_foo"]
         assert sensor.name == "test_foo"
         assert sensor.description == "A sensor"
         assert sensor.units == "F"
         assert sensor.stype == float
         assert sensor.status == Sensor.Status.UNKNOWN
+        for name in ["test_bar1", "test_bar2"]:
+            sensor = watcher.sensors[name]
+            assert sensor.name == name
+            assert sensor.description == "A duplicated sensor"
+            assert sensor.units == "s"
+            assert sensor.stype == int
+            assert sensor.status == Sensor.Status.UNKNOWN
 
     def test_sensor_added_discrete(self, watcher: DummySensorWatcher) -> None:
         watcher.batch_start()
@@ -712,6 +722,7 @@ class TestSensorWatcher:
 
         watcher.batch_start()
         watcher.sensor_removed("foo")
+        watcher.sensor_removed("bar")
         watcher.batch_stop()
         assert len(watcher.sensors) == 0
 
@@ -720,11 +731,17 @@ class TestSensorWatcher:
 
         watcher.batch_start()
         watcher.sensor_updated("foo", b"12.5", Sensor.Status.WARN, 1234567890.0)
+        watcher.sensor_updated("bar", b"42", Sensor.Status.ERROR, 1234567891.5)
         watcher.batch_stop()
         sensor = watcher.sensors["test_foo"]
         assert sensor.value == 12.5
         assert sensor.status == Sensor.Status.WARN
         assert sensor.timestamp == 1234567890.0
+        for name in ["test_bar1", "test_bar2"]:
+            sensor = watcher.sensors[name]
+            assert sensor.value == 42
+            assert sensor.status == Sensor.Status.ERROR
+            assert sensor.timestamp == 1234567891.5
 
     def test_sensor_updated_bad_value(self, watcher: DummySensorWatcher) -> None:
         self.test_sensor_added(watcher)
@@ -744,10 +761,10 @@ class TestSensorWatcher:
         self.test_sensor_added(watcher)
 
         watcher.batch_start()
-        watcher.sensor_updated("bar", b"123.0", Sensor.Status.WARN, 1234567890.0)
+        watcher.sensor_updated("spam", b"123.0", Sensor.Status.WARN, 1234567890.0)
         watcher.batch_stop()
         watcher.logger.warning.assert_called_once_with(  # type: ignore
-            "Received update for unknown sensor %s", "bar"
+            "Received update for unknown sensor %s", "spam"
         )
 
     def test_state_updated(self, watcher: DummySensorWatcher) -> None:
@@ -755,18 +772,19 @@ class TestSensorWatcher:
 
         watcher.state_updated(SyncState.SYNCING)
         assert not watcher.synced.is_set()
-        assert len(watcher.sensors) == 1
+        assert len(watcher.sensors) == 3
         assert watcher.sensors["test_foo"].status == Sensor.Status.UNKNOWN
 
         watcher.state_updated(SyncState.SYNCED)
         assert watcher.synced.is_set()
-        assert len(watcher.sensors) == 1
+        assert len(watcher.sensors) == 3
         assert watcher.sensors["test_foo"].status == Sensor.Status.UNKNOWN
 
         watcher.state_updated(SyncState.DISCONNECTED)
         assert not watcher.synced.is_set()
         # Disconnecting should set all sensors to UNREACHABLE
-        assert watcher.sensors["test_foo"].status == Sensor.Status.UNREACHABLE
+        for name in ["test_foo", "test_bar1", "test_bar2"]:
+            assert watcher.sensors[name].status == Sensor.Status.UNREACHABLE
 
 
 @pytest.mark.channel_args(auto_reconnect=False)

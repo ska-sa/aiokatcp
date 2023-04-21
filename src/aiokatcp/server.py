@@ -475,7 +475,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             except AttributeError:
                 # Python 3.7 does not have task names
                 name = "a task"
-            logger.warning("Halting the server because %s raised %s", name, exc)
+            logger.warning("Halting the server because %s raised %s", name, exc, exc_info=True)
             self.halt()
         if remove:
             # No exception to report during shutdown, so clean it up

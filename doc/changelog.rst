@@ -1,6 +1,12 @@
 Changelog
 =========
 
+.. rubric:: Development version
+
+- Extend :class:`.SensorWatcher` to allow incoming sensors to be replicated
+  under multiple names.
+- Log exception traceback when a service task crashes.
+
 .. rubric:: Version 1.6.2
 
 - Make things work on MacOS again.
