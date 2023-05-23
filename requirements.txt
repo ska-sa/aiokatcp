@@ -4,19 +4,17 @@
 #
 #    pip-compile requirements.in
 #
-async-solipsism==0.3
+async-solipsism==0.5
     # via -r requirements.in
 async-timeout==4.0.2
     # via -r requirements.in
-attrs==21.4.0
-    # via pytest
-certifi==2022.12.7
+certifi==2023.5.7
     # via requests
 cfgv==3.3.1
     # via pre-commit
-charset-normalizer==2.0.12
+charset-normalizer==3.1.0
     # via requests
-coverage[toml]==6.3.2
+coverage[toml]==6.5.0
     # via
     #   coveralls
     #   pytest-cov
@@ -24,71 +22,69 @@ coveralls==3.3.1
     # via -r requirements.in
 decorator==5.1.1
     # via -r requirements.in
-distlib==0.3.4
+distlib==0.3.6
     # via virtualenv
 docopt==0.6.2
     # via coveralls
-filelock==3.6.0
+exceptiongroup==1.1.1
+    # via pytest
+filelock==3.12.0
     # via virtualenv
-identify==2.4.12
+identify==2.5.24
     # via pre-commit
-idna==3.3
+idna==3.4
     # via requests
-importlib-metadata==4.11.3
+importlib-metadata==6.6.0
     # via
     #   pluggy
     #   pre-commit
     #   pytest
     #   virtualenv
-iniconfig==1.1.1
+iniconfig==2.0.0
     # via pytest
-nodeenv==1.6.0
+nodeenv==1.8.0
     # via pre-commit
-packaging==21.3
+packaging==23.1
     # via pytest
-platformdirs==2.5.1
+platformdirs==3.5.1
     # via virtualenv
 pluggy==1.0.0
     # via pytest
-pre-commit==2.18.1
+pre-commit==2.21.0
     # via -r requirements.in
-py==1.11.0
-    # via pytest
-pyparsing==3.0.8
-    # via packaging
-pytest==7.1.1
+pytest==7.3.1
     # via
     #   -r requirements.in
     #   pytest-asyncio
     #   pytest-cov
     #   pytest-mock
-pytest-asyncio==0.18.3
+pytest-asyncio==0.21.0
     # via -r requirements.in
-pytest-cov==3.0.0
+pytest-cov==4.0.0
     # via -r requirements.in
-pytest-mock==3.7.0
+pytest-mock==3.10.0
     # via -r requirements.in
 pyyaml==6.0
     # via pre-commit
-requests==2.27.1
+requests==2.31.0
     # via coveralls
-six==1.16.0
-    # via virtualenv
-toml==0.10.2
-    # via pre-commit
 tomli==2.0.1
     # via
     #   coverage
     #   pytest
-typing-extensions==4.1.1
+typing-extensions==4.6.0
     # via
     #   -r requirements.in
     #   async-timeout
     #   importlib-metadata
+    #   platformdirs
     #   pytest-asyncio
-urllib3==1.26.9
+urllib3==2.0.2
     # via requests
-virtualenv==20.14.1
+virtualenv==20.23.0
     # via pre-commit
-zipp==3.8.0
+zipp==3.15.0
     # via importlib-metadata
+
+# The following packages are considered to be unsafe in a requirements file:
+# setuptools
