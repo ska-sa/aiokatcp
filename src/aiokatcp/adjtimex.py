@@ -175,6 +175,6 @@ def get_adjtimex() -> Tuple[int, Timex]:
         Clock information
     """
     timex = Timex()
-    timex.mode = 0
+    timex.modes = 0
     state = adjtimex(timex)
     return state, timex
