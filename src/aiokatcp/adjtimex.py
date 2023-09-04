@@ -87,6 +87,8 @@ STA_RONLY = (
 
 
 class Timeval(ctypes.Structure):
+    """See https://man7.org/linux/man-pages/man3/adjtime.3.html."""
+
     _fields_ = [
         ("tv_sec", ctypes.c_long),
         ("tv_usec", ctypes.c_long),
@@ -94,6 +96,8 @@ class Timeval(ctypes.Structure):
 
 
 class Timex(ctypes.Structure):
+    """See https://man7.org/linux/man-pages/man2/adjtimex.2.html."""
+
     _fields_ = [
         ("modes", ctypes.c_int),
         ("offset", ctypes.c_long),
