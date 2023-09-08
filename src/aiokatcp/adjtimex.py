@@ -25,15 +25,10 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""Python wrapper for the Linux-specific :func:`adjtimex` system call.
-
-On non-Linux systems the call is kludged by calling :func:`time.time_ns`
-instead, returning a clock state of "OK" and large maximum / estimated errors.
-"""
+"""Python wrapper for the Linux-specific :func:`adjtimex` system call."""
 
 import ctypes
 import os
-import time
 from typing import Tuple
 
 TIME_OK = 0
@@ -123,31 +118,8 @@ class Timex(ctypes.Structure):
     ]
 
 
-def adjtimex(timex: Timex) -> int:
-    """Simulated adjtimex call meant for non-Linux systems.
-
-    The correct time is returned but the maximum and estimated errors
-    are artificially high (1 second each) in the absence of real values.
-
-    Parameters
-    ----------
-    timex
-        Clock information
-
-    Returns
-    -------
-    state
-        Clock state (always `TIME_OK`)
-    """
-    timeval = Timeval()
-    time_ns = time.time_ns()
-    timeval.tv_sec = time_ns // 1_000_000_000
-    timeval.tv_usec = time_ns % 1_000_000_000
-    timex.time = timeval
-    timex.status = STA_NANO
-    timex.maxerror = 1_000_000
-    timex.esterror = 1_000_000
-    return TIME_OK
+def _no_adjtimex(timex: Timex) -> int:
+    raise NotImplementedError("System call 'adjtimex' is only available on Linux")
 
 
 def _errcheck(result, func, args):
@@ -160,9 +132,9 @@ def _errcheck(result, func, args):
 try:
     _libc = ctypes.CDLL("libc.so.6", use_errno=True)
 except OSError:
-    pass
+    adjtimex = _no_adjtimex
 else:
-    adjtimex = _libc.adjtimex  # noqa: F811
+    adjtimex = _libc.adjtimex
     adjtimex.argtypes = [ctypes.POINTER(Timex)]  # type: ignore[attr-defined]
     adjtimex.restype = ctypes.c_int  # type: ignore[attr-defined]
     adjtimex.errcheck = _errcheck  # type: ignore[attr-defined]

@@ -27,6 +27,8 @@
 
 """Tests for :mod:`aiokatcp.time_sync` and (indirectly) :mod:`aiokatcp.adjtimex`."""
 
+import sys
+
 import pytest
 
 import aiokatcp.adjtimex
@@ -64,15 +66,34 @@ def mock_adjtimex(mocker, request) -> None:
     mocker.patch("aiokatcp.adjtimex.get_adjtimex", return_value=return_value)
 
 
-def test_smoke(sensors: SensorSet, updater: TimeSyncUpdater) -> None:
-    """Test with real adjtimex, to make sure it interacts cleanly with the kernel."""
+_linux = pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="Check real adjtimex on Linux systems only",
+)
+_non_linux = pytest.mark.skipif(
+    sys.platform.startswith("linux"),
+    reason="Check unimplemented adjtimex on non-Linux systems only",
+)
+
+
+@pytest.mark.parametrize(
+    ("expected_status",),
+    [
+        pytest.param(Sensor.Status.NOMINAL, marks=_linux),
+        pytest.param(Sensor.Status.INACTIVE, marks=_non_linux),
+    ],
+)
+def test_smoke(
+    sensors: SensorSet, updater: TimeSyncUpdater, expected_status: Sensor.Status
+) -> None:
+    """Test with real adjtimex on Linux to ensure it interacts cleanly with kernel."""
     updater.update()
     assert isinstance(sensors["ntp.esterror"].value, float)
     assert isinstance(sensors["ntp.maxerror"].value, float)
     assert isinstance(sensors["ntp.state"].value, ClockState)
     for sensor in sensors.values():
         # Check that it actually got updated
-        assert sensor.status == Sensor.Status.NOMINAL
+        assert sensor.status == expected_status
 
 
 def test_bad_key(sensors) -> None:
