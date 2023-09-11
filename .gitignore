@@ -7,3 +7,6 @@
 src/aiokatcp.egg-info
 *.pyc
 __pycache__
+
+# macOS detritus
+.DS_Store
