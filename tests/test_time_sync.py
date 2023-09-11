@@ -67,17 +67,17 @@ def mock_adjtimex(mocker, request) -> None:
 
 
 _linux = pytest.mark.skipif(
-    not sys.platform.startswith("linux"),
+    sys.platform != "linux",
     reason="Check real adjtimex on Linux systems only",
 )
 _non_linux = pytest.mark.skipif(
-    sys.platform.startswith("linux"),
+    sys.platform == "linux",
     reason="Check unimplemented adjtimex on non-Linux systems only",
 )
 
 
 @pytest.mark.parametrize(
-    ("expected_status",),
+    "expected_status",
     [
         pytest.param(Sensor.Status.NOMINAL, marks=_linux),
         pytest.param(Sensor.Status.INACTIVE, marks=_non_linux),

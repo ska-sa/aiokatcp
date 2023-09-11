@@ -134,10 +134,11 @@ try:
 except OSError:
     adjtimex = _no_adjtimex
 else:
-    adjtimex = _libc.adjtimex
-    adjtimex.argtypes = [ctypes.POINTER(Timex)]  # type: ignore[attr-defined]
-    adjtimex.restype = ctypes.c_int  # type: ignore[attr-defined]
-    adjtimex.errcheck = _errcheck  # type: ignore[attr-defined]
+    _real_adjtimex = _libc.adjtimex
+    _real_adjtimex.argtypes = [ctypes.POINTER(Timex)]
+    _real_adjtimex.restype = ctypes.c_int
+    _real_adjtimex.errcheck = _errcheck
+    adjtimex = _real_adjtimex
 
 
 def get_adjtimex() -> Tuple[int, Timex]:
