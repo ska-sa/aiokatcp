@@ -1,4 +1,4 @@
-# Copyright 2022 National Research Foundation (SARAO)
+# Copyright 2022, 2023 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
