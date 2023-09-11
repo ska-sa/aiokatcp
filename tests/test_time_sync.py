@@ -66,6 +66,12 @@ def mock_adjtimex(mocker, request) -> None:
     mocker.patch("aiokatcp.adjtimex.get_adjtimex", return_value=return_value)
 
 
+@pytest.fixture
+def mock_no_adjtimex(mocker) -> None:
+    """Replace adjtimex with _no_adjtimex (i.e. pretend it is absent)."""
+    mocker.patch("aiokatcp.adjtimex.adjtimex", side_effect=aiokatcp.adjtimex._no_adjtimex)
+
+
 _linux = pytest.mark.skipif(
     sys.platform != "linux",
     reason="Check real adjtimex on Linux systems only",
@@ -109,3 +115,14 @@ def test_mocked(sensors: SensorSet, updater: TimeSyncUpdater, mock_adjtimex) -> 
     assert sensors["ntp.state"].value == ClockState.OK
     for sensor in sensors.values():
         assert sensor.timestamp == 1234567890.654321
+
+
+def test_no_adjtimex(sensors: SensorSet, updater: TimeSyncUpdater, mock_no_adjtimex):
+    """Pretend that adjtimex is absent and test that it is handled correctly."""
+    updater.update()
+    assert isinstance(sensors["ntp.esterror"].value, float)
+    assert isinstance(sensors["ntp.maxerror"].value, float)
+    assert isinstance(sensors["ntp.state"].value, ClockState)
+    for sensor in sensors.values():
+        # Check that it actually got updated
+        assert sensor.status == Sensor.Status.INACTIVE
