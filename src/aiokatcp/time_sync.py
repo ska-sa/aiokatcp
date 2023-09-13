@@ -1,4 +1,4 @@
-# Copyright 2022 National Research Foundation (SARAO)
+# Copyright 2022, 2023 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -84,7 +84,13 @@ class TimeSyncUpdater:
 
     def update(self) -> None:
         """Update the sensors now."""
-        state, timex = adjtimex.get_adjtimex()
+        try:
+            state, timex = adjtimex.get_adjtimex()
+        except NotImplementedError:
+            for sensor in self.sensor_map.values():
+                sensor.set_value(sensor.value, Sensor.Status.INACTIVE)
+            return
+
         if timex.status & adjtimex.STA_NANO:
             scale = 1e-9
         else:

@@ -1,4 +1,4 @@
-# Copyright 2017, 2022 National Research Foundation (SARAO)
+# Copyright 2017, 2022, 2023 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -31,9 +31,6 @@ import sys
 
 import pytest
 
-if sys.platform != "linux":
-    pytest.skip("skipping Linux-only tests based on adjtimex", allow_module_level=True)
-
 import aiokatcp.adjtimex
 from aiokatcp import Sensor, SensorSet
 from aiokatcp.time_sync import ClockState, TimeSyncUpdater
@@ -54,6 +51,14 @@ def updater(sensors: SensorSet) -> TimeSyncUpdater:
 
 
 @pytest.fixture(params=[False, True])
+def pretend_no_adjtimex(mocker, request) -> bool:
+    """Optionally replace adjtimex with _no_adjtimex (i.e. pretend it is absent)."""
+    if request.param:
+        mocker.patch("aiokatcp.adjtimex.adjtimex", side_effect=aiokatcp.adjtimex._no_adjtimex)
+    return request.param
+
+
+@pytest.fixture(params=[False, True])
 def mock_adjtimex(mocker, request) -> None:
     """Replace get_adjtimex with a mock version with known values."""
     timex = aiokatcp.adjtimex.Timex()
@@ -62,6 +67,7 @@ def mock_adjtimex(mocker, request) -> None:
     timex.maxerror = 4567
     timex.time.tv_sec = 1234567890
     timex.time.tv_usec = 654321
+    # Check both microsecond and nanosecond versions of the timex struct
     if request.param:
         timex.status |= aiokatcp.adjtimex.STA_NANO
         timex.time.tv_usec *= 1000
@@ -69,15 +75,23 @@ def mock_adjtimex(mocker, request) -> None:
     mocker.patch("aiokatcp.adjtimex.get_adjtimex", return_value=return_value)
 
 
-def test_smoke(sensors: SensorSet, updater: TimeSyncUpdater) -> None:
-    """Test with real adjtimex, to make sure it interacts cleanly with the kernel."""
+def test_smoke(sensors: SensorSet, updater: TimeSyncUpdater, pretend_no_adjtimex) -> None:
+    """Test with real adjtimex, to make sure it interacts cleanly with the kernel.
+
+    On non-Linux systems, check that the sensors are inactive instead. Also
+    pretend that we don't have adjtimex just to check both code paths on Linux.
+    """
     updater.update()
     assert isinstance(sensors["ntp.esterror"].value, float)
     assert isinstance(sensors["ntp.maxerror"].value, float)
     assert isinstance(sensors["ntp.state"].value, ClockState)
+    if not pretend_no_adjtimex and sys.platform == "linux":
+        expected_status = Sensor.Status.NOMINAL
+    else:
+        expected_status = Sensor.Status.INACTIVE
     for sensor in sensors.values():
         # Check that it actually got updated
-        assert sensor.status == Sensor.Status.NOMINAL
+        assert sensor.status == expected_status
 
 
 def test_bad_key(sensors) -> None:

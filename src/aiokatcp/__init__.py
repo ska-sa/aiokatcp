@@ -1,4 +1,4 @@
-# Copyright 2017, 2022 National Research Foundation (SARAO)
+# Copyright 2017, 2022, 2023 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -37,8 +37,6 @@ else:
     __version__ = _katversion.get_version(__path__[0])
 # END VERSION CHECK
 
-import sys
-
 from .client import (  # noqa: F401
     AbstractSensorWatcher,
     Client,
@@ -70,9 +68,7 @@ from .sensor import (  # noqa: F401
     SimpleAggregateSensor,
 )
 from .server import DeviceServer, RequestContext  # noqa: F401
-
-if sys.platform == "linux":
-    from .time_sync import ClockState, TimeSyncUpdater  # noqa: F401
+from .time_sync import ClockState, TimeSyncUpdater  # noqa: F401
 
 
 def minor_version():

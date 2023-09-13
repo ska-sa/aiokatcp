@@ -1,4 +1,4 @@
-# Copyright 2022 National Research Foundation (SARAO)
+# Copyright 2022, 2023 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -25,10 +25,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""Python wrapper for the Linux-specific :func:`adjtimex` system call.
-
-Importing this module on a non-Linux system is likely to fail.
-"""
+"""Python wrapper for the Linux-specific :func:`adjtimex` system call."""
 
 import ctypes
 import os
@@ -85,6 +82,8 @@ STA_RONLY = (
 
 
 class Timeval(ctypes.Structure):
+    """See https://man7.org/linux/man-pages/man3/adjtime.3.html."""
+
     _fields_ = [
         ("tv_sec", ctypes.c_long),
         ("tv_usec", ctypes.c_long),
@@ -92,6 +91,8 @@ class Timeval(ctypes.Structure):
 
 
 class Timex(ctypes.Structure):
+    """See https://man7.org/linux/man-pages/man2/adjtimex.2.html."""
+
     _fields_ = [
         ("modes", ctypes.c_int),
         ("offset", ctypes.c_long),
@@ -117,6 +118,10 @@ class Timex(ctypes.Structure):
     ]
 
 
+def _no_adjtimex(timex: Timex) -> int:
+    raise NotImplementedError("System call 'adjtimex' is only available on Linux")
+
+
 def _errcheck(result, func, args):
     if result == -1:
         e = ctypes.get_errno()
@@ -124,11 +129,16 @@ def _errcheck(result, func, args):
     return result
 
 
-_libc = ctypes.CDLL("libc.so.6", use_errno=True)
-adjtimex = _libc.adjtimex
-adjtimex.argtypes = [ctypes.POINTER(Timex)]
-adjtimex.restype = ctypes.c_int
-adjtimex.errcheck = _errcheck  # type: ignore
+try:
+    _libc = ctypes.CDLL("libc.so.6", use_errno=True)
+except OSError:
+    adjtimex = _no_adjtimex
+else:
+    _real_adjtimex = _libc.adjtimex
+    _real_adjtimex.argtypes = [ctypes.POINTER(Timex)]
+    _real_adjtimex.restype = ctypes.c_int
+    _real_adjtimex.errcheck = _errcheck
+    adjtimex = _real_adjtimex
 
 
 def get_adjtimex() -> Tuple[int, Timex]:
@@ -142,6 +152,6 @@ def get_adjtimex() -> Tuple[int, Timex]:
         Clock information
     """
     timex = Timex()
-    timex.mode = 0
+    timex.modes = 0
     state = adjtimex(timex)
     return state, timex
