@@ -353,9 +353,7 @@ class TestAggregateSensor:
         """Check that creation happens properly, and correct initial value is set."""
         agg_sensor.update_aggregate.assert_called_with(agg_sensor, None, None, None)
         assert agg_sensor.target is ss
-        assert agg_sensor.reading.timestamp == 0
-        assert agg_sensor.reading.status == Sensor.Status.NOMINAL
-        assert agg_sensor.reading.value == 7
+        assert agg_sensor.reading == Reading(0, Sensor.Status.NOMINAL, 7)
 
     def test_sensor_added(self, agg_sensor, ss, sensors):
         """Check that the update function is called when a sensor is added."""
@@ -364,9 +362,7 @@ class TestAggregateSensor:
         agg_sensor.update_aggregate.assert_called_with(
             agg_sensor, sensors[1], sensors[1].reading, None
         )
-        assert agg_sensor.reading.timestamp == 7
-        assert agg_sensor.reading.status == Sensor.Status.WARN
-        assert agg_sensor.reading.value == 42
+        assert agg_sensor.reading == Reading(7, Sensor.Status.WARN, 42)
 
     def test_sensor_removed(self, agg_sensor, ss, sensors):
         """Check that the update function is called for a removed sensor."""
@@ -481,25 +477,18 @@ class TestSimpleAggregateSensor:
         return MySimpleAgg(ss, int, "simple-agg", "Test sensor")
 
     def test_initial_state(self, agg: MySimpleAgg, mock_time: mock.Mock) -> None:
-        assert agg.value == 3
-        assert agg.timestamp == mock_time.return_value
-        assert agg.status == Sensor.Status.NOMINAL
+        assert agg.reading == Reading(mock_time.return_value, Sensor.Status.NOMINAL, 3)
 
     def test_update_sensor(self, agg: MySimpleAgg, sensors: List[Sensor]) -> None:
         sensors[0].set_value(11, timestamp=1234512346.0)
-        assert agg.value == 11
-        assert agg.timestamp == 1234567890.0  # Time must not go backwards
-        assert agg.status == Sensor.Status.WARN
+        # Time must not go backwards
+        assert agg.reading == Reading(1234567890.0, Sensor.Status.WARN, 11)
         # Set to invalid state - should effectively remove the reading
         sensors[0].set_value(12, timestamp=1400567891.0, status=Sensor.Status.UNKNOWN)
-        assert agg.value == 0
-        assert agg.timestamp == 1400567891.0
-        assert agg.status == Sensor.Status.NOMINAL
+        assert agg.reading == Reading(1400567891.0, Sensor.Status.NOMINAL, 0)
         # Return to a valid state
         sensors[0].set_value(5, timestamp=1400567892.0)
-        assert agg.value == 5
-        assert agg.timestamp == 1400567892.0
-        assert agg.status == Sensor.Status.NOMINAL
+        assert agg.reading == Reading(1400567892.0, Sensor.Status.NOMINAL, 5)
 
     def test_add_remove_sensor(
         self, agg: MySimpleAgg, sensors: List[Sensor], ss: SensorSet, mock_time: mock.Mock
@@ -507,24 +496,18 @@ class TestSimpleAggregateSensor:
         mock_time.return_value = 1234567891.5
         sensors[1].set_value(8, timestamp=1400567890.0)
         ss.add(sensors[1])
-        assert agg.value == 11
-        assert agg.timestamp == mock_time.return_value
-        assert agg.status == Sensor.Status.WARN
+        assert agg.reading == Reading(mock_time.return_value, Sensor.Status.WARN, 11)
 
         mock_time.return_value = 1234567892.0
         ss.remove(sensors[0])
-        assert agg.value == 8
-        assert agg.timestamp == mock_time.return_value
-        assert agg.status == Sensor.Status.NOMINAL
+        assert agg.reading == Reading(mock_time.return_value, Sensor.Status.NOMINAL, 8)
 
     def test_filter_updates(self, agg: MySimpleAgg, sensors: List[Sensor]) -> None:
         sensors[0].set_value(5, timestamp=1400567890.0, status=Sensor.Status.UNKNOWN)
-        assert agg.value == 0
-        assert agg.timestamp == 1400567890.0
+        assert agg.reading == Reading(1400567890.0, Sensor.Status.NOMINAL, 0)
         # Make an update that doesn't change anything
         callback = mock.Mock()
         agg.attach(callback)
         sensors[0].set_value(6, timestamp=1400567891.0, status=Sensor.Status.UNKNOWN)
-        assert agg.value == 0
-        assert agg.timestamp == 1400567890.0
+        assert agg.reading == Reading(1400567890.0, Sensor.Status.NOMINAL, 0)
         callback.assert_not_called()
