@@ -3,7 +3,7 @@ default_language_version:
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.3.0
+    rev: v4.4.0
     hooks:
       - id: check-merge-conflict
       - id: check-shebang-scripts-are-executable
@@ -17,7 +17,7 @@ repos:
     hooks:
       - id: isort
   - repo: https://github.com/psf/black
-    rev: 22.10.0
+    rev: 23.3.0
     hooks:
       - id: black
   - repo: https://github.com/PyCQA/flake8
@@ -35,9 +35,8 @@ repos:
         # The pre-commit hook passes some options, but we set options in mypy.ini.
         args: []
         additional_dependencies: [
-          'async-timeout==4.0.2',
-          'pytest==7.1.1',
-          'types-decorator==5.1.4',
-          'types-setuptools==57.4.12',
-          'typing-extensions==4.1.1'
+          'async-timeout==4.0.3',
+          'pytest==7.4.2',
+          'types-decorator==5.1.1',
+          'typing-extensions==4.7.1'
         ]
