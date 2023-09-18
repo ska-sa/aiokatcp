@@ -34,6 +34,7 @@ import time
 import warnings
 import weakref
 from abc import ABCMeta, abstractmethod
+from dataclasses import dataclass
 from typing import (
     Any,
     Callable,
@@ -79,6 +80,7 @@ class ClassicObserver(Protocol[_T]):
 Observer = Union[ClassicObserver[_T], DeltaObserver[_T]]
 
 
+@dataclass
 class Reading(Generic[_T]):
     """Sensor reading
 
@@ -92,12 +94,11 @@ class Reading(Generic[_T]):
         Sensor value at `timestamp`
     """
 
+    # Once Python 3.10 is the minimum, pass 'slots' parameter to dataclass instead
     __slots__ = ("timestamp", "status", "value")
-
-    def __init__(self, timestamp: float, status: "Sensor.Status", value: _T) -> None:
-        self.timestamp = timestamp
-        self.status = status
-        self.value = value
+    timestamp: float
+    status: "Sensor.Status"
+    value: _T
 
 
 def _default_status_func(value) -> "Sensor.Status":

@@ -45,6 +45,7 @@ from aiokatcp import (
     InvalidReply,
     Message,
     ProtocolError,
+    Reading,
     Sensor,
     SensorWatcher,
     SyncState,
@@ -734,14 +735,10 @@ class TestSensorWatcher:
         watcher.sensor_updated("bar", b"42", Sensor.Status.ERROR, 1234567891.5)
         watcher.batch_stop()
         sensor = watcher.sensors["test_foo"]
-        assert sensor.value == 12.5
-        assert sensor.status == Sensor.Status.WARN
-        assert sensor.timestamp == 1234567890.0
+        assert sensor.reading == Reading(1234567890.0, Sensor.Status.WARN, 12.5)
         for name in ["test_bar1", "test_bar2"]:
             sensor = watcher.sensors[name]
-            assert sensor.value == 42
-            assert sensor.status == Sensor.Status.ERROR
-            assert sensor.timestamp == 1234567891.5
+            assert sensor.reading == Reading(1234567891.5, Sensor.Status.ERROR, 42)
 
     def test_sensor_updated_bad_value(self, watcher: DummySensorWatcher) -> None:
         self.test_sensor_added(watcher)
