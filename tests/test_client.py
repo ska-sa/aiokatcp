@@ -848,6 +848,8 @@ class TestClientNoMidSupport:
         assert result2 == ([b"2"], [Message.inform("echo", b"value", b"2")])
 
 
+# Workaround for https://github.com/python/cpython/issues/109538
+@pytest.mark.filterwarnings("ignore:.*StreamWriter.__del__:pytest.PytestUnraisableExceptionWarning")
 class TestUnclosedClient:
     async def body(self) -> None:
         # We can't use the existing fixtures, because their cleanup depends
