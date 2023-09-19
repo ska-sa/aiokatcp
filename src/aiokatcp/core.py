@@ -80,7 +80,8 @@ class Address:
         else:
             prefix = "[" + str(self._host) + "]"
         if self._port is not None:
-            return f"{prefix}:{self._port}"
+            # noqa is to work around https://github.com/PyCQA/pycodestyle/issues/1178
+            return f"{prefix}:{self._port}"  # noqa: E231
         else:
             return prefix
 
