@@ -1,6 +1,18 @@
 Changelog
 =========
 
+.. rubric:: Version 1.8.0
+
+- Make :class:`.Reading` a dataclass.
+- Fix server shutdown on Python 3.12.
+- Update versions of dependencies used in CI.
+- Remove wheel from ``build-system.requires``.
+- Make the unit tests pass on Python 3.11.5.
+- Make the :mod:`.adjtimex` module available on non-Linux systems with a stub
+  implementation. It raises :exc:`NotImplementedError` when calling
+  :func:`.get_adjtimex`, and :class:`.TimeSyncUpdater` will set the sensors to
+  :attr:`.INACTIVE`.
+
 .. rubric:: Version 1.7.0
 
 - Extend :class:`.SensorWatcher` to allow incoming sensors to be replicated
