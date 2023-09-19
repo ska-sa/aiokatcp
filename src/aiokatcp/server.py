@@ -372,7 +372,14 @@ class DeviceServer(metaclass=DeviceServerMeta):
                 self._stop_task = asyncio.current_task()
                 if self._server is not None:
                     self._server.close()
-                    await self._server.wait_closed()
+                    # Workaround for race condition: we need any connections
+                    # that were started before the listening socket was closed
+                    # to be fully established, so that we can shut them down
+                    # properly, and that may take several event loop iterations.
+                    # See https://github.com/python/cpython/issues/109564 for
+                    # more information.
+                    for _ in range(10):
+                        await asyncio.sleep(0)
                     self._server = None
                     if self._pending:
                         for task in self._pending:
