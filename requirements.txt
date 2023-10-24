@@ -62,7 +62,7 @@ requests==2.31.0
     # via coveralls
 typing-extensions==4.7.1
     # via -r requirements.in
-urllib3==2.0.6
+urllib3==2.0.7
     # via requests
 virtualenv==20.24.5
     # via pre-commit
