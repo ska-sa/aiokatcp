@@ -314,19 +314,16 @@ def wrap_handler(name: str, handler: Callable, fixed: int) -> Callable:
         msg = args[-1]
         args = list(args[:-1])
         # This relies on zip stopping at the end of the shorter sequence
-        for argument, decoder in zip(msg.arguments, pos_decoders):
-            try:
+        try:
+            for argument, decoder in zip(msg.arguments, pos_decoders):
                 args.append(decoder(argument))
-            except ValueError as error:
-                raise FailReply(str(error)) from error
-        if len(msg.arguments) > len(pos_decoders):
-            if var_pos_decoder is None:
-                raise FailReply(f"too many arguments for {name}")
-            for argument in msg.arguments[len(pos_decoders) :]:
-                try:
+            if len(msg.arguments) > len(pos_decoders):
+                if var_pos_decoder is None:
+                    raise FailReply(f"too many arguments for {name}")
+                for argument in msg.arguments[len(pos_decoders) :]:
                     args.append(var_pos_decoder(argument))
-                except ValueError as error:
-                    raise FailReply(str(error)) from error
+        except ValueError as error:
+            raise FailReply(str(error)) from error
         # Validate the arguments against sig. We could catch TypeError when
         # we invoke the function, but then we would also catch TypeErrors
         # raised from inside the implementation.
