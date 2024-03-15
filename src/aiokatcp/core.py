@@ -451,7 +451,7 @@ def get_decoder(cls: Type[_T]) -> Callable[[bytes], _T]:
             if len(values) == 1:
                 return values[0]
             elif not values:
-                raise ValueError("None of the types in {} could decode {!r}".format(cls, value))
+                raise ValueError(f"None of the types in {cls} could decode {value!r}")
             else:
                 raise ValueError(f"{value!r} is ambiguous for {cls}")
 
