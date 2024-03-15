@@ -263,6 +263,7 @@ def register_type(
         if info.type_ == type_:
             raise ValueError(f"{type_} is already registered")
     get_type.cache_clear()  # type: ignore
+    _get_decoder.cache_clear()  # type: ignore
     _types.append(TypeInfo(type_, name, encode, get_decoder, default))
 
 
@@ -281,12 +282,6 @@ def get_type(type_: Type[_T]) -> TypeInfo[_T]:
         if issubclass(type_, info.type_):
             return info
     raise TypeError(f"{type_} is not registered")
-
-
-if not TYPE_CHECKING:
-    # This is hidden from type checking because otherwise mypy keeps
-    # complaining that Type is not Hashable.
-    get_type = functools.lru_cache(get_type)
 
 
 def _get_decoder_bool(cls: type) -> Callable[[bytes], bool]:
@@ -352,44 +347,6 @@ def _get_decoder_str(cls: Type[_S]) -> Callable[[bytes], _S]:
         return bytes.decode  # type: ignore[return-value]
     else:
         return lambda raw: cls(raw, encoding="utf-8")
-
-
-# mypy doesn't allow an abstract class to be passed to Type[], hence the
-# suppressions.
-register_type(
-    numbers.Real,  # type: ignore
-    "float",
-    lambda value: repr(float(value)).encode("ascii"),
-    _get_decoder_float,
-)
-register_type(
-    numbers.Integral,  # type: ignore
-    "integer",
-    lambda value: str(int(value)).encode("ascii"),
-    _get_decoder_int,
-)
-register_type(bool, "boolean", lambda value: b"1" if value else b"0", _get_decoder_bool)
-register_type(bytes, "string", lambda value: value, lambda cls: cls)
-register_type(
-    str,
-    "string",
-    lambda value: value.encode("utf-8"),
-    _get_decoder_str,
-)
-register_type(
-    Address,
-    "address",
-    lambda value: bytes(value),
-    lambda cls: cls.parse,
-    lambda cls: cls(ipaddress.IPv4Address("0.0.0.0")),
-)
-register_type(
-    Timestamp,
-    "timestamp",
-    lambda value: repr(value).encode("ascii"),
-    lambda cls: cls,
-)
-register_type(enum.Enum, "discrete", _encode_enum, _get_decoder_enum, _default_enum)
 
 
 def encode(value: Any) -> bytes:
@@ -458,6 +415,14 @@ def get_decoder(cls: Type[_T]) -> Callable[[bytes], _T]:
         return decoder
     else:
         return get_type(cls).get_decoder(cls)
+
+
+if not TYPE_CHECKING:
+    # This is hidden from type checking because otherwise mypy keeps
+    # complaining that Type is not Hashable.
+    get_type = functools.lru_cache(get_type)
+    get_decoder = functools.lru_cache(get_decoder)
+    _get_decoder = get_decoder  # Used in register_type to work around a shadowing issue
 
 
 def decode(cls: Any, value: bytes) -> Any:
@@ -694,3 +659,41 @@ class Message:
         return (
             self.mtype == self.Type.REPLY and bool(self.arguments) and self.arguments[0] == self.OK
         )
+
+
+# mypy doesn't allow an abstract class to be passed to Type[], hence the
+# suppressions.
+register_type(
+    numbers.Real,  # type: ignore
+    "float",
+    lambda value: repr(float(value)).encode("ascii"),
+    _get_decoder_float,
+)
+register_type(
+    numbers.Integral,  # type: ignore
+    "integer",
+    lambda value: str(int(value)).encode("ascii"),
+    _get_decoder_int,
+)
+register_type(bool, "boolean", lambda value: b"1" if value else b"0", _get_decoder_bool)
+register_type(bytes, "string", lambda value: value, lambda cls: cls)
+register_type(
+    str,
+    "string",
+    lambda value: value.encode("utf-8"),
+    _get_decoder_str,
+)
+register_type(
+    Address,
+    "address",
+    lambda value: bytes(value),
+    lambda cls: cls.parse,
+    lambda cls: cls(ipaddress.IPv4Address("0.0.0.0")),
+)
+register_type(
+    Timestamp,
+    "timestamp",
+    lambda value: repr(value).encode("ascii"),
+    lambda cls: cls,
+)
+register_type(enum.Enum, "discrete", _encode_enum, _get_decoder_enum, _default_enum)
