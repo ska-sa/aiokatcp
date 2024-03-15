@@ -186,11 +186,15 @@ class TestEncodeDecode:
 
     def test_register_type(self, mocker) -> None:
         mocker.patch("aiokatcp.core._types", [])
+
+        def get_decoder(cls):
+            return lambda value: cls(json.loads(value.decode("utf-8")))
+
         register_type(
             dict,
             "string",
             lambda value: json.dumps(value, sort_keys=True).encode("utf-8"),
-            lambda cls, value: cls(json.loads(value.decode("utf-8"))),
+            get_decoder,
         )
         value = {"h": 1, "i": [2]}
         raw = b'{"h": 1, "i": [2]}'
@@ -206,7 +210,7 @@ class TestEncodeDecode:
                 dict,
                 "string",
                 lambda value: json.dumps(value, sort_keys=True).encode("utf-8"),
-                lambda cls, value: cls(json.loads(value.decode("utf-8"))),
+                get_decoder,
             )
 
     @pytest.mark.parametrize(
