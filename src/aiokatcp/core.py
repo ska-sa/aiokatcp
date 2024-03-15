@@ -1,4 +1,4 @@
-# Copyright 2017, 2022 National Research Foundation (SARAO)
+# Copyright 2017, 2022, 2024 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -26,6 +26,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import enum
+import functools
 import io
 import ipaddress
 import logging
@@ -380,6 +381,44 @@ def _union_args(cls: Any) -> Optional[Tuple[Type, ...]]:
     return cls.__args__  # type: ignore
 
 
+def get_decoder(cls: Type[_T]) -> Callable[[bytes], _T]:
+    """Get a decoder function.
+
+    See :func:`decode` for more details. This function is useful for
+    efficiency: the decoder for a class can be looked up once then used many
+    times.
+    """
+    union_args = _union_args(cls)
+    # Allows arguments like 'foo: Optional[str] = None' to exist, where None
+    # indicates that the argument was not passed at all. More generally, this
+    # allows Union[A, B, None] to behave like Union[A, B].
+    if union_args is not None:
+        union_args = tuple(arg for arg in union_args if arg is not type(None))  # noqa: E721
+        if len(union_args) == 1:  # Flatten Optional[T] to T
+            cls = union_args[0]
+            union_args = None
+    if union_args is not None:
+        sub_decoders = tuple(get_decoder(type_) for type_ in union_args)
+
+        def decoder(value: bytes) -> Any:
+            values: List[Any] = []
+            for sub_decoder in sub_decoders:
+                try:
+                    values.append(sub_decoder(value))
+                except ValueError:
+                    pass
+            if len(values) == 1:
+                return values[0]
+            elif not values:
+                raise ValueError("None of the types in {} could decode {!r}".format(cls, value))
+            else:
+                raise ValueError(f"{value!r} is ambiguous for {cls}")
+
+        return decoder
+    else:
+        return functools.partial(get_type(cls).decode, cls)
+
+
 def decode(cls: Any, value: bytes) -> Any:
     """Decode value in katcp message to a type.
 
@@ -406,32 +445,7 @@ def decode(cls: Any, value: bytes) -> Any:
     --------
     :func:`register_type`
     """
-    union_args = _union_args(cls)
-    # Allows arguments like 'foo: Optional[str] = None' to exist, where None
-    # indicates that the argument was not passed at all. More generally, this
-    # allows Union[A, B, None] to behave like Union[A, B].
-    if union_args is not None:
-        union_args = tuple(arg for arg in union_args if arg is not type(None))  # noqa: E721
-        if len(union_args) == 1:  # Flatten Optional[T] to T
-            cls = union_args[0]
-            union_args = None
-    if union_args is not None:
-        values: List[Any] = []
-        for type_ in union_args:
-            if type_ is None:
-                pass
-            try:
-                values.append(decode(type_, value))
-            except ValueError:
-                pass
-        if len(values) == 1:
-            return values[0]
-        elif not values:
-            raise ValueError("None of the types in {} could decode {!r}".format(cls, value))
-        else:
-            raise ValueError(f"{value!r} is ambiguous for {cls}")
-    else:
-        return get_type(cls).decode(cls, value)
+    return get_decoder(cls)(value)
 
 
 class KatcpSyntaxError(ValueError):

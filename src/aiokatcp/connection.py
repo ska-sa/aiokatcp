@@ -1,4 +1,4 @@
-# Copyright 2017, 2022 National Research Foundation (SARAO)
+# Copyright 2017, 2022, 2024 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -32,7 +32,7 @@ import ipaddress
 import logging
 import re
 import time
-from typing import Callable, Iterable, Optional, TypeVar
+from typing import Any, Callable, Iterable, Optional, TypeVar
 
 import decorator
 from typing_extensions import Protocol
@@ -262,6 +262,14 @@ def _identity_decorator(func, *args, **kwargs):
     return func(*args, **kwargs)
 
 
+def _parameter_decoder(parameter: inspect.Parameter) -> Callable[[bytes], Any]:
+    """Get the decoder for a formal parameter."""
+    if parameter.annotation is inspect.Signature.empty:
+        return core.get_decoder(bytes)
+    else:
+        return core.get_decoder(parameter.annotation)
+
+
 def wrap_handler(name: str, handler: Callable, fixed: int) -> Callable:
     """Convert a handler that takes a sequence of typed arguments into one
     that takes a message.
@@ -295,24 +303,30 @@ def wrap_handler(name: str, handler: Callable, fixed: int) -> Callable:
     if len(pos) < fixed:
         raise TypeError(f"Handler must accept at least {fixed} positional argument(s)")
 
+    pos_decoders = [_parameter_decoder(arg) for arg in pos[fixed:]]
+    if var_pos is not None:
+        var_pos_decoder = _parameter_decoder(var_pos)
+    else:
+        var_pos_decoder = None
+
     def transform_args(args) -> list:
         assert len(args) == fixed + 1
         msg = args[-1]
         args = list(args[:-1])
-        for argument in msg.arguments:
-            if len(args) >= len(pos):
-                if var_pos is None:
-                    raise FailReply(f"too many arguments for {name}")
-                else:
-                    hint = var_pos.annotation
-            else:
-                hint = pos[len(args)].annotation
-            if hint is inspect.Signature.empty:
-                hint = bytes
+        # This relies on zip stopping at the end of the shorter sequence
+        for argument, decoder in zip(msg.arguments, pos_decoders):
             try:
-                args.append(core.decode(hint, argument))
+                args.append(decoder(argument))
             except ValueError as error:
                 raise FailReply(str(error)) from error
+        if len(msg.arguments) > len(pos_decoders):
+            if var_pos_decoder is None:
+                raise FailReply(f"too many arguments for {name}")
+            for argument in msg.arguments[len(pos_decoders) :]:
+                try:
+                    args.append(var_pos_decoder(argument))
+                except ValueError as error:
+                    raise FailReply(str(error)) from error
         # Validate the arguments against sig. We could catch TypeError when
         # we invoke the function, but then we would also catch TypeErrors
         # raised from inside the implementation.
