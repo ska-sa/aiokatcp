@@ -286,7 +286,7 @@ def get_type(type_: Type[_T]) -> TypeInfo[_T]:
 if not TYPE_CHECKING:
     # This is hidden from type checking because otherwise mypy keeps
     # complaining that Type is not Hashable.
-    get_type = functools.lru_cache(128)(get_type)
+    get_type = functools.lru_cache(get_type)
 
 
 def _get_decoder_bool(cls: type) -> Callable[[bytes], bool]:
