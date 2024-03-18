@@ -47,6 +47,9 @@ from typing import (
     Union,
 )
 
+import katcp_codec
+from typing_extensions import TypeAlias
+
 _T = TypeVar("_T")
 _E = TypeVar("_E", bound=enum.Enum)
 _F = TypeVar("_F", bound=numbers.Real)
@@ -465,12 +468,7 @@ class KatcpSyntaxError(ValueError):
 class Message:
     __slots__ = ["mtype", "name", "arguments", "mid"]
 
-    class Type(enum.Enum):
-        """Message type"""
-
-        REQUEST = 1
-        REPLY = 2
-        INFORM = 3
+    Type: TypeAlias = katcp_codec.MessageType
 
     _TYPE_SYMBOLS = {
         Type.REQUEST: b"?",
@@ -581,39 +579,21 @@ class Message:
             If `raw` is not validly encoded.
         """
         try:
-            if not raw or raw[:1] not in b"?#!":
-                raise KatcpSyntaxError("message does not start with message type")
             if raw[-1:] not in (b"\r", b"\n"):
-                raise KatcpSyntaxError("message does not end with newline")
-            clean = raw[:-1].replace(b"\t", b" ")
-            match = cls._SPECIAL_RE.search(clean)
-            if match:
-                raise KatcpSyntaxError(f"unescaped special {match.group()!r}")
-            # NB: don't use split() without an argument, as it will also split
-            # on whitespace other than space or tab (e.g. form feed).
-            parts = [part for part in clean.split(b" ") if part]
-            match = cls._HEADER_RE.match(parts[0])
-            if not match:
-                raise KatcpSyntaxError("could not parse name and message ID")
-            name = match.group(1).decode("ascii")
-            mid_raw = match.group(2)
-            if mid_raw is not None:
-                mid = int(mid_raw)
-            else:
-                mid = None
-            mtype = cls._REVERSE_TYPE_SYMBOLS[clean[:1]]
+                raise ValueError("message does not end with newline")
+            parser = katcp_codec.Parser(len(raw))
+            msgs = parser.append(raw)
+            if not msgs:
+                raise ValueError("no message")
+            if len(msgs) > 1 or parser.buffer_size > 0:
+                raise ValueError("internal newline")
+            if isinstance(msgs[0], Exception):
+                raise msgs[0]
             # Create the message first without arguments, to avoid the argument
             # encoding and let us store raw bytes.
-            msg = cls(mtype, name, mid=mid)
-            # Performance: copy functions to local variables to avoid doing
-            # attribute lookup for every element of parts.
-            sub = cls._UNESCAPE_RE.sub
-            unescape_match = cls._unescape_match
-            msg.arguments = [sub(unescape_match, arg) for arg in parts[1:]]
+            msg = cls(msgs[0].mtype, msgs[0].name.decode("ascii"), mid=msgs[0].mid)
+            msg.arguments = msgs[0].arguments
             return msg
-        except KatcpSyntaxError as error:
-            error.raw = raw
-            raise error
         except ValueError as error:
             raise KatcpSyntaxError(str(error), raw) from error
 
