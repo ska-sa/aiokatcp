@@ -477,11 +477,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         except asyncio.CancelledError:
             remove = True
         except BaseException as exc:
-            try:
-                name = f"task {task.get_name()!r}"  # type: ignore
-            except AttributeError:
-                # Python 3.7 does not have task names
-                name = "a task"
+            name = f"task {task.get_name()!r}"
             logger.warning("Halting the server because %s raised %s", name, exc, exc_info=True)
             self.halt()
         if remove:

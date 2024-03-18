@@ -491,7 +491,7 @@ async def test_no_annotation(reader: asyncio.StreamReader, writer: asyncio.Strea
 async def test_bad_arg_type(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
     writer.write(b"?double bad\n")
     line = await reader.readline()
-    assert line == rb"!double fail could\_not\_convert\_string\_to\_float:\_'bad'" + b"\n"
+    assert line == rb"!double fail could\_not\_convert\_string\_to\_float:\_b'bad'" + b"\n"
 
 
 async def test_concurrent(
@@ -681,7 +681,7 @@ async def test_sensor_sampling_bad_parameter(
 ) -> None:
     writer.write(b"?sensor-sampling float-sensor period foo\n")
     line = await reader.readline()
-    assert line == rb"!sensor-sampling fail could\_not\_convert\_string\_to\_float:\_'foo'" + b"\n"
+    assert line == rb"!sensor-sampling fail could\_not\_convert\_string\_to\_float:\_b'foo'" + b"\n"
 
 
 async def test_sensor_sampling_auto(

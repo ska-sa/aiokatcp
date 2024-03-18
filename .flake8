@@ -1,3 +1,5 @@
 [flake8]
 max-line-length = 100
 exclude = doc/conf.py
+# Errors that conflict with black
+ignore = E203, W503

@@ -458,9 +458,7 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
                 types = list(types)
                 types[0] = sensor.stype
             if len(types) != len(args):
-                raise ValueError(
-                    "expected {} strategy arguments, found {}".format(len(types), len(args))
-                )
+                raise ValueError(f"expected {len(types)} strategy arguments, found {len(args)}")
             decoded_args = tuple(core.decode(type_, arg) for type_, arg in zip(types, args))
             is_auto = False
 

@@ -1,4 +1,4 @@
-# Copyright 2017, 2022 National Research Foundation (SARAO)
+# Copyright 2017, 2022, 2024 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -26,17 +26,32 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import enum
+import functools
 import io
 import ipaddress
 import logging
 import numbers
 import re
 import sys
-from typing import Any, Callable, Dict, Generic, List, Match, Optional, Tuple, Type, TypeVar, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Generic,
+    List,
+    Match,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
 _T = TypeVar("_T")
-_T_contra = TypeVar("_T_contra", contravariant=True)
 _E = TypeVar("_E", bound=enum.Enum)
+_F = TypeVar("_F", bound=numbers.Real)
+_I = TypeVar("_I", bound=numbers.Integral)
+_S = TypeVar("_S", bound=str)
 _IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
 if sys.version_info >= (3, 10):
     # Union[A, B] and A | B have different classes, even though they behave similarly
@@ -191,33 +206,36 @@ class DeviceStatus(enum.Enum):
     FAIL = 3
 
 
-class TypeInfo(Generic[_T_contra]):
+class TypeInfo(Generic[_T]):
     """Type database entry. Refer to :func:`register_type` for details."""
 
     def __init__(
         self,
-        type_: Type[_T_contra],
+        type_: Type[_T],
         name: str,
-        encode: Callable[[_T_contra], bytes],
-        decode: Callable[[Type[_T_contra], bytes], _T_contra],
-        default: Callable[[Type[_T_contra]], _T_contra],
+        encode: Callable[[_T], bytes],
+        get_decoder: Callable[[Type[_T]], Callable[[bytes], _T]],
+        default: Callable[[Type[_T]], _T],
     ) -> None:
         self.type_ = type_
         self.name = name
         self.encode = encode
-        self.decode = decode
+        self.get_decoder = get_decoder
         self.default = default
+
+    # Just for backwards compatibility
+    def decode(self, cls: Type[_T], value: bytes) -> _T:
+        return self.get_decoder(cls)(value)
 
 
 _types: List[TypeInfo] = []
-_types_cache: Dict[type, TypeInfo] = {}  # Cache for get_type
 
 
 def register_type(
     type_: Type[_T],
     name: str,
     encode: Callable[[_T], bytes],
-    decode: Callable[[Type[_T], bytes], _T],
+    get_decoder: Callable[[Type[_T]], Callable[[bytes], _T]],
     default: Optional[Callable[[Type[_T]], _T]] = None,
 ) -> None:
     """Register a type for encoding and decoding in messages.
@@ -232,21 +250,21 @@ def register_type(
         Python class.
     encode
         Function to encode values of this type to bytes
-    decode
-        Function to decode values of this type from bytes. It is given the
-        actual derived class as the first argument.
+    get_decoder
+        Function to that takes the actual derived class and returns a decoder
+        that converts instances of :class:`bytes` to that class.
     default
         Function to generate a default value of this type (used by the sensor
         framework). It is given the actual derived class as the first argument.
     """
-    global _types_cache
     if default is None:
         default = _default_generic
     for info in _types:
         if info.type_ == type_:
             raise ValueError(f"{type_} is already registered")
-    _types_cache = {}
-    _types.append(TypeInfo(type_, name, encode, decode, default))
+    get_type.cache_clear()  # type: ignore
+    _get_decoder.cache_clear()  # type: ignore
+    _types.append(TypeInfo(type_, name, encode, get_decoder, default))
 
 
 def get_type(type_: Type[_T]) -> TypeInfo[_T]:
@@ -260,23 +278,22 @@ def get_type(type_: Type[_T]) -> TypeInfo[_T]:
     TypeError
         if none of the registrations match `type_`
     """
-    try:
-        return _types_cache[type_]
-    except KeyError:
-        for info in reversed(_types):
-            if issubclass(type_, info.type_):
-                _types_cache[type_] = info
-                return info
+    for info in reversed(_types):
+        if issubclass(type_, info.type_):
+            return info
     raise TypeError(f"{type_} is not registered")
 
 
-def _decode_bool(cls: type, raw: bytes) -> bool:
-    if raw == b"1":
-        return cls(True)
-    elif raw == b"0":
-        return cls(False)
-    else:
-        raise ValueError(f"boolean must be 0 or 1, not {raw!r}")
+def _get_decoder_bool(cls: type) -> Callable[[bytes], bool]:
+    def decode(raw: bytes) -> bool:
+        if raw == b"1":
+            return cls(True)
+        elif raw == b"0":
+            return cls(False)
+        else:
+            raise ValueError(f"boolean must be 0 or 1, not {raw!r}")
+
+    return decode
 
 
 def _encode_enum(value: enum.Enum) -> bytes:
@@ -286,21 +303,16 @@ def _encode_enum(value: enum.Enum) -> bytes:
         return value.name.encode("ascii").lower().replace(b"_", b"-")
 
 
-def _decode_enum(cls: Type[_E], raw: bytes) -> _E:
-    # ignore to work around https://github.com/python/mypy/issues/12553
-    if hasattr(next(iter(cls)), "katcp_value"):  # type: ignore
-        for member in cls:
-            if getattr(member, "katcp_value") == raw:
-                return member
-    else:
-        name = raw.upper().replace(b"-", b"_").decode("ascii")
+def _get_decoder_enum(cls: Type[_E]) -> Callable[[bytes], _E]:
+    lookup = {_encode_enum(member): member for member in cls}
+
+    def decode(raw: bytes) -> _E:
         try:
-            value = cls[name]
-            if raw == _encode_enum(value):
-                return cls[name]
+            return lookup[raw]
         except KeyError:
-            pass
-    raise ValueError(f"{raw!r} is not a valid value for {cls.__name__}")
+            raise ValueError(f"{raw!r} is not a valid value for {cls.__name__}") from None
+
+    return decode
 
 
 def _default_generic(cls: Type[_T]) -> _T:
@@ -308,46 +320,33 @@ def _default_generic(cls: Type[_T]) -> _T:
 
 
 def _default_enum(cls: Type[_E]) -> _E:
-    # ignore to work around https://github.com/python/mypy/issues/12553
-    return next(iter(cls))  # type: ignore
+    return next(iter(cls))
 
 
-# mypy doesn't allow an abstract class to be passed to Type[], hence the
-# suppressions.
-register_type(
-    numbers.Real,  # type: ignore
-    "float",
-    lambda value: repr(float(value)).encode("ascii"),
-    lambda cls, raw: cls(float(raw.decode("ascii"))),  # type: ignore
-)
-register_type(
-    numbers.Integral,  # type: ignore
-    "integer",
-    lambda value: str(int(value)).encode("ascii"),
-    lambda cls, raw: cls(int(raw.decode("ascii"))),  # type: ignore
-)
-register_type(bool, "boolean", lambda value: b"1" if value else b"0", _decode_bool)
-register_type(bytes, "string", lambda value: value, lambda cls, raw: cls(raw))
-register_type(
-    str,
-    "string",
-    lambda value: value.encode("utf-8"),
-    lambda cls, raw: cls(raw, encoding="utf-8"),
-)
-register_type(
-    Address,
-    "address",
-    lambda value: bytes(value),
-    lambda cls, raw: cls.parse(raw),
-    lambda cls: cls(ipaddress.IPv4Address("0.0.0.0")),
-)
-register_type(
-    Timestamp,
-    "timestamp",
-    lambda value: repr(value).encode("ascii"),
-    lambda cls, raw: cls(raw.decode("ascii")),
-)
-register_type(enum.Enum, "discrete", _encode_enum, _decode_enum, _default_enum)
+def _get_decoder_float(cls: Type[_F]) -> Callable[[bytes], _F]:
+    if cls is float:
+        return cls
+    else:
+        # numbers.Real doesn't actually guarantee any way to construct it
+        # from a float; we just assume that any concrete class is likely to
+        # support this.
+        return lambda raw: cls(float(raw))  # type: ignore[call-arg]
+
+
+def _get_decoder_int(cls: Type[_T]) -> Callable[[bytes], _T]:
+    if cls is int:
+        return cls
+    else:
+        # As above, this isn't guaranteed to exist by the type system.
+        return lambda raw: cls(int(raw))  # type: ignore[call-arg]
+
+
+def _get_decoder_str(cls: Type[_S]) -> Callable[[bytes], _S]:
+    if cls is str:
+        # mypy doesn't resolve _S to str in this branch
+        return bytes.decode  # type: ignore[return-value]
+    else:
+        return lambda raw: cls(raw, encoding="utf-8")
 
 
 def encode(value: Any) -> bytes:
@@ -380,6 +379,52 @@ def _union_args(cls: Any) -> Optional[Tuple[Type, ...]]:
     return cls.__args__  # type: ignore
 
 
+def get_decoder(cls: Type[_T]) -> Callable[[bytes], _T]:
+    """Get a decoder function.
+
+    See :func:`decode` for more details. This function is useful for
+    efficiency: the decoder for a class can be looked up once then used many
+    times.
+    """
+    union_args = _union_args(cls)
+    # Allows arguments like 'foo: Optional[str] = None' to exist, where None
+    # indicates that the argument was not passed at all. More generally, this
+    # allows Union[A, B, None] to behave like Union[A, B].
+    if union_args is not None:
+        union_args = tuple(arg for arg in union_args if arg is not type(None))  # noqa: E721
+        if len(union_args) == 1:  # Flatten Optional[T] to T
+            cls = union_args[0]
+            union_args = None
+    if union_args is not None:
+        sub_decoders = tuple(get_decoder(type_) for type_ in union_args)
+
+        def decoder(value: bytes) -> Any:
+            values: List[Any] = []
+            for sub_decoder in sub_decoders:
+                try:
+                    values.append(sub_decoder(value))
+                except ValueError:
+                    pass
+            if len(values) == 1:
+                return values[0]
+            elif not values:
+                raise ValueError(f"None of the types in {cls} could decode {value!r}")
+            else:
+                raise ValueError(f"{value!r} is ambiguous for {cls}")
+
+        return decoder
+    else:
+        return get_type(cls).get_decoder(cls)
+
+
+if not TYPE_CHECKING:
+    # This is hidden from type checking because otherwise mypy keeps
+    # complaining that Type is not Hashable.
+    get_type = functools.lru_cache(get_type)
+    get_decoder = functools.lru_cache(get_decoder)
+    _get_decoder = get_decoder  # Used in register_type to work around a shadowing issue
+
+
 def decode(cls: Any, value: bytes) -> Any:
     """Decode value in katcp message to a type.
 
@@ -406,32 +451,7 @@ def decode(cls: Any, value: bytes) -> Any:
     --------
     :func:`register_type`
     """
-    union_args = _union_args(cls)
-    # Allows arguments like 'foo: Optional[str] = None' to exist, where None
-    # indicates that the argument was not passed at all. More generally, this
-    # allows Union[A, B, None] to behave like Union[A, B].
-    if union_args is not None:
-        union_args = tuple(arg for arg in union_args if arg is not type(None))  # noqa: E721
-        if len(union_args) == 1:  # Flatten Optional[T] to T
-            cls = union_args[0]
-            union_args = None
-    if union_args is not None:
-        values: List[Any] = []
-        for type_ in union_args:
-            if type_ is None:
-                pass
-            try:
-                values.append(decode(type_, value))
-            except ValueError:
-                pass
-        if len(values) == 1:
-            return values[0]
-        elif not values:
-            raise ValueError("None of the types in {} could decode {!r}".format(cls, value))
-        else:
-            raise ValueError(f"{value!r} is ambiguous for {cls}")
-    else:
-        return get_type(cls).decode(cls, value)
+    return get_decoder(cls)(value)
 
 
 class KatcpSyntaxError(ValueError):
@@ -639,3 +659,41 @@ class Message:
         return (
             self.mtype == self.Type.REPLY and bool(self.arguments) and self.arguments[0] == self.OK
         )
+
+
+# mypy doesn't allow an abstract class to be passed to Type[], hence the
+# suppressions.
+register_type(
+    numbers.Real,  # type: ignore
+    "float",
+    lambda value: repr(float(value)).encode("ascii"),
+    _get_decoder_float,
+)
+register_type(
+    numbers.Integral,  # type: ignore
+    "integer",
+    lambda value: str(int(value)).encode("ascii"),
+    _get_decoder_int,
+)
+register_type(bool, "boolean", lambda value: b"1" if value else b"0", _get_decoder_bool)
+register_type(bytes, "string", lambda value: value, lambda cls: cls)
+register_type(
+    str,
+    "string",
+    lambda value: value.encode("utf-8"),
+    _get_decoder_str,
+)
+register_type(
+    Address,
+    "address",
+    lambda value: bytes(value),
+    lambda cls: cls.parse,
+    lambda cls: cls(ipaddress.IPv4Address("0.0.0.0")),
+)
+register_type(
+    Timestamp,
+    "timestamp",
+    lambda value: repr(value).encode("ascii"),
+    lambda cls: cls,
+)
+register_type(enum.Enum, "discrete", _encode_enum, _get_decoder_enum, _default_enum)
