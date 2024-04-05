@@ -1,4 +1,4 @@
-# Copyright 2017, 2019-2020, 2022 National Research Foundation (SARAO)
+# Copyright 2017, 2019-2020, 2022, 2024 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -41,6 +41,7 @@ import pytest
 from aiokatcp import (
     AbstractSensorWatcher,
     Client,
+    DeviceStatus,
     FailReply,
     InvalidReply,
     Message,
@@ -233,6 +234,42 @@ async def test_request_with_informs(channel, event_loop) -> None:
             Message.inform("help", b"halt", b"Halt", mid=1),
         ],
     )
+
+
+async def test_sensor_reading_explicit_type(channel, event_loop) -> None:
+    await channel.wait_connected()
+    future = event_loop.create_task(channel.client.sensor_reading("device-status", DeviceStatus))
+    assert await channel.reader.readline() == b"?sensor-value[1] device-status\n"
+    channel.writer.write(b"#sensor-value[1] 1234567890.1 1 device-status nominal ok\n")
+    channel.writer.write(b"!sensor-value[1] ok 1\n")
+    result = await future
+    assert result == Reading(1234567890.1, Sensor.Status.NOMINAL, DeviceStatus.OK)
+
+
+async def test_sensor_reading_int(channel, event_loop) -> None:
+    await channel.wait_connected()
+    future = event_loop.create_task(channel.client.sensor_reading("foo"))
+    assert await channel.reader.readline() == b"?sensor-list[1] foo\n"
+    channel.writer.write(b"#sensor-list[1] foo description\\_stuff unit integer\n")
+    channel.writer.write(b"!sensor-list[1] ok 1\n")
+    assert await channel.reader.readline() == b"?sensor-value[2] foo\n"
+    channel.writer.write(b"#sensor-value[2] 1234567890.1 1 device-status warn 7\n")
+    channel.writer.write(b"!sensor-value[2] ok 1\n")
+    result = await future
+    assert result == Reading(1234567890.1, Sensor.Status.WARN, 7)
+
+
+async def test_sensor_reading_discrete(channel, event_loop) -> None:
+    await channel.wait_connected()
+    future = event_loop.create_task(channel.client.sensor_reading("foo"))
+    assert await channel.reader.readline() == b"?sensor-list[1] foo\n"
+    channel.writer.write(b"#sensor-list[1] foo description\\_stuff unit discrete hello world\n")
+    channel.writer.write(b"!sensor-list[1] ok 1\n")
+    assert await channel.reader.readline() == b"?sensor-value[2] foo\n"
+    channel.writer.write(b"#sensor-value[2] 1234567890.1 1 device-status warn hello\n")
+    channel.writer.write(b"!sensor-value[2] ok 1\n")
+    result = await future
+    assert result == Reading(1234567890.1, Sensor.Status.WARN, b"hello")
 
 
 async def test_inform(channel, caplog) -> None:
