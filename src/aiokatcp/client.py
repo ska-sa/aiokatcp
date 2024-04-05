@@ -673,6 +673,30 @@ class Client(metaclass=ClientMeta):
         value = core.decode(sensor_type, value_msg.arguments[4])
         return sensor.Reading(value=value, status=status, timestamp=timestamp)
 
+    @overload
+    async def sensor_value(self, sensor_name: str, sensor_type: None = None) -> Any:
+        ...
+
+    @overload
+    async def sensor_value(self, sensor_name: str, sensor_type: Type[_T]) -> _T:
+        ...
+
+    async def sensor_value(self, sensor_name: str, sensor_type: Optional[type] = None) -> Any:
+        """Request the reading of a single sensor from the server.
+
+        See :meth:`sensor_reading` for more information. This is a thin
+        wrapper that just returns the value from the reading.
+
+        Raises
+        ------
+        ValueError
+            if the sensor status indicates that the value is invalid.
+        """
+        reading = await self.sensor_reading(sensor_name, sensor_type)
+        if not reading.status.valid_value():
+            raise ValueError(f"Reading for {sensor_name} has status {reading.status}")
+        return reading.value
+
     def add_sensor_watcher(self, watcher: "AbstractSensorWatcher") -> None:
         if self._sensor_monitor is None:
             self._sensor_monitor = _SensorMonitor(self)

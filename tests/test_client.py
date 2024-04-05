@@ -272,6 +272,26 @@ async def test_sensor_reading_discrete(channel, event_loop) -> None:
     assert result == Reading(1234567890.1, Sensor.Status.WARN, b"hello")
 
 
+async def test_sensor_value_ok(channel, event_loop) -> None:
+    await channel.wait_connected()
+    future = event_loop.create_task(channel.client.sensor_value("foo", int))
+    assert await channel.reader.readline() == b"?sensor-value[1] foo\n"
+    channel.writer.write(b"#sensor-value[1] 1234567890.1 1 device-status warn 7\n")
+    channel.writer.write(b"!sensor-value[1] ok 1\n")
+    result = await future
+    assert result == 7
+
+
+async def test_sensor_value_invalid_status(channel, event_loop) -> None:
+    await channel.wait_connected()
+    future = event_loop.create_task(channel.client.sensor_value("foo", int))
+    assert await channel.reader.readline() == b"?sensor-value[1] foo\n"
+    channel.writer.write(b"#sensor-value[1] 1234567890.1 1 device-status unknown 7\n")
+    channel.writer.write(b"!sensor-value[1] ok 1\n")
+    with pytest.raises(ValueError):
+        await future
+
+
 async def test_inform(channel, caplog) -> None:
     client = cast(DummyClient, channel.client)
     await channel.wait_connected()
