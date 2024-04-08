@@ -70,12 +70,12 @@ class _Handler(Protocol):
 
 class _InformHandler(_Handler):
     def __call__(self, _client: "Client", _msg: core.Message) -> None:
-        ...
+        ...  # pragma: nocover
 
 
 class _InformCallback(_Handler):
     def __call__(self, _msg: core.Message) -> None:
-        ...
+        ...  # pragma: nocover
 
 
 class _PendingRequest:
@@ -224,7 +224,7 @@ class Client(metaclass=ClientMeta):
                 elif msg.mtype == core.Message.Type.INFORM:
                     req.informs.append(msg)
                 else:
-                    self.logger.warning("Unknown message type %s", msg.mtype)  # pragma: no cover
+                    self.logger.warning("Unknown message type %s", msg.mtype)  # pragma: nocover
         elif msg.mtype == core.Message.Type.INFORM:
             self.handle_inform(msg)
         else:
@@ -620,11 +620,11 @@ class Client(metaclass=ClientMeta):
 
     @overload
     async def sensor_reading(self, sensor_name: str, sensor_type: None = None) -> sensor.Reading:
-        ...
+        ...  # pragma: nocover
 
     @overload
     async def sensor_reading(self, sensor_name: str, sensor_type: Type[_T]) -> sensor.Reading[_T]:
-        ...
+        ...  # pragma: nocover
 
     async def sensor_reading(
         self, sensor_name: str, sensor_type: Optional[type] = None
@@ -678,11 +678,11 @@ class Client(metaclass=ClientMeta):
 
     @overload
     async def sensor_value(self, sensor_name: str, sensor_type: None = None) -> Any:
-        ...
+        ...  # pragma: nocover
 
     @overload
     async def sensor_value(self, sensor_name: str, sensor_type: Type[_T]) -> _T:
-        ...
+        ...  # pragma: nocover
 
     async def sensor_value(self, sensor_name: str, sensor_type: Optional[type] = None) -> Any:
         """Request the value of a single sensor from the server.
