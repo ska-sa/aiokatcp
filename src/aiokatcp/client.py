@@ -1,4 +1,4 @@
-# Copyright 2017, 2019, 2022 National Research Foundation (SARAO)
+# Copyright 2017, 2019, 2022, 2024 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -49,8 +49,10 @@ from typing import (
     Set,
     Tuple,
     Type,
+    TypeVar,
     Union,
     cast,
+    overload,
 )
 
 from typing_extensions import Protocol
@@ -59,6 +61,7 @@ from . import connection, core, sensor
 from .connection import FailReply, InvalidReply
 
 logger = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 
 class _Handler(Protocol):
@@ -67,12 +70,12 @@ class _Handler(Protocol):
 
 class _InformHandler(_Handler):
     def __call__(self, _client: "Client", _msg: core.Message) -> None:
-        ...
+        ...  # pragma: nocover
 
 
 class _InformCallback(_Handler):
     def __call__(self, _msg: core.Message) -> None:
-        ...
+        ...  # pragma: nocover
 
 
 class _PendingRequest:
@@ -221,7 +224,7 @@ class Client(metaclass=ClientMeta):
                 elif msg.mtype == core.Message.Type.INFORM:
                     req.informs.append(msg)
                 else:
-                    self.logger.warning("Unknown message type %s", msg.mtype)  # pragma: no cover
+                    self.logger.warning("Unknown message type %s", msg.mtype)  # pragma: nocover
         elif msg.mtype == core.Message.Type.INFORM:
             self.handle_inform(msg)
         else:
@@ -614,6 +617,88 @@ class Client(metaclass=ClientMeta):
             raise FailReply(error.decode("utf-8", errors="replace"))
         else:
             raise InvalidReply(error.decode("utf-8", errors="replace"))
+
+    @overload
+    async def sensor_reading(self, sensor_name: str, sensor_type: None = None) -> sensor.Reading:
+        ...  # pragma: nocover
+
+    @overload
+    async def sensor_reading(self, sensor_name: str, sensor_type: Type[_T]) -> sensor.Reading[_T]:
+        ...  # pragma: nocover
+
+    async def sensor_reading(
+        self, sensor_name: str, sensor_type: Optional[type] = None
+    ) -> sensor.Reading:
+        """Request the reading of a single sensor from the server.
+
+        This is a wrapper around a ``?sensor-value`` request that decodes the
+        result. If you know the type of the sensor, it can be passed as a
+        parameter; if it is not specified, ``?sensor-list`` is used to
+        determine it. Note that this introduces a race condition (but an
+        unlikely one) where the sensor could be replaced by one of a different
+        type between the two requests.
+
+        If `sensor_type` is not given and the sensor has a discrete type, the
+        returned reading will contain a byte string rather than an enum.
+        Similarly, string sensors are returned as byte strings, but
+        `sensor_type` can be passed as `str` to override this.
+
+        This is not a high-performance interface. If you need to sample a
+        large number of sensors, better performance can be obtained with
+        hand-coded implementations, such as by pipelining multiple requests.
+
+        Raises
+        ------
+        FailReply
+            If any of the requests fails e.g., because the sensor does not exist.
+        InvalidReply
+            If any of the requests is invalid. This generally indicates a bug, either
+            in this function or in the server.
+        """
+        if sensor_type is None:
+            list_resp, value_resp = await asyncio.gather(
+                asyncio.create_task(self.request("sensor-list", sensor_name)),
+                asyncio.create_task(self.request("sensor-value", sensor_name)),
+            )
+            type_name = core.decode(str, list_resp[1][0].arguments[3])
+            if type_name == "discrete":
+                sensor_type = bytes
+            else:
+                sensor_type = SensorWatcher.SENSOR_TYPES[type_name]
+        else:
+            value_resp = await self.request("sensor-value", sensor_name)
+        value_informs = value_resp[1]
+        if len(value_informs) != 1:
+            raise FailReply(f"Server returned {len(value_informs)} sensors, but only 1 expected")
+        value_inform = value_informs[0]
+        timestamp = float(core.decode(core.Timestamp, value_inform.arguments[0]))
+        status = core.decode(sensor.Sensor.Status, value_inform.arguments[3])
+        value = core.decode(sensor_type, value_inform.arguments[4])
+        return sensor.Reading(value=value, status=status, timestamp=timestamp)
+
+    @overload
+    async def sensor_value(self, sensor_name: str, sensor_type: None = None) -> Any:
+        ...  # pragma: nocover
+
+    @overload
+    async def sensor_value(self, sensor_name: str, sensor_type: Type[_T]) -> _T:
+        ...  # pragma: nocover
+
+    async def sensor_value(self, sensor_name: str, sensor_type: Optional[type] = None) -> Any:
+        """Request the value of a single sensor from the server.
+
+        See :meth:`sensor_reading` for more information. This is a thin
+        wrapper that just returns the value from the reading.
+
+        Raises
+        ------
+        ValueError
+            if the sensor status indicates that the value is invalid.
+        """
+        reading = await self.sensor_reading(sensor_name, sensor_type)
+        if not reading.status.valid_value():
+            raise ValueError(f"Reading for {sensor_name} has status {reading.status}")
+        return reading.value
 
     def add_sensor_watcher(self, watcher: "AbstractSensorWatcher") -> None:
         if self._sensor_monitor is None:

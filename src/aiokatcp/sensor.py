@@ -425,7 +425,7 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def _parameters(self) -> tuple:
-        pass  # pragma: no cover
+        pass  # pragma: nocover
 
     def parameters(self) -> tuple:
         """Return the parameters with which the sensor was created."""
