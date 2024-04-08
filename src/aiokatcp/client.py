@@ -685,7 +685,7 @@ class Client(metaclass=ClientMeta):
         ...
 
     async def sensor_value(self, sensor_name: str, sensor_type: Optional[type] = None) -> Any:
-        """Request the reading of a single sensor from the server.
+        """Request the value of a single sensor from the server.
 
         See :meth:`sensor_reading` for more information. This is a thin
         wrapper that just returns the value from the reading.
