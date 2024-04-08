@@ -272,6 +272,26 @@ async def test_sensor_reading_discrete(channel, event_loop) -> None:
     assert result == Reading(1234567890.1, Sensor.Status.WARN, b"hello")
 
 
+async def test_sensor_reading_missing(channel, event_loop) -> None:
+    await channel.wait_connected()
+    future = event_loop.create_task(channel.client.sensor_reading("foo", str))
+    assert await channel.reader.readline() == b"?sensor-value[1] foo\n"
+    channel.writer.write(b"!sensor-value[1] fail Unknown\\_sensor\\_'foo'\n")
+    with pytest.raises(FailReply):
+        await future
+
+
+async def test_sensor_reading_wrong_count(channel, event_loop) -> None:
+    await channel.wait_connected()
+    future = event_loop.create_task(channel.client.sensor_reading("/foo/", str))
+    assert await channel.reader.readline() == b"?sensor-value[1] /foo/\n"
+    channel.writer.write(b"#sensor-value[1] 1234567890.1 1 foo1 nominal ok\n")
+    channel.writer.write(b"#sensor-value[1] 1234567890.2 1 foo2 nominal ok\n")
+    channel.writer.write(b"!sensor-value[1] ok 2\n")
+    with pytest.raises(FailReply, match="Server returned 2 sensors, but only 1 expected"):
+        await future
+
+
 async def test_sensor_value_ok(channel, event_loop) -> None:
     await channel.wait_connected()
     future = event_loop.create_task(channel.client.sensor_value("foo", int))

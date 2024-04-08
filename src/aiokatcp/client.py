@@ -667,10 +667,13 @@ class Client(metaclass=ClientMeta):
                 sensor_type = SensorWatcher.SENSOR_TYPES[type_name]
         else:
             value_resp = await self.request("sensor-value", sensor_name)
-        value_msg = value_resp[1][0]  # First inform
-        timestamp = float(core.decode(core.Timestamp, value_msg.arguments[0]))
-        status = core.decode(sensor.Sensor.Status, value_msg.arguments[3])
-        value = core.decode(sensor_type, value_msg.arguments[4])
+        value_informs = value_resp[1]
+        if len(value_informs) != 1:
+            raise FailReply(f"Server returned {len(value_informs)} sensors, but only 1 expected")
+        value_inform = value_informs[0]
+        timestamp = float(core.decode(core.Timestamp, value_inform.arguments[0]))
+        status = core.decode(sensor.Sensor.Status, value_inform.arguments[3])
+        value = core.decode(sensor_type, value_inform.arguments[4])
         return sensor.Reading(value=value, status=status, timestamp=timestamp)
 
     @overload
