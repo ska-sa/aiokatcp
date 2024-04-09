@@ -1,6 +1,15 @@
 Changelog
 =========
 
+.. rubric:: Version 1.9.0
+
+- Drop support for end-of-life Python 3.7.
+- Significantly speed up argument decoding for request handlers. Note that any
+  code that calls :func:`.register_type` will need to be updated.
+- Add :meth:`.Client.sensor_reading` and :meth:`.Client.sensor_value` helper
+  methods.
+- Update dependency versions in Github Actions.
+
 .. rubric:: Version 1.8.0
 
 - Make :class:`.Reading` a dataclass.
