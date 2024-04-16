@@ -1,4 +1,4 @@
-# Copyright 2017, 2022, 2023 National Research Foundation (SARAO)
+# Copyright 2017, 2022-2024 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -25,18 +25,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# BEGIN VERSION CHECK
-# Get package version when locally imported from repo or via -e develop install
-try:
-    import katversion as _katversion
-except ImportError:
-    import time as _time
-
-    __version__ = "0.0+unknown.{}".format(_time.strftime("%Y%m%d%H%M"))
-else:
-    __version__ = _katversion.get_version(__path__[0])
-# END VERSION CHECK
-
+from ._version import __version__
 from .client import (  # noqa: F401
     AbstractSensorWatcher,
     Client,
