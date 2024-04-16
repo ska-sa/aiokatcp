@@ -4,6 +4,7 @@
 /.coverage
 /.eggs
 /.mypy_cache
+/src/aiokatcp/_version.py
 src/aiokatcp.egg-info
 *.pyc
 __pycache__

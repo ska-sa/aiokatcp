@@ -27,7 +27,6 @@
 
 import enum
 import functools
-import io
 import ipaddress
 import logging
 import numbers
@@ -46,6 +45,9 @@ from typing import (
     TypeVar,
     Union,
 )
+
+import katcp_codec
+from typing_extensions import TypeAlias
 
 _T = TypeVar("_T")
 _E = TypeVar("_E", bound=enum.Enum)
@@ -465,28 +467,12 @@ class KatcpSyntaxError(ValueError):
 class Message:
     __slots__ = ["mtype", "name", "arguments", "mid"]
 
-    class Type(enum.Enum):
-        """Message type"""
-
-        REQUEST = 1
-        REPLY = 2
-        INFORM = 3
-
-    _TYPE_SYMBOLS = {
-        Type.REQUEST: b"?",
-        Type.REPLY: b"!",
-        Type.INFORM: b"#",
-    }
-    _REVERSE_TYPE_SYMBOLS = {value: key for (key, value) in _TYPE_SYMBOLS.items()}
+    Type: TypeAlias = katcp_codec.MessageType
 
     _NAME_RE = re.compile("^[A-Za-z][A-Za-z0-9-]*$", re.ASCII)
-    _HEADER_RE = re.compile(rb"^[!#?]([A-Za-z][A-Za-z0-9-]*)(?:\[([1-9][0-9]*)\])?$")
     #: Characters that must be escaped in an argument
     _ESCAPE_RE = re.compile(rb"[\\ \0\n\r\x1b\t]")
     _UNESCAPE_RE = re.compile(rb"\\(.)?")  # ? so that it also matches trailing backslash
-    #: Characters not allowed to appear in an argument
-    # (space, tab are omitted because they are split on already)
-    _SPECIAL_RE = re.compile(rb"[\0\r\n\x1b]")
 
     _ESCAPE_LOOKUP = {
         b"\\": b"\\",
@@ -581,55 +567,30 @@ class Message:
             If `raw` is not validly encoded.
         """
         try:
-            if not raw or raw[:1] not in b"?#!":
-                raise KatcpSyntaxError("message does not start with message type")
             if raw[-1:] not in (b"\r", b"\n"):
-                raise KatcpSyntaxError("message does not end with newline")
-            clean = raw[:-1].replace(b"\t", b" ")
-            match = cls._SPECIAL_RE.search(clean)
-            if match:
-                raise KatcpSyntaxError(f"unescaped special {match.group()!r}")
-            # NB: don't use split() without an argument, as it will also split
-            # on whitespace other than space or tab (e.g. form feed).
-            parts = [part for part in clean.split(b" ") if part]
-            match = cls._HEADER_RE.match(parts[0])
-            if not match:
-                raise KatcpSyntaxError("could not parse name and message ID")
-            name = match.group(1).decode("ascii")
-            mid_raw = match.group(2)
-            if mid_raw is not None:
-                mid = int(mid_raw)
-            else:
-                mid = None
-            mtype = cls._REVERSE_TYPE_SYMBOLS[clean[:1]]
+                raise ValueError("message does not end with newline")
+            parser = katcp_codec.Parser(len(raw))
+            msgs = parser.append(raw)
+            if not msgs:
+                raise ValueError("no message")
+            if len(msgs) > 1 or parser.buffer_size > 0:
+                raise ValueError("internal newline")
+            msg = msgs[0]
+            if isinstance(msg, Exception):
+                raise msg
             # Create the message first without arguments, to avoid the argument
             # encoding and let us store raw bytes.
-            msg = cls(mtype, name, mid=mid)
-            # Performance: copy functions to local variables to avoid doing
-            # attribute lookup for every element of parts.
-            sub = cls._UNESCAPE_RE.sub
-            unescape_match = cls._unescape_match
-            msg.arguments = [sub(unescape_match, arg) for arg in parts[1:]]
-            return msg
-        except KatcpSyntaxError as error:
-            error.raw = raw
-            raise error
+            ret = cls(msg.mtype, msg.name.decode("ascii"), mid=msg.mid)
+            ret.arguments = msg.arguments
+            return ret
         except ValueError as error:
             raise KatcpSyntaxError(str(error), raw) from error
 
     def __bytes__(self) -> bytes:
         """Return Message as serialised for transmission"""
-
-        output = io.BytesIO()
-        output.write(self._TYPE_SYMBOLS[self.mtype])
-        output.write(self.name.encode("ascii"))
-        if self.mid is not None:
-            output.write(b"[" + str(self.mid).encode("ascii") + b"]")
-        for arg in self.arguments:
-            output.write(b" ")
-            output.write(self.escape_argument(arg))
-        output.write(b"\n")
-        return output.getvalue()
+        return bytes(
+            katcp_codec.Message(self.mtype, self.name.encode("ascii"), self.mid, self.arguments)
+        )
 
     def __repr__(self) -> str:
         return (
