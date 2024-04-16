@@ -27,7 +27,6 @@
 
 import enum
 import functools
-import io
 import ipaddress
 import logging
 import numbers
@@ -470,21 +469,10 @@ class Message:
 
     Type: TypeAlias = katcp_codec.MessageType
 
-    _TYPE_SYMBOLS = {
-        Type.REQUEST: b"?",
-        Type.REPLY: b"!",
-        Type.INFORM: b"#",
-    }
-    _REVERSE_TYPE_SYMBOLS = {value: key for (key, value) in _TYPE_SYMBOLS.items()}
-
     _NAME_RE = re.compile("^[A-Za-z][A-Za-z0-9-]*$", re.ASCII)
-    _HEADER_RE = re.compile(rb"^[!#?]([A-Za-z][A-Za-z0-9-]*)(?:\[([1-9][0-9]*)\])?$")
     #: Characters that must be escaped in an argument
     _ESCAPE_RE = re.compile(rb"[\\ \0\n\r\x1b\t]")
     _UNESCAPE_RE = re.compile(rb"\\(.)?")  # ? so that it also matches trailing backslash
-    #: Characters not allowed to appear in an argument
-    # (space, tab are omitted because they are split on already)
-    _SPECIAL_RE = re.compile(rb"[\0\r\n\x1b]")
 
     _ESCAPE_LOOKUP = {
         b"\\": b"\\",
@@ -599,17 +587,9 @@ class Message:
 
     def __bytes__(self) -> bytes:
         """Return Message as serialised for transmission"""
-
-        output = io.BytesIO()
-        output.write(self._TYPE_SYMBOLS[self.mtype])
-        output.write(self.name.encode("ascii"))
-        if self.mid is not None:
-            output.write(b"[" + str(self.mid).encode("ascii") + b"]")
-        for arg in self.arguments:
-            output.write(b" ")
-            output.write(self.escape_argument(arg))
-        output.write(b"\n")
-        return output.getvalue()
+        return bytes(
+            katcp_codec.Message(self.mtype, self.name.encode("ascii"), self.mid, self.arguments)
+        )
 
     def __repr__(self) -> str:
         return (
