@@ -941,6 +941,7 @@ class TestUnclosedClient:
         server.close()
         await server.wait_closed()
 
+    @pytest.mark.filterwarnings("ignore:unclosed transport")
     def test(self) -> None:
         loop = async_solipsism.EventLoop()
         with pytest.warns(ResourceWarning, match="unclosed Client"):
