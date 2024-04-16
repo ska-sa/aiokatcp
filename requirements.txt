@@ -36,6 +36,8 @@ idna==3.7
     # via requests
 iniconfig==2.0.0
     # via pytest
+katcp-codec==0.1.0b2
+    # via -r requirements.in
 nodeenv==1.8.0
     # via pre-commit
 packaging==23.1
