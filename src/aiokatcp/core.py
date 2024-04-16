@@ -575,13 +575,14 @@ class Message:
                 raise ValueError("no message")
             if len(msgs) > 1 or parser.buffer_size > 0:
                 raise ValueError("internal newline")
-            if isinstance(msgs[0], Exception):
-                raise msgs[0]
+            msg = msgs[0]
+            if isinstance(msg, Exception):
+                raise msg
             # Create the message first without arguments, to avoid the argument
             # encoding and let us store raw bytes.
-            msg = cls(msgs[0].mtype, msgs[0].name.decode("ascii"), mid=msgs[0].mid)
-            msg.arguments = msgs[0].arguments
-            return msg
+            ret = cls(msg.mtype, msg.name.decode("ascii"), mid=msg.mid)
+            ret.arguments = msg.arguments
+            return ret
         except ValueError as error:
             raise KatcpSyntaxError(str(error), raw) from error
 
