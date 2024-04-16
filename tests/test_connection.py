@@ -39,10 +39,8 @@ from aiokatcp.core import KatcpSyntaxError, Message
 
 
 @pytest.fixture
-def event_loop():
-    loop = async_solipsism.EventLoop()
-    yield loop
-    loop.close()
+def event_loop_policy():
+    return async_solipsism.EventLoopPolicy()
 
 
 class TestReadMessage:
