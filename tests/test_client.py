@@ -57,10 +57,8 @@ _ClientQueue = Union["asyncio.Queue[Tuple[asyncio.StreamReader, asyncio.StreamWr
 
 
 @pytest.fixture
-def event_loop():
-    loop = async_solipsism.EventLoop()
-    yield loop
-    loop.close()
+def event_loop_policy():
+    return async_solipsism.EventLoopPolicy()
 
 
 class DummyClient(Client):
@@ -82,7 +80,7 @@ class DummyClient(Client):
 
 
 @pytest.fixture
-def client_queue() -> _ClientQueue:
+async def client_queue() -> _ClientQueue:
     """Queue to which client connections are added as they connection to :meth:`server`."""
     return asyncio.Queue()
 
@@ -156,9 +154,9 @@ async def channel(request, server, client_queue):
     await channel.close()
 
 
-async def test_request_ok(channel, event_loop) -> None:
+async def test_request_ok(channel) -> None:
     await channel.wait_connected()
-    future = event_loop.create_task(channel.client.request("echo"))
+    future = asyncio.create_task(channel.client.request("echo"))
     assert await channel.reader.readline() == b"?echo[1]\n"
     channel.writer.write(b"!echo[1] ok\n")
     result = await future
@@ -167,61 +165,61 @@ async def test_request_ok(channel, event_loop) -> None:
     # characters, and null escaping.
     arg = b"h\xaf\xce\0"
     arg_esc = b"h\xaf\xce\\0"  # katcp escaping
-    future = event_loop.create_task(channel.client.request("echo", b"123", arg))
+    future = asyncio.create_task(channel.client.request("echo", b"123", arg))
     assert await channel.reader.readline() == b"?echo[2] 123 " + arg_esc + b"\n"
     channel.writer.write(b"!echo[2] ok 123 " + arg_esc + b"\n")
     result = await future
     assert result == ([b"123", arg], [])
 
 
-async def test_request_fail(channel, event_loop) -> None:
+async def test_request_fail(channel) -> None:
     await channel.wait_connected()
-    future = event_loop.create_task(channel.client.request("failme"))
+    future = asyncio.create_task(channel.client.request("failme"))
     assert await channel.reader.readline() == b"?failme[1]\n"
     channel.writer.write(b"!failme[1] fail Error\\_message\n")
     with pytest.raises(FailReply, match="^Error message$"):
         await future
 
 
-async def test_request_fail_no_msg(channel, event_loop) -> None:
+async def test_request_fail_no_msg(channel) -> None:
     await channel.wait_connected()
-    future = event_loop.create_task(channel.client.request("failme"))
+    future = asyncio.create_task(channel.client.request("failme"))
     assert await channel.reader.readline() == b"?failme[1]\n"
     channel.writer.write(b"!failme[1] fail\n")
     with pytest.raises(FailReply, match="^$"):
         await future
 
 
-async def test_request_fail_msg_bad_encoding(channel, event_loop) -> None:
+async def test_request_fail_msg_bad_encoding(channel) -> None:
     await channel.wait_connected()
-    future = event_loop.create_task(channel.client.request("failme"))
+    future = asyncio.create_task(channel.client.request("failme"))
     assert await channel.reader.readline() == b"?failme[1]\n"
     channel.writer.write(b"!failme[1] fail \xaf\n")
     with pytest.raises(FailReply, match="^\uFFFD$"):
         await future
 
 
-async def test_request_invalid(channel, event_loop) -> None:
+async def test_request_invalid(channel) -> None:
     await channel.wait_connected()
-    future = event_loop.create_task(channel.client.request("invalid-request"))
+    future = asyncio.create_task(channel.client.request("invalid-request"))
     assert await channel.reader.readline() == b"?invalid-request[1]\n"
     channel.writer.write(b"!invalid-request[1] invalid Unknown\\_request\n")
     with pytest.raises(InvalidReply, match="^Unknown request$"):
         await future
 
 
-async def test_request_no_code(channel, event_loop) -> None:
+async def test_request_no_code(channel) -> None:
     await channel.wait_connected()
-    future = event_loop.create_task(channel.client.request("invalid-request"))
+    future = asyncio.create_task(channel.client.request("invalid-request"))
     assert await channel.reader.readline() == b"?invalid-request[1]\n"
     channel.writer.write(b"!invalid-request[1]\n")
     with pytest.raises(InvalidReply, match="^$"):
         await future
 
 
-async def test_request_with_informs(channel, event_loop) -> None:
+async def test_request_with_informs(channel) -> None:
     await channel.wait_connected()
-    future = event_loop.create_task(channel.client.request("help"))
+    future = asyncio.create_task(channel.client.request("help"))
     assert await channel.reader.readline() == b"?help[1]\n"
     channel.writer.write(b"#help[1] help Show\\_help\n")
     channel.writer.write(b"#help[1] halt Halt\n")
@@ -236,9 +234,9 @@ async def test_request_with_informs(channel, event_loop) -> None:
     )
 
 
-async def test_sensor_reading_explicit_type(channel, event_loop) -> None:
+async def test_sensor_reading_explicit_type(channel) -> None:
     await channel.wait_connected()
-    future = event_loop.create_task(channel.client.sensor_reading("device-status", DeviceStatus))
+    future = asyncio.create_task(channel.client.sensor_reading("device-status", DeviceStatus))
     assert await channel.reader.readline() == b"?sensor-value[1] device-status\n"
     channel.writer.write(b"#sensor-value[1] 1234567890.1 1 device-status nominal ok\n")
     channel.writer.write(b"!sensor-value[1] ok 1\n")
@@ -246,9 +244,9 @@ async def test_sensor_reading_explicit_type(channel, event_loop) -> None:
     assert result == Reading(1234567890.1, Sensor.Status.NOMINAL, DeviceStatus.OK)
 
 
-async def test_sensor_reading_int(channel, event_loop) -> None:
+async def test_sensor_reading_int(channel) -> None:
     await channel.wait_connected()
-    future = event_loop.create_task(channel.client.sensor_reading("foo"))
+    future = asyncio.create_task(channel.client.sensor_reading("foo"))
     assert await channel.reader.readline() == b"?sensor-list[1] foo\n"
     channel.writer.write(b"#sensor-list[1] foo description\\_stuff unit integer\n")
     channel.writer.write(b"!sensor-list[1] ok 1\n")
@@ -259,9 +257,9 @@ async def test_sensor_reading_int(channel, event_loop) -> None:
     assert result == Reading(1234567890.1, Sensor.Status.WARN, 7)
 
 
-async def test_sensor_reading_discrete(channel, event_loop) -> None:
+async def test_sensor_reading_discrete(channel) -> None:
     await channel.wait_connected()
-    future = event_loop.create_task(channel.client.sensor_reading("foo"))
+    future = asyncio.create_task(channel.client.sensor_reading("foo"))
     assert await channel.reader.readline() == b"?sensor-list[1] foo\n"
     channel.writer.write(b"#sensor-list[1] foo description\\_stuff unit discrete hello world\n")
     channel.writer.write(b"!sensor-list[1] ok 1\n")
@@ -272,18 +270,18 @@ async def test_sensor_reading_discrete(channel, event_loop) -> None:
     assert result == Reading(1234567890.1, Sensor.Status.WARN, b"hello")
 
 
-async def test_sensor_reading_missing(channel, event_loop) -> None:
+async def test_sensor_reading_missing(channel) -> None:
     await channel.wait_connected()
-    future = event_loop.create_task(channel.client.sensor_reading("foo", str))
+    future = asyncio.create_task(channel.client.sensor_reading("foo", str))
     assert await channel.reader.readline() == b"?sensor-value[1] foo\n"
     channel.writer.write(b"!sensor-value[1] fail Unknown\\_sensor\\_'foo'\n")
     with pytest.raises(FailReply):
         await future
 
 
-async def test_sensor_reading_wrong_count(channel, event_loop) -> None:
+async def test_sensor_reading_wrong_count(channel) -> None:
     await channel.wait_connected()
-    future = event_loop.create_task(channel.client.sensor_reading("/foo/", str))
+    future = asyncio.create_task(channel.client.sensor_reading("/foo/", str))
     assert await channel.reader.readline() == b"?sensor-value[1] /foo/\n"
     channel.writer.write(b"#sensor-value[1] 1234567890.1 1 foo1 nominal ok\n")
     channel.writer.write(b"#sensor-value[1] 1234567890.2 1 foo2 nominal ok\n")
@@ -292,9 +290,9 @@ async def test_sensor_reading_wrong_count(channel, event_loop) -> None:
         await future
 
 
-async def test_sensor_value_ok(channel, event_loop) -> None:
+async def test_sensor_value_ok(channel) -> None:
     await channel.wait_connected()
-    future = event_loop.create_task(channel.client.sensor_value("foo", int))
+    future = asyncio.create_task(channel.client.sensor_value("foo", int))
     assert await channel.reader.readline() == b"?sensor-value[1] foo\n"
     channel.writer.write(b"#sensor-value[1] 1234567890.1 1 device-status warn 7\n")
     channel.writer.write(b"!sensor-value[1] ok 1\n")
@@ -302,9 +300,9 @@ async def test_sensor_value_ok(channel, event_loop) -> None:
     assert result == 7
 
 
-async def test_sensor_value_invalid_status(channel, event_loop) -> None:
+async def test_sensor_value_invalid_status(channel) -> None:
     await channel.wait_connected()
-    future = event_loop.create_task(channel.client.sensor_value("foo", int))
+    future = asyncio.create_task(channel.client.sensor_value("foo", int))
     assert await channel.reader.readline() == b"?sensor-value[1] foo\n"
     channel.writer.write(b"#sensor-value[1] 1234567890.1 1 device-status unknown 7\n")
     channel.writer.write(b"!sensor-value[1] ok 1\n")
@@ -347,27 +345,27 @@ async def test_inform_callback(channel) -> None:
     assert client._inform_callbacks == {}
 
 
-async def test_unsolicited_reply(channel, event_loop, caplog) -> None:
+async def test_unsolicited_reply(channel, caplog) -> None:
     await channel.wait_connected()
-    future = event_loop.create_task(channel.client.request("echo"))
+    future = asyncio.create_task(channel.client.request("echo"))
     with caplog.at_level(logging.DEBUG, "aiokatcp.client"):
         channel.writer.write(b"!surprise[3]\n!echo[1] ok\n")
         await future
     assert re.search("Received .* with unknown message ID", caplog.text)
 
 
-async def test_receive_request(channel, event_loop, caplog) -> None:
+async def test_receive_request(channel, caplog) -> None:
     await channel.wait_connected()
-    future = event_loop.create_task(channel.client.request("echo"))
+    future = asyncio.create_task(channel.client.request("echo"))
     with caplog.at_level(logging.INFO, "aiokatcp.client"):
         channel.writer.write(b"?surprise\n!echo[1] ok\n")
         await future
     assert re.search("Received unexpected request", caplog.text)
 
 
-async def test_reply_no_mid(channel, event_loop, caplog) -> None:
+async def test_reply_no_mid(channel, caplog) -> None:
     await channel.wait_connected()
-    future = event_loop.create_task(channel.client.request("echo"))
+    future = asyncio.create_task(channel.client.request("echo"))
     with caplog.at_level(logging.INFO, "aiokatcp.client"):
         channel.writer.write(b"!surprise ok\n!echo[1] ok\n")
         await future
@@ -380,9 +378,9 @@ async def test_context_manager(channel) -> None:
     await channel.client.wait_closed()
 
 
-async def test_connect(server, client_queue, event_loop) -> None:
+async def test_connect(server, client_queue) -> None:
     host, port = server.sockets[0].getsockname()[:2]
-    client_task = event_loop.create_task(DummyClient.connect(host, port))
+    client_task = asyncio.create_task(DummyClient.connect(host, port))
     (reader, writer) = await client_queue.get()
     await asyncio.sleep(1)
     assert not client_task.done()
@@ -431,11 +429,11 @@ async def test_disconnected(channel) -> None:
         await channel.client.request("help")
 
 
-async def test_bad_address(event_loop, caplog) -> None:
+async def test_bad_address(caplog) -> None:
     client = DummyClient("invalid.invalid", 1)
     try:
         with caplog.at_level(logging.WARNING, "aiokatcp.client"):
-            task = event_loop.create_task(client.wait_connected())
+            task = asyncio.create_task(client.wait_connected())
             await asyncio.sleep(1)
         assert re.search("Failed to connect to invalid.invalid:1: ", caplog.text)
         task.cancel()
@@ -869,9 +867,9 @@ class TestClientNoReconnect:
         with pytest.raises(ProtocolError):
             await channel.client.wait_connected()
 
-    async def test_bad_protocol(self, channel, event_loop) -> None:
+    async def test_bad_protocol(self, channel) -> None:
         # Different approach to test_unparsable_protocol, to get more coverage
-        wait_task = event_loop.create_task(channel.client.wait_connected())
+        wait_task = asyncio.create_task(channel.client.wait_connected())
         channel.writer.write(b"#version-connect katcp-protocol 4.0-I\n")
         assert await channel.reader.read() == b""
         with pytest.raises(ProtocolError):
@@ -886,9 +884,9 @@ class TestClientNoReconnect:
         with pytest.raises(ConnectionResetError):
             await channel.client.wait_connected()
 
-    async def test_connect_failed(self, server, client_queue, event_loop) -> None:
+    async def test_connect_failed(self, server, client_queue) -> None:
         host, port = server.sockets[0].getsockname()[:2]
-        client_task = event_loop.create_task(DummyClient.connect(host, port, auto_reconnect=False))
+        client_task = asyncio.create_task(DummyClient.connect(host, port, auto_reconnect=False))
         (reader, writer) = await client_queue.get()
         await asyncio.sleep(1)
         assert not client_task.done()
@@ -898,21 +896,21 @@ class TestClientNoReconnect:
 
 
 class TestClientNoMidSupport:
-    async def test_single(self, channel, event_loop) -> None:
+    async def test_single(self, channel) -> None:
         channel.writer.write(b"#version-connect katcp-protocol 5.1-M\n")
         await channel.client.wait_connected()
-        future = event_loop.create_task(channel.client.request("echo"))
+        future = asyncio.create_task(channel.client.request("echo"))
         assert await channel.reader.readline() == b"?echo\n"
         channel.writer.write(b"#echo an\\_inform\n")
         channel.writer.write(b"!echo ok\n")
         result = await future
         assert result == ([], [Message.inform("echo", b"an inform")])
 
-    async def test_concurrent(self, channel, event_loop) -> None:
+    async def test_concurrent(self, channel) -> None:
         channel.writer.write(b"#version-connect katcp-protocol 5.1-M\n")
         await channel.client.wait_connected()
-        future1 = event_loop.create_task(channel.client.request("echo", 1))
-        future2 = event_loop.create_task(channel.client.request("echo", 2))
+        future1 = asyncio.create_task(channel.client.request("echo", 1))
+        future2 = asyncio.create_task(channel.client.request("echo", 2))
         for i in range(2):
             line = await channel.reader.readline()
             match = re.fullmatch(rb"\?echo (1|2)\n", line)
@@ -943,6 +941,8 @@ class TestUnclosedClient:
         server.close()
         await server.wait_closed()
 
+    @pytest.mark.filterwarnings("ignore:unclosed transport:ResourceWarning")
+    @pytest.mark.filterwarnings("ignore:loop is closed:ResourceWarning")
     def test(self) -> None:
         loop = async_solipsism.EventLoop()
         with pytest.warns(ResourceWarning, match="unclosed Client"):

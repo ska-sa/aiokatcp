@@ -1,4 +1,4 @@
-# Copyright 2017, 2022 National Research Foundation (SARAO)
+# Copyright 2017, 2022, 2024 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -29,6 +29,7 @@
 in :mod:`aiokatcp.test.test_server`.
 """
 
+import asyncio
 import gc
 import unittest
 import weakref
@@ -122,10 +123,13 @@ def test_observer_sorting(classic_observer, delta_observer):
     delta_observer.assert_not_called()
 
 
-async def test_unclosed_sampler(event_loop):
+async def test_unclosed_sampler():
     sensor = Sensor(int, "sensor")
     sampler = SensorSampler.factory(
-        sensor, lambda sensor, reading: None, event_loop, SensorSampler.Strategy.EVENT
+        sensor,
+        lambda sensor, reading: None,
+        asyncio.get_running_loop(),
+        SensorSampler.Strategy.EVENT,
     )
     with pytest.warns(ResourceWarning):
         del sensor

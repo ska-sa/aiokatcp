@@ -1,4 +1,4 @@
-# Copyright 2017, 2019-2020, 2022 National Research Foundation (SARAO)
+# Copyright 2017, 2019-2020, 2022, 2024 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -45,10 +45,8 @@ _StreamPair = Tuple[asyncio.StreamReader, asyncio.StreamWriter]
 
 
 @pytest.fixture
-def event_loop():
-    loop = async_solipsism.EventLoop()
-    yield loop
-    loop.close()
+def event_loop_policy():
+    return async_solipsism.EventLoopPolicy()
 
 
 class Foo(enum.Enum):
@@ -517,7 +515,6 @@ async def test_client_connected_inform(
 
 
 async def test_message_while_stopping(
-    event_loop: asyncio.AbstractEventLoop,
     server: DummyServer,
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
@@ -526,7 +523,7 @@ async def test_message_while_stopping(
     # Wait for the request_wait to be launched
     await server.wait_reached.wait()
     # Start stopping the server, but wait for outstanding tasks
-    stop_task = event_loop.create_task(server.stop(cancel=False))
+    stop_task = asyncio.create_task(server.stop(cancel=False))
     writer.write(b"?watchdog\n")  # Should be ignored, because we're stopping
     # Ensure the ?watchdog makes it through to the message handler
     await asyncio.sleep(1)
