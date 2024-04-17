@@ -1,5 +1,58 @@
 [build-system]
 requires = ["setuptools", "setuptools_scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aiokatcp"
+authors = [
+    {name = "Bruce Merry", email = "bmerry@sarao.ac.za"}
+]
+description = "Asynchronous I/O implementation of the katcp protocol"
+readme = "README.rst"
+requires-python = ">=3.8"
+license = {text = "BSD-3-Clause"}
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Framework :: AsyncIO",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Astronomy",
+]
+keywords = [
+    "asyncio",
+    "katcp",
+]
+dependencies = [
+    "async-timeout",
+    "decorator>=4.1",
+    "katcp-codec",
+    "typing-extensions",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/ska-sa/aiokatcp"
+Repository = "https://github.com/ska-sa/aiokatcp"
+Documentation = "https://aiokatcp.readthedocs.io/"
+Changelog = "https://aiokatcp.readthedocs.io/en/latest/changelog.html"
+
+[project.scripts]
+katcpcmd = "aiokatcp.tools.katcpcmd:main"
+
+[project.optional-dependencies]
+test = [
+    "async-solipsism",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-mock",
+]
+doc = [
+    "sphinx",
+    "sphinx-rtd-theme",
+]
 
 [tool.setuptools_scm]
 version_file = "src/aiokatcp/_version.py"
@@ -10,3 +63,10 @@ line_length = 100
 
 [tool.black]
 line-length = 100
+
+[tool.mypy]
+python_version = "3.8"
+files = ["src/aiokatcp", "examples", "tests"]
+[[tool.mypy.overrides]]
+module = "async_solipsism.*"
+ignore_missing_imports = true
