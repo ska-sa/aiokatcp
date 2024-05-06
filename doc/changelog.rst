@@ -1,6 +1,13 @@
 Changelog
 =========
 
+.. rubric:: Version 1.10.0
+
+- Use `katcp-codec`_ to provide the low-level encoding and decoding of
+  katcp messages, yielding a significant speedup.
+
+.. _katcp-codec: https://katcp-codec.readthedocs.io/en/latest/
+
 .. rubric:: Version 1.10.0b1
 
 - Use `katcp-codec`_ to provide the low-level encoding and decoding of
