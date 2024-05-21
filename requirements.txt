@@ -62,7 +62,7 @@ pytest-mock==3.14.0
     # via -r requirements.in
 pyyaml==6.0.1
     # via pre-commit
-requests==2.31.0
+requests==2.32.0
     # via coveralls
 tomli==2.0.1
     # via
