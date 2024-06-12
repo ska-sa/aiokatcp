@@ -32,6 +32,7 @@ import logging
 import numbers
 import re
 import sys
+import typing
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -378,7 +379,7 @@ def _union_args(cls: Any) -> Optional[Tuple[Type, ...]]:
     """
     if not isinstance(cls, _UnionTypes):
         return None
-    return cls.__args__  # type: ignore
+    return typing.get_args(cls)
 
 
 def get_decoder(cls: Type[_T]) -> Callable[[bytes], _T]:
