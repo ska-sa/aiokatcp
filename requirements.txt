@@ -70,7 +70,7 @@ tomli==2.0.1
     #   pytest
 typing-extensions==4.11.0
     # via -r requirements.in
-urllib3==2.2.1
+urllib3==2.2.2
     # via requests
 virtualenv==20.25.1
     # via pre-commit
