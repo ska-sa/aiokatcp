@@ -8,7 +8,7 @@ async-solipsism==0.6
     # via -r requirements.in
 async-timeout==4.0.3
     # via -r requirements.in
-certifi==2024.2.2
+certifi==2024.7.4
     # via requests
 cfgv==3.4.0
     # via pre-commit
