@@ -168,6 +168,7 @@ class Sensor(Generic[_T]):
         self.stype = sensor_type
         type_info = core.get_type(sensor_type)
         self.type_name = type_info.name
+        self._core_type = type_info.type_
         self._classic_observers: Set[ClassicObserver[_T]] = set()
         self._delta_observers: Set[DeltaObserver[_T]] = set()
         self.name = name
@@ -202,6 +203,9 @@ class Sensor(Generic[_T]):
     ) -> None:
         """Set the current value of the sensor.
 
+        Also check if the incoming value dtype is compatible with the core dtype
+        of this sensor.
+
         Parameters
         ----------
         value
@@ -214,7 +218,18 @@ class Sensor(Generic[_T]):
         timestamp
             The time at which the sensor value was determined (seconds).
             If not given, it defaults to :func:`time.time`.
+
+        Raises
+        ------
+        TypeError
+            If the incoming `value` type is not compatible with the sensor's
+            core type.
         """
+        if not issubclass(type(value), self._core_type):
+            raise TypeError(
+                f"Value type {type(value)} is not compatible with Sensor type "
+                f"{self.stype} with core type {self._core_type}"
+            )
         if timestamp is None:
             timestamp = time.time()
         if status is None:
