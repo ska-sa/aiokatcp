@@ -30,6 +30,7 @@ import asyncio
 import enum
 import functools
 import inspect
+import numbers
 import time
 import warnings
 import weakref
@@ -178,7 +179,7 @@ class Sensor(Generic[_T]):
         if default is None:
             value: _T = type_info.default(sensor_type)
         else:
-            value = default
+            value = self._check_value_type(default)
         self._reading = Reading(time.time(), initial_status, value)
         if auto_strategy is None:
             self.auto_strategy = SensorSampler.Strategy.AUTO
@@ -186,6 +187,31 @@ class Sensor(Generic[_T]):
             self.auto_strategy = auto_strategy
         self.auto_strategy_parameters = tuple(auto_strategy_parameters)
         # TODO: should validate the parameters against the strategy.
+
+    def _check_value_type(self, value: _T) -> _T:
+        """Verify incoming value is compatible with sensor type.
+
+        This also handles the special case of :class:`core.Timestamp` where
+        it is used with `float` type interchangeably.
+
+        Raises
+        ------
+        TypeError
+            If the incoming `value` type is not compatible with the sensor's
+            core type.
+        """
+
+        if isinstance(value, self._core_type) and not issubclass(self._core_type, enum.Enum):
+            return value
+        elif self.stype is core.Timestamp and isinstance(value, numbers.Real):
+            return value  # type: ignore
+        elif isinstance(value, self.stype):
+            return value
+        else:
+            raise TypeError(
+                f"Value type {type(value)} is not compatible with Sensor type "
+                f"{self.stype} with core type {self._core_type}"
+            )
 
     def notify(self, reading: Reading[_T], old_reading: Reading[_T]) -> None:
         """Notify all observers of changes to this sensor.
@@ -203,8 +229,8 @@ class Sensor(Generic[_T]):
     ) -> None:
         """Set the current value of the sensor.
 
-        Also check if the incoming value dtype is compatible with the core dtype
-        of this sensor.
+        Also validate that the incoming value type is compatible with the core
+        type of this sensor.
 
         Parameters
         ----------
@@ -225,16 +251,12 @@ class Sensor(Generic[_T]):
             If the incoming `value` type is not compatible with the sensor's
             core type.
         """
-        if not issubclass(type(value), self._core_type):
-            raise TypeError(
-                f"Value type {type(value)} is not compatible with Sensor type "
-                f"{self.stype} with core type {self._core_type}"
-            )
+        checked_value = self._check_value_type(value)
         if timestamp is None:
             timestamp = time.time()
         if status is None:
-            status = self.status_func(value)
-        reading = Reading(timestamp, status, value)
+            status = self.status_func(checked_value)
+        reading = Reading(timestamp, status, checked_value)
         old_reading = self._reading
         self._reading = reading
         self.notify(reading, old_reading)
