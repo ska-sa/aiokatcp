@@ -202,10 +202,16 @@ class Sensor(Generic[_T]):
         """
 
         if isinstance(value, self._core_type) and not issubclass(self._core_type, enum.Enum):
+            # The more general case of e.g. numpy types not being directly
+            # comparable with python types.
             return value
         elif self.stype is core.Timestamp and isinstance(value, numbers.Real):
+            # core.Timestamp can also be a float
             return value  # type: ignore
+        elif type(value) in [bytes, str, core.Address] and self.stype is core.Address:
+            return core.Address(value)  # type: ignore
         elif isinstance(value, self.stype):
+            # To ensure specific types of enum.Enums are handled correctly
             return value
         else:
             raise TypeError(
