@@ -30,6 +30,7 @@ in :mod:`aiokatcp.test.test_server`.
 """
 
 import asyncio
+import enum
 import gc
 import unittest
 import weakref
@@ -39,6 +40,7 @@ from unittest.mock import create_autospec
 
 import pytest
 
+from aiokatcp.core import Address, Timestamp
 from aiokatcp.sensor import (
     AggregateSensor,
     Reading,
@@ -78,6 +80,49 @@ def test_sensor_status_func():
     assert sensor.status == Sensor.Status.ERROR
     sensor.set_value(1, Sensor.Status.NOMINAL)
     assert sensor.status == Sensor.Status.NOMINAL
+
+
+def test_sensor_value_setter(diverse_sensors):
+    """Check whether the value type verification works."""
+    diverse_sensors["test-bool-sensor"].value = True
+    assert diverse_sensors["test-bool-sensor"]
+    with pytest.raises(TypeError):
+        diverse_sensors["test-bool-sensor"].value = "True"
+
+    diverse_sensors["test-int-sensor"].value = 1234
+    assert diverse_sensors["test-int-sensor"].value == 1234
+    with pytest.raises(TypeError):
+        diverse_sensors["test-int-sensor"].value = "1234"
+
+    diverse_sensors["test-float-sensor"].value = 1234.5
+    assert diverse_sensors["test-float-sensor"].value == 1234.5
+    with pytest.raises(TypeError):
+        diverse_sensors["test-float-sensor"].value = "1234"
+
+    diverse_sensors["test-str-sensor"].value = "foo"
+    assert diverse_sensors["test-str-sensor"].value == "foo"
+    with pytest.raises(TypeError):
+        diverse_sensors["test-str-sensor"].value = 1234
+
+    diverse_sensors["test-bytes-sensor"].value = b"bar"
+    assert diverse_sensors["test-bytes-sensor"].value == b"bar"
+    with pytest.raises(TypeError):
+        diverse_sensors["test-bytes-sensor"].value = "foo"
+
+    diverse_sensors["test-address-sensor"].value = "1.2.3.4"
+    assert diverse_sensors["test-address-sensor"].value == Address("1.2.3.4")
+    with pytest.raises(TypeError):
+        diverse_sensors["test-address-sensor"].value = 5678
+
+    diverse_sensors["test-timestamp-sensor"].value = 12345678
+    assert diverse_sensors["test-timestamp-sensor"].value == Timestamp(12345678)
+    with pytest.raises(TypeError):
+        diverse_sensors["test-timestamp-sensor"].value = "12345678"
+
+    diverse_sensors["test-enum-sensor"].value = MyEnum.ONE
+    assert diverse_sensors["test-enum-sensor"].value == MyEnum.ONE
+    with pytest.raises(TypeError):
+        diverse_sensors["test-enum-sensor"].value = OtherEnum.ABC
 
 
 @pytest.fixture
@@ -158,6 +203,80 @@ def sensors():
 def alt_sensors():
     # A different set of sensors with the same names
     return [Sensor(float, f"name{i}") for i in range(5)]
+
+
+class MyEnum(enum.Enum):
+    ZERO = 0
+    ONE = 1
+
+
+class OtherEnum(enum.Enum):
+    ABC = 0
+    DEF = 1
+
+
+@pytest.fixture
+def diverse_sensors():
+    # Another set of sensors with different data types
+    diverse_ss = SensorSet()
+    diverse_ss.add(
+        Sensor(
+            bool,
+            "test-bool-sensor",
+            default=False,
+        )
+    )
+    diverse_ss.add(
+        Sensor(
+            int,
+            "test-int-sensor",
+            default=0,
+        )
+    )
+    diverse_ss.add(
+        Sensor(
+            float,
+            "test-float-sensor",
+            default=0.0,
+        )
+    )
+    diverse_ss.add(
+        Sensor(
+            str,
+            "test-str-sensor",
+            default="zero",
+        )
+    )
+    diverse_ss.add(
+        Sensor(
+            bytes,
+            "test-bytes-sensor",
+            default=b"zero",
+        )
+    )
+    diverse_ss.add(
+        Sensor(
+            Address,
+            "test-address-sensor",
+            default=Address("0.0.0.0"),
+        )
+    )
+    diverse_ss.add(
+        Sensor(
+            Timestamp,
+            "test-timestamp-sensor",
+            default=Timestamp(0.0),
+        )
+    )
+    diverse_ss.add(
+        Sensor(
+            MyEnum,
+            "test-enum-sensor",
+            default=MyEnum.ZERO,
+        )
+    )
+
+    return diverse_ss
 
 
 @pytest.fixture
