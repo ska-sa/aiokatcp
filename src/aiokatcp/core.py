@@ -79,7 +79,10 @@ class Address:
     _IPV6_RE = re.compile(r"^\[(?P<host>[^]]+)\](:(?P<port>\d+))?$")
 
     def __init__(self, host: _IPAddress, port: Optional[int] = None) -> None:
-        self._host = host
+        if isinstance(host, typing.get_args(_IPAddress)):
+            self._host = host
+        else:
+            raise TypeError(f"{host} is not of either {typing.get_args(_IPAddress)}")
         self._port = port
 
     @property
