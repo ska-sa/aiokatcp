@@ -34,10 +34,12 @@ import enum
 import gc
 import unittest
 import weakref
-from typing import List, Optional
+from ipaddress import IPv4Address
+from typing import Any, List, Optional, Type, TypeVar
 from unittest import mock
 from unittest.mock import create_autospec
 
+import numpy as np
 import pytest
 
 from aiokatcp.core import Address, Timestamp
@@ -50,6 +52,8 @@ from aiokatcp.sensor import (
     SimpleAggregateSensor,
     _weak_callback,
 )
+
+_T = TypeVar("_T")
 
 
 @pytest.mark.parametrize(
@@ -82,47 +86,80 @@ def test_sensor_status_func():
     assert sensor.status == Sensor.Status.NOMINAL
 
 
-def test_sensor_value_setter(diverse_sensors):
-    """Check whether the value type verification works."""
-    diverse_sensors["test-bool-sensor"].value = True
-    assert diverse_sensors["test-bool-sensor"]
-    with pytest.raises(TypeError):
-        diverse_sensors["test-bool-sensor"].value = "True"
+class MyEnum(enum.Enum):
+    ZERO = 0
+    ONE = 1
 
-    diverse_sensors["test-int-sensor"].value = 1234
-    assert diverse_sensors["test-int-sensor"].value == 1234
-    with pytest.raises(TypeError):
-        diverse_sensors["test-int-sensor"].value = "1234"
 
-    diverse_sensors["test-float-sensor"].value = 1234.5
-    assert diverse_sensors["test-float-sensor"].value == 1234.5
-    with pytest.raises(TypeError):
-        diverse_sensors["test-float-sensor"].value = "1234"
+class OtherEnum(enum.Enum):
+    ABC = 0
+    DEF = 1
 
-    diverse_sensors["test-str-sensor"].value = "foo"
-    assert diverse_sensors["test-str-sensor"].value == "foo"
-    with pytest.raises(TypeError):
-        diverse_sensors["test-str-sensor"].value = 1234
 
-    diverse_sensors["test-bytes-sensor"].value = b"bar"
-    assert diverse_sensors["test-bytes-sensor"].value == b"bar"
-    with pytest.raises(TypeError):
-        diverse_sensors["test-bytes-sensor"].value = "foo"
+@pytest.mark.parametrize(
+    "sensor_name,sensor_type,default,compatible_value",
+    [
+        ("bool", bool, False, True),
+        ("int", int, 0, np.int32(1234)),
+        ("float", float, 0.0, np.int32(1234678)),
+        ("float", float, 0.0, np.float32(12345678)),
+        ("str", str, "zero", "one-two-three-four"),
+        ("bytes", bytes, b"zero", b"one-two-three-four"),
+        ("address", Address, Address(IPv4Address("0.0.0.0")), Address(IPv4Address("1.2.3.4"))),
+        ("timestamp", Timestamp, Timestamp(0.0), 12345678),
+        ("enum", MyEnum, MyEnum.ZERO, MyEnum.ONE),
+    ],
+)
+def test_sensor_value_setter_success(
+    sensor_name: str,
+    sensor_type: Type[_T],
+    default: Any,
+    compatible_value: Any,
+) -> None:
+    """Check a compatible value against a sensor type.
 
-    diverse_sensors["test-address-sensor"].value = "1.2.3.4"
-    assert diverse_sensors["test-address-sensor"].value == Address("1.2.3.4")
-    with pytest.raises(TypeError):
-        diverse_sensors["test-address-sensor"].value = 5678
+    This uses a default value to ensure the :class:`Sensor`\'s constructor
+    also performs the value type check. It also checks compatibility with
+    numpy scalars.
+    """
+    sensor_under_test = Sensor(
+        sensor_type,
+        f"test-{sensor_name}",
+        default,
+    )
+    sensor_under_test.value = compatible_value
+    assert sensor_under_test.value == compatible_value
 
-    diverse_sensors["test-timestamp-sensor"].value = 12345678
-    assert diverse_sensors["test-timestamp-sensor"].value == Timestamp(12345678)
-    with pytest.raises(TypeError):
-        diverse_sensors["test-timestamp-sensor"].value = "12345678"
 
-    diverse_sensors["test-enum-sensor"].value = MyEnum.ONE
-    assert diverse_sensors["test-enum-sensor"].value == MyEnum.ONE
+@pytest.mark.parametrize(
+    "sensor_name,sensor_type,bad_value",
+    [
+        ("bool", bool, "True"),
+        ("int", int, "1234"),
+        ("float", float, "1234.5"),
+        ("str", str, {"a": 1}),
+        ("bytes", bytes, "1"),
+        (
+            "address",
+            Address,
+            "0.0.0.0",
+        ),
+        ("timestamp", Timestamp, "12345678"),
+        ("enum", MyEnum, OtherEnum.ABC),
+    ],
+)
+def test_sensor_value_setter_failure(
+    sensor_name: str,
+    sensor_type: Type[_T],
+    bad_value: Any,
+) -> None:
+    """Check an incompatible value for a sensor"""
+    sensor_under_test = Sensor(
+        sensor_type,
+        f"test-{sensor_name}",
+    )
     with pytest.raises(TypeError):
-        diverse_sensors["test-enum-sensor"].value = OtherEnum.ABC
+        sensor_under_test.value = bad_value
 
 
 @pytest.fixture
@@ -203,80 +240,6 @@ def sensors():
 def alt_sensors():
     # A different set of sensors with the same names
     return [Sensor(float, f"name{i}") for i in range(5)]
-
-
-class MyEnum(enum.Enum):
-    ZERO = 0
-    ONE = 1
-
-
-class OtherEnum(enum.Enum):
-    ABC = 0
-    DEF = 1
-
-
-@pytest.fixture
-def diverse_sensors():
-    # Another set of sensors with different data types
-    diverse_ss = SensorSet()
-    diverse_ss.add(
-        Sensor(
-            bool,
-            "test-bool-sensor",
-            default=False,
-        )
-    )
-    diverse_ss.add(
-        Sensor(
-            int,
-            "test-int-sensor",
-            default=0,
-        )
-    )
-    diverse_ss.add(
-        Sensor(
-            float,
-            "test-float-sensor",
-            default=0.0,
-        )
-    )
-    diverse_ss.add(
-        Sensor(
-            str,
-            "test-str-sensor",
-            default="zero",
-        )
-    )
-    diverse_ss.add(
-        Sensor(
-            bytes,
-            "test-bytes-sensor",
-            default=b"zero",
-        )
-    )
-    diverse_ss.add(
-        Sensor(
-            Address,
-            "test-address-sensor",
-            default=Address("0.0.0.0"),
-        )
-    )
-    diverse_ss.add(
-        Sensor(
-            Timestamp,
-            "test-timestamp-sensor",
-            default=Timestamp(0.0),
-        )
-    )
-    diverse_ss.add(
-        Sensor(
-            MyEnum,
-            "test-enum-sensor",
-            default=MyEnum.ZERO,
-        )
-    )
-
-    return diverse_ss
 
 
 @pytest.fixture

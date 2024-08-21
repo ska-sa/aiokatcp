@@ -40,6 +40,8 @@ katcp-codec==0.1.0
     # via -r requirements.in
 nodeenv==1.8.0
     # via pre-commit
+numpy==1.24.4
+    # via -r requirements.in
 packaging==24.0
     # via pytest
 platformdirs==4.2.0

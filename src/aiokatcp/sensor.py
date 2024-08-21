@@ -188,11 +188,13 @@ class Sensor(Generic[_T]):
         self.auto_strategy_parameters = tuple(auto_strategy_parameters)
         # TODO: should validate the parameters against the strategy.
 
-    def _check_value_type(self, value: _T) -> _T:
+    def _check_value_type(self, value: Any) -> _T:
         """Verify incoming value is compatible with sensor type.
 
-        This also handles the special case of :class:`core.Timestamp` where
-        it is used with `float` type interchangeably.
+        If it is compatible, cast it to the expected data type to ensure the
+        incoming value is in the required format. This also handles the special
+        case of :class:`core.Timestamp` where it is used with `float` type
+        interchangeably.
 
         Raises
         ------
@@ -200,19 +202,17 @@ class Sensor(Generic[_T]):
             If the incoming `value` type is not compatible with the sensor's
             core type.
         """
-
-        if isinstance(value, self._core_type) and not issubclass(self._core_type, enum.Enum):
+        if isinstance(value, self.stype):
+            # It's an exact match
+            return value
+        elif isinstance(value, self._core_type) and not issubclass(self._core_type, enum.Enum):
             # The more general case of e.g. numpy types not being directly
-            # comparable with python types.
-            return value
-        elif self.stype is core.Timestamp and isinstance(value, numbers.Real):
-            # core.Timestamp can also be a float
-            return value  # type: ignore
-        elif type(value) in [bytes, str, core.Address] and self.stype is core.Address:
-            return core.Address(value)  # type: ignore
-        elif isinstance(value, self.stype):
-            # To ensure specific types of enum.Enums are handled correctly
-            return value
+            # comparable with python types. Explicitly cast it into the desired
+            # type.
+            return self.stype(value)  # type: ignore [call-arg]
+        elif isinstance(value, numbers.Real) and self.stype is core.Timestamp:
+            # core.Timestamp can also be an int or float
+            return self.stype(value)  # type: ignore [call-arg]
         else:
             raise TypeError(
                 f"Value type {type(value)} is not compatible with Sensor type "
@@ -231,7 +231,7 @@ class Sensor(Generic[_T]):
             delta_observer(self, reading, old_reading=old_reading)
 
     def set_value(
-        self, value: _T, status: Optional[Status] = None, timestamp: Optional[float] = None
+        self, value: Any, status: Optional[Status] = None, timestamp: Optional[float] = None
     ) -> None:
         """Set the current value of the sensor.
 
@@ -276,7 +276,7 @@ class Sensor(Generic[_T]):
         return self.reading.value
 
     @value.setter
-    def value(self, value: _T) -> None:
+    def value(self, value: Any) -> None:
         self.set_value(value)
 
     @property

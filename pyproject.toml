@@ -48,6 +48,7 @@ test = [
     "pytest",
     "pytest-asyncio>=0.23",
     "pytest-mock",
+    "numpy",
 ]
 doc = [
     "sphinx",
