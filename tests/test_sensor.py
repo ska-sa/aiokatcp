@@ -34,12 +34,12 @@ import enum
 import gc
 import unittest
 import weakref
+from fractions import Fraction
 from ipaddress import IPv4Address
 from typing import Any, List, Optional, Type, TypeVar
 from unittest import mock
 from unittest.mock import create_autospec
 
-import numpy as np
 import pytest
 
 from aiokatcp.core import Address, Timestamp
@@ -97,69 +97,74 @@ class OtherEnum(enum.Enum):
 
 
 @pytest.mark.parametrize(
-    "sensor_name,sensor_type,default,compatible_value",
+    "sensor_type,compatible_value",
     [
-        ("bool", bool, False, True),
-        ("int", int, 0, np.int32(1234)),
-        ("float", float, 0.0, np.int32(1234678)),
-        ("float", float, 0.0, np.float32(12345678)),
-        ("str", str, "zero", "one-two-three-four"),
-        ("bytes", bytes, b"zero", b"one-two-three-four"),
-        ("address", Address, Address(IPv4Address("0.0.0.0")), Address(IPv4Address("1.2.3.4"))),
-        ("timestamp", Timestamp, Timestamp(0.0), 12345678),
-        ("enum", MyEnum, MyEnum.ZERO, MyEnum.ONE),
+        (bool, True),
+        (int, 1_2_3_4),
+        (float, Fraction(1234678)),
+        (float, Fraction(12345678)),
+        (str, "one-two-three-four"),
+        (bytes, b"one-two-three-four"),
+        (Address, Address(IPv4Address("1.2.3.4"))),
+        (Timestamp, 12345678),
+        (MyEnum, MyEnum.ONE),
     ],
 )
+@pytest.mark.parametrize("initialise_sensor", [True, False])
 def test_sensor_value_setter_success(
-    sensor_name: str,
     sensor_type: Type[_T],
-    default: Any,
     compatible_value: Any,
+    initialise_sensor: bool,
 ) -> None:
     """Check a compatible value against a sensor type.
 
-    This uses a default value to ensure the :class:`Sensor`\'s constructor
-    also performs the value type check. It also checks compatibility with
-    numpy scalars.
+    Using `initialise_sensor`, this test checks `compatible_value` either as a
+    default sensor value, or as a new value to an existing sensor.
     """
-    sensor_under_test = Sensor(
+    sensor = Sensor(
         sensor_type,
-        f"test-{sensor_name}",
-        default,
+        "test-sensor",
+        default=compatible_value if initialise_sensor else None,
     )
-    sensor_under_test.value = compatible_value
-    assert sensor_under_test.value == compatible_value
+    if not initialise_sensor:
+        sensor.value = compatible_value
+    assert sensor.value == compatible_value
+    assert isinstance(sensor.value, sensor_type)
 
 
 @pytest.mark.parametrize(
-    "sensor_name,sensor_type,bad_value",
+    "sensor_type,bad_value",
     [
-        ("bool", bool, "True"),
-        ("int", int, "1234"),
-        ("float", float, "1234.5"),
-        ("str", str, {"a": 1}),
-        ("bytes", bytes, "1"),
-        (
-            "address",
-            Address,
-            "0.0.0.0",
-        ),
-        ("timestamp", Timestamp, "12345678"),
-        ("enum", MyEnum, OtherEnum.ABC),
+        (bool, "True"),
+        (int, "1234"),
+        (int, 1234.5),
+        (float, "1234.5"),
+        (str, {"a": 1}),
+        (str, b"bytes"),
+        (bytes, "str"),
+        (Address, "0.0.0.0"),
+        (Timestamp, "12345678"),
+        (MyEnum, OtherEnum.ABC),
     ],
 )
 def test_sensor_value_setter_failure(
-    sensor_name: str,
     sensor_type: Type[_T],
     bad_value: Any,
 ) -> None:
-    """Check an incompatible value for a sensor"""
-    sensor_under_test = Sensor(
+    """Check an incompatible value for a sensor.
+
+    Check the `bad_value` is not compatible both as a new value for an existing
+    sensor and as an initial value for a new sensor.
+    """
+    sensor = Sensor(
         sensor_type,
-        f"test-{sensor_name}",
+        "test-sensor",
     )
     with pytest.raises(TypeError):
-        sensor_under_test.value = bad_value
+        sensor.value = bad_value
+
+    with pytest.raises(TypeError):
+        Sensor(sensor_type, "test-sensor", default=bad_value)
 
 
 @pytest.fixture

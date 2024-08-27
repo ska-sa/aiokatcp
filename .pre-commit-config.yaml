@@ -42,5 +42,4 @@ repos:
           'pytest==8.1.1',
           'types-decorator==5.1.1',
           'typing-extensions==4.11.0',
-          'numpy==1.24.4'
         ]

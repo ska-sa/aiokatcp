@@ -203,12 +203,13 @@ class Sensor(Generic[_T]):
             core type.
         """
         if isinstance(value, self.stype):
-            # It's an exact match
+            # The value is not a special case and can be returned unchanged
             return value
         elif isinstance(value, self._core_type) and not issubclass(self._core_type, enum.Enum):
-            # The more general case of e.g. numpy types not being directly
-            # comparable with python types. Explicitly cast it into the desired
-            # type.
+            # The more general case where the value is not derived from stype
+            # but is derived from the registered base type. e.g. numpy reals
+            # don't derive from Python's float, but do derive from numbers.Real.
+            # Explicitly cast it into the desired type.
             return self.stype(value)  # type: ignore [call-arg]
         elif isinstance(value, numbers.Real) and self.stype is core.Timestamp:
             # core.Timestamp can also be an int or float
