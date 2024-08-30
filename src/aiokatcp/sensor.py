@@ -179,7 +179,7 @@ class Sensor(Generic[_T]):
         if default is None:
             value: _T = type_info.default(sensor_type)
         else:
-            value = self._check_value_type(default)
+            value = self._cast_value_type(default)
         self._reading = Reading(time.time(), initial_status, value)
         if auto_strategy is None:
             self.auto_strategy = SensorSampler.Strategy.AUTO
@@ -188,8 +188,8 @@ class Sensor(Generic[_T]):
         self.auto_strategy_parameters = tuple(auto_strategy_parameters)
         # TODO: should validate the parameters against the strategy.
 
-    def _check_value_type(self, value: Any) -> _T:
-        """Verify incoming value is compatible with sensor type.
+    def _cast_value_type(self, value: Any) -> _T:
+        """Coerce incoming value to the sensor type.
 
         If it is compatible, cast it to the expected data type to ensure the
         incoming value is in the required format. This also handles the special
@@ -237,7 +237,8 @@ class Sensor(Generic[_T]):
         """Set the current value of the sensor.
 
         Also validate that the incoming value type is compatible with the core
-        type of this sensor.
+        type of this sensor. If compatible, coerce it to an instance of the
+        :attr:`stype`.
 
         Parameters
         ----------
@@ -258,7 +259,7 @@ class Sensor(Generic[_T]):
             If the incoming `value` type is not compatible with the sensor's
             core type.
         """
-        checked_value = self._check_value_type(value)
+        checked_value = self._cast_value_type(value)
         if timestamp is None:
             timestamp = time.time()
         if status is None:
