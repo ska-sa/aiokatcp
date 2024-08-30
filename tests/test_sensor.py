@@ -101,8 +101,9 @@ class OtherEnum(enum.Enum):
     [
         (bool, True),
         (int, 1234),
+        (float, 1234),
         (float, 1234.5),
-        (float, Fraction(8190 / 64)),
+        (float, Fraction(8190, 64)),
         (str, "one-two-three-four"),
         (bytes, b"one-two-three-four"),
         (Address, Address(IPv4Address("1.2.3.4"))),
@@ -112,7 +113,7 @@ class OtherEnum(enum.Enum):
 )
 @pytest.mark.parametrize("initialise_sensor", [True, False])
 def test_sensor_value_setter_success(
-    sensor_type: Type[_T],
+    sensor_type: Type,
     compatible_value: Any,
     initialise_sensor: bool,
 ) -> None:
