@@ -131,6 +131,11 @@ class TestAddress:
         with pytest.raises(ValueError):
             Address.parse(value)
 
+    @pytest.mark.parametrize("value", ["1.2.3.4"])
+    def test_bad_host(self, value) -> None:
+        with pytest.raises(TypeError):
+            _ = Address(value)
+
 
 class TestEncodeDecode:
     VALUES = [
