@@ -199,6 +199,28 @@ The :attr:`.DeviceServer.sensors` attribute implements both a dictionary-like
 and a set-like interface to allow sensors to be added and removed. Sensor
 metadata (such as the name or type) should not be mutated after creation.
 
+.. _sensor-value-coercion:
+
+Sensor value coercion
+^^^^^^^^^^^^^^^^^^^^^
+When setting the value of a sensor, the value being set might not match the
+declared type of the sensor. For convenience, this is allowed in some cases,
+and the value will be coerced to the sensor type (by using it as a function).
+For example, one can set the value of an integer sensor using a numpy integer
+scalar, and it will automatically be converted to a Python integer.
+
+The table below lists these special cases. In all other cases, the value must
+be an instance of the sensor type (possibly a subclass). Using an unsupported
+type when setting the value will raise :exc:`TypeError`.
+
+====================   ==========================
+Sensor type            Value type
+====================   ==========================
+:class:`int`           :class:`numbers.Integral`
+:class:`float`         :class:`numbers.Real`
+:class:`~.Timestamp`   :class:`numbers.Real`
+====================   ==========================
+
 Automatic status
 ^^^^^^^^^^^^^^^^
 In many cases the status of a sensor (nominal, warn or error) is determined
