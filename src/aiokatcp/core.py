@@ -79,6 +79,8 @@ class Address:
     _IPV6_RE = re.compile(r"^\[(?P<host>[^]]+)\](:(?P<port>\d+))?$")
 
     def __init__(self, host: _IPAddress, port: Optional[int] = None) -> None:
+        if not isinstance(host, typing.get_args(_IPAddress)):
+            raise TypeError(f"{host} is not of either {typing.get_args(_IPAddress)}")
         self._host = host
         self._port = port
 

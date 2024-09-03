@@ -41,5 +41,5 @@ repos:
           'katcp-codec==0.1.0',
           'pytest==8.1.1',
           'types-decorator==5.1.1',
-          'typing-extensions==4.11.0'
+          'typing-extensions==4.11.0',
         ]

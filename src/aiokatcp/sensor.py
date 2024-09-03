@@ -30,6 +30,7 @@ import asyncio
 import enum
 import functools
 import inspect
+import numbers
 import time
 import warnings
 import weakref
@@ -168,6 +169,7 @@ class Sensor(Generic[_T]):
         self.stype = sensor_type
         type_info = core.get_type(sensor_type)
         self.type_name = type_info.name
+        self._core_type = type_info.type_
         self._classic_observers: Set[ClassicObserver[_T]] = set()
         self._delta_observers: Set[DeltaObserver[_T]] = set()
         self.name = name
@@ -177,7 +179,7 @@ class Sensor(Generic[_T]):
         if default is None:
             value: _T = type_info.default(sensor_type)
         else:
-            value = default
+            value = self._cast_value_type(default)
         self._reading = Reading(time.time(), initial_status, value)
         if auto_strategy is None:
             self.auto_strategy = SensorSampler.Strategy.AUTO
@@ -185,6 +187,38 @@ class Sensor(Generic[_T]):
             self.auto_strategy = auto_strategy
         self.auto_strategy_parameters = tuple(auto_strategy_parameters)
         # TODO: should validate the parameters against the strategy.
+
+    def _cast_value_type(self, value: Any) -> _T:
+        """Coerce incoming value to the sensor type.
+
+        If it is compatible, cast it to the expected data type to ensure the
+        incoming value is in the required format. This also handles the special
+        case of :class:`core.Timestamp` where it is used with `float` type
+        interchangeably.
+
+        Raises
+        ------
+        TypeError
+            If the incoming `value` type is not compatible with the sensor's
+            core type.
+        """
+        if isinstance(value, self.stype):
+            # The value is not a special case and can be returned unchanged
+            return value
+        elif isinstance(value, self._core_type) and not issubclass(self._core_type, enum.Enum):
+            # The more general case where the value is not derived from stype
+            # but is derived from the registered base type. e.g. numpy reals
+            # don't derive from Python's float, but do derive from numbers.Real.
+            # Explicitly cast it into the desired type.
+            return self.stype(value)  # type: ignore [call-arg]
+        elif isinstance(value, numbers.Real) and self.stype is core.Timestamp:
+            # core.Timestamp can also be an int or float
+            return self.stype(value)  # type: ignore [call-arg]
+        else:
+            raise TypeError(
+                f"Value type {type(value)} is not compatible with Sensor type "
+                f"{self.stype} with core type {self._core_type}"
+            )
 
     def notify(self, reading: Reading[_T], old_reading: Reading[_T]) -> None:
         """Notify all observers of changes to this sensor.
@@ -198,9 +232,13 @@ class Sensor(Generic[_T]):
             delta_observer(self, reading, old_reading=old_reading)
 
     def set_value(
-        self, value: _T, status: Optional[Status] = None, timestamp: Optional[float] = None
+        self, value: Any, status: Optional[Status] = None, timestamp: Optional[float] = None
     ) -> None:
         """Set the current value of the sensor.
+
+        Also validate that the incoming value type is compatible with the core
+        type of this sensor. If compatible, coerce it to an instance of the
+        :attr:`stype`.
 
         Parameters
         ----------
@@ -214,12 +252,19 @@ class Sensor(Generic[_T]):
         timestamp
             The time at which the sensor value was determined (seconds).
             If not given, it defaults to :func:`time.time`.
+
+        Raises
+        ------
+        TypeError
+            If the incoming `value` type is not compatible with the sensor's
+            core type.
         """
+        checked_value = self._cast_value_type(value)
         if timestamp is None:
             timestamp = time.time()
         if status is None:
-            status = self.status_func(value)
-        reading = Reading(timestamp, status, value)
+            status = self.status_func(checked_value)
+        reading = Reading(timestamp, status, checked_value)
         old_reading = self._reading
         self._reading = reading
         self.notify(reading, old_reading)
@@ -233,7 +278,7 @@ class Sensor(Generic[_T]):
         return self.reading.value
 
     @value.setter
-    def value(self, value: _T) -> None:
+    def value(self, value: Any) -> None:
         self.set_value(value)
 
     @property
