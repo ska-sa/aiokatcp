@@ -1,6 +1,27 @@
 Changelog
 =========
 
+.. rubric:: Development version
+
+**Breaking changes:**
+
+- When setting the value of a sensor, it is coerced to
+  an instance of the sensor type (see :ref:`sensor-value-coercion`). Reading
+  back the sensor value will give this coerced object instead of the original.
+  This only applies if the value was not already of the expected type.
+
+- Setting a sensor value to an object of an unsupported type will now raise
+  :exc:`TypeError`. Previously it was silently accepted, and clients querying
+  the sensor would either get a value of the wrong type, or the query would
+  fail.
+
+- The :class:`Address` constructor now raises :exc:`TypeError`
+  if the first argument is not an IP address object.
+
+Other changes:
+
+- Use :func:`typing.get_args` instead of an undocumented API.
+
 .. rubric:: Version 1.10.0
 
 - Use `katcp-codec`_ to provide the low-level encoding and decoding of

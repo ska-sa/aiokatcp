@@ -18,7 +18,7 @@ import aiokatcp
 # -- Project information -----------------------------------------------------
 
 project = "aiokatcp"
-copyright = "2017-2023, National Research Foundation (SARAO)"
+copyright = "2017-2024, National Research Foundation (SARAO)"
 author = "Bruce Merry"
 
 version = aiokatcp.minor_version()
@@ -32,6 +32,7 @@ release = aiokatcp.__version__
 extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
+    "sphinx.ext.intersphinx",
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -44,6 +45,10 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 autodoc_member_order = "bysource"
 napoleon_custom_sections = [("Informs", "params_style")]
+
+intersphinx_mapping = {
+    "python": ("https://docs.python.org/3", None),
+}
 
 # -- Options for HTML output -------------------------------------------------
 
