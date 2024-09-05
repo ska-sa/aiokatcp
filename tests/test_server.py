@@ -75,6 +75,8 @@ class DummyServer(DeviceServer):
         self.sensors.add(sensor)
         sensor = Sensor(float, "float-sensor", "generic float sensor")
         self.sensors.add(sensor)
+        sensor = Sensor(bytes, "str-sensor", "generic string sensor")
+        self.sensors.add(sensor)
         sensor = Sensor(
             int,
             "auto-override",
@@ -333,7 +335,8 @@ async def test_sensor_list_no_filter(
             rb"#sensor-list[4] counter-queries number\_of\_?counter\_queries \@ integer" + b"\n",
             rb"#sensor-list[4] float-sensor generic\_float\_sensor \@ float" + b"\n",
             rb"#sensor-list[4] foo nonsense \@ discrete first-value second-value" + b"\n",
-            b"!sensor-list[4] ok 4\n",
+            rb"#sensor-list[4] str-sensor generic\_string\_sensor \@ string" + b"\n",
+            b"!sensor-list[4] ok 5\n",
         ],
     )
 
@@ -368,7 +371,8 @@ async def test_sensor_list_regex_filter(
             rb"#sensor-list[6] counter-queries number\_of\_?counter\_queries \@ integer" + b"\n",
             rb"#sensor-list[6] float-sensor generic\_float\_sensor \@ float" + b"\n",
             rb"#sensor-list[6] foo nonsense \@ discrete first-value second-value" + b"\n",
-            b"!sensor-list[6] ok 3\n",
+            rb"#sensor-list[6] str-sensor generic\_string\_sensor \@ string" + b"\n",
+            b"!sensor-list[6] ok 4\n",
         ],
     )
 
@@ -398,7 +402,8 @@ async def test_sensor_value(
             b"#sensor-value[9] 123456789.0 1 counter-queries nominal 0\n",
             b"#sensor-value[9] 123456789.0 1 float-sensor unknown 0.0\n",
             b"#sensor-value[9] 123456789.0 1 foo unknown first-value\n",
-            b"!sensor-value[9] ok 4\n",
+            b"#sensor-value[9] 123456789.0 1 str-sensor unknown \\@\n",
+            b"!sensor-value[9] ok 5\n",
         ],
     )
 
@@ -634,6 +639,24 @@ async def test_slow_client(server: DummyServer, reader: asyncio.StreamReader) ->
     big_str = b"x" * 200000
     assert len(server._connections) == 1
     server.mass_inform("big", big_str)
+    assert len(server._connections) == 0
+
+
+async def test_slow_client_sensor(
+    server: DummyServer, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+) -> None:
+    server.max_backlog = 32768
+    big_str = b"x" * 200000
+    writer.write(b"?sensor-sampling str-sensor auto\n")
+    await check_reply(
+        reader,
+        [
+            re.compile(rb"^#sensor-status [0-9.]+ 1 str-sensor unknown \\@"),
+            b"!sensor-sampling ok str-sensor auto\n",
+        ],
+    )
+    assert len(server._connections) == 1
+    server.sensors["str-sensor"].value = big_str
     assert len(server._connections) == 0
 
 

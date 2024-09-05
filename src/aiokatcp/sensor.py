@@ -1,4 +1,4 @@
-# Copyright 2017, 2019, 2022 National Research Foundation (SARAO)
+# Copyright 2017, 2019, 2022, 2024 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -226,9 +226,10 @@ class Sensor(Generic[_T]):
         Users should not usually call this directly. It is called automatically
         by :meth:`set_value`.
         """
-        for classic_observer in self._classic_observers:
+        # list() is to avoid errors if the set is modified during iteration.
+        for classic_observer in list(self._classic_observers):
             classic_observer(self, reading)
-        for delta_observer in self._delta_observers:
+        for delta_observer in list(self._delta_observers):
             delta_observer(self, reading, old_reading=old_reading)
 
     def set_value(
