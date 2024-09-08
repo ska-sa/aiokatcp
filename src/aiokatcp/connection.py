@@ -35,7 +35,7 @@ import time
 from typing import Any, Callable, Iterable, Optional, TypeVar
 
 import decorator
-from typing_extensions import Protocol
+from typing_extensions import Protocol, Self
 
 from . import core
 
@@ -44,7 +44,6 @@ DEFAULT_LIMIT = 16 * 1024**2
 _BLANK_RE = re.compile(rb"^[ \t]*[\r\n]?$")
 # typing.Protocol requires a contravariant typevar
 _C_contra = TypeVar("_C_contra", bound="Connection", contravariant=True)
-_C = TypeVar("_C", bound="Connection")
 
 
 class ConvertCRProtocol(asyncio.StreamReaderProtocol):
@@ -127,8 +126,8 @@ class _ConnectionOwner(Protocol[_C_contra]):
 
 class Connection:
     def __init__(
-        self: _C,
-        owner: _ConnectionOwner[_C],
+        self,
+        owner: _ConnectionOwner[Self],
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
         is_server: bool,
@@ -193,7 +192,8 @@ class Connection:
                         self.logger.warning("Connection closed while draining: %s", error)
                         self._close_writer()
 
-    async def _run(self: _C) -> None:
+    # The self: Self is needed due to https://github.com/python/mypy/issues/17723
+    async def _run(self: Self) -> None:
         while True:
             # If the output buffer gets too full, pause processing requests
             await self.drain()

@@ -1,4 +1,4 @@
-# Copyright 2017, 2019, 2022 National Research Foundation (SARAO)
+# Copyright 2017, 2019, 2022, 2024 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -64,6 +64,8 @@ _T = TypeVar("_T")
 class ClientConnection(connection.Connection):
     """Server's view of the connection from a single client."""
 
+    owner: "DeviceServer"
+
     def __init__(
         self,
         owner: "DeviceServer",
@@ -99,7 +101,7 @@ class ClientConnection(connection.Connection):
         msg = core.Message.inform(
             "sensor-status", reading.timestamp, 1, s.name, reading.status, reading.value
         )
-        self.write_message(msg)
+        self.owner._write_async_message(self, msg)
 
 
 class RequestContext:
