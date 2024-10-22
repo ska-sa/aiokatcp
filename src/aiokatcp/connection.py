@@ -180,8 +180,8 @@ class Connection:
 
     async def drain(self) -> None:
         """Block until the outgoing write buffer is small enough."""
-        # The Python 3.5 implementation of StreamWriter.drain is not reentrant,
-        # so we use a lock.
+        # StreamWriter.drain is not reentrant prior to Python 3.10.8, so we use
+        # a lock (https://github.com/python/cpython/issues/74116).
         async with self._drain_lock:
             if not self._writer_closing:
                 try:
