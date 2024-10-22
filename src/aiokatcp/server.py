@@ -529,7 +529,12 @@ class DeviceServer(metaclass=DeviceServerMeta):
 
     def _write_async_message(self, conn: ClientConnection, msg: core.Message) -> None:
         conn.write_message(msg)
-        if conn.writer is not None:
+        # ?sensor-sampling with a bulk list of sensors causes large amounts of
+        # data (initial sensor values) to be dumped into the stream at once,
+        # and it's only drained in batches (for efficiency). So we suspend the
+        # usual heuristic for detecting too-slow clients while that is in
+        # progress.
+        if conn.writer is not None and not conn.samplers_lock.locked():
             transport = cast(asyncio.WriteTransport, conn.writer.transport)
             backlog = transport.get_write_buffer_size()
             if backlog > self.max_backlog:
