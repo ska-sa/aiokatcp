@@ -29,7 +29,17 @@ jobs:
       - run: pip check
       - run: pytest -Werror --cov=aiokatcp --cov-branch
       - run: pre-commit run --all-files
-      - run: coveralls --service=github
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: coverallsapp/github-action@v2.3.3
+        with:
+          parallel: true
+          flag-name: ${{ matrix.os }}
         if: ${{ matrix.coverage == 'yes' }}
+  finish:
+    needs: test
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Finalise Coveralls
+        uses: coverallsapp/github-action@v2.3.3
+        with:
+          parallel-finished: true

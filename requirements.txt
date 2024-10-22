@@ -8,32 +8,20 @@ async-solipsism==0.6
     # via -r requirements.in
 async-timeout==4.0.3
     # via -r requirements.in
-certifi==2024.7.4
-    # via requests
 cfgv==3.4.0
     # via pre-commit
-charset-normalizer==3.3.2
-    # via requests
 coverage[toml]==6.5.0
-    # via
-    #   coveralls
-    #   pytest-cov
-coveralls==3.3.1
-    # via -r requirements.in
+    # via pytest-cov
 decorator==5.1.1
     # via -r requirements.in
 distlib==0.3.8
     # via virtualenv
-docopt==0.6.2
-    # via coveralls
 exceptiongroup==1.2.0
     # via pytest
 filelock==3.13.4
     # via virtualenv
 identify==2.5.35
     # via pre-commit
-idna==3.7
-    # via requests
 iniconfig==2.0.0
     # via pytest
 katcp-codec==0.1.0
@@ -62,16 +50,12 @@ pytest-mock==3.14.0
     # via -r requirements.in
 pyyaml==6.0.1
     # via pre-commit
-requests==2.32.0
-    # via coveralls
 tomli==2.0.1
     # via
     #   coverage
     #   pytest
 typing-extensions==4.11.0
     # via -r requirements.in
-urllib3==2.2.2
-    # via requests
 virtualenv==20.25.1
     # via pre-commit
 
