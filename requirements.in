@@ -1,6 +1,5 @@
 async-solipsism
 async-timeout
-coveralls
 decorator
 katcp-codec
 pre-commit
