@@ -244,6 +244,7 @@ async def get_version_info(
 @pytest.fixture
 def mock_time(mocker, event_loop) -> None:
     mocker.patch("time.time", lambda: event_loop.time() + 123456789.0)
+    mocker.patch("time.time_ns", lambda: event_loop.time() * 1e9 + 123456789e9)
 
 
 async def test_start_twice(server: DummyServer) -> None:
