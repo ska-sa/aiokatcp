@@ -1,6 +1,18 @@
 Changelog
 =========
 
+.. rubric:: Version 2.0.1
+
+- Disconnect a client if it is not able to keep up with ``#sensor-status``
+  informs. Previously this was only checked when broadcasting an inform
+  to all clients, such as ``#interface-changed``.
+
+- Avoid disconnecting a client with a large backlog during handling of
+  ``?sensor-sampling`` requests, as this can trigger a large burst of
+  ``#sensor-status`` informs.
+
+- Fix unit tests for Python 3.13.
+
 .. rubric:: Version 2.0.0
 
 **Breaking changes:**
