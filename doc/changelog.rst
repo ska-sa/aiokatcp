@@ -1,6 +1,10 @@
 Changelog
 =========
 
+.. rubric:: Version 2.0.2
+
+- Support async-timeout 5.0 (and remove support for pre-1.3 versions).
+
 .. rubric:: Version 2.0.1
 
 - Disconnect a client if it is not able to keep up with ``#sensor-status``

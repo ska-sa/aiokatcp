@@ -26,7 +26,7 @@ keywords = [
     "katcp",
 ]
 dependencies = [
-    "async-timeout",
+    "async-timeout>=1.3.0",  # For async context manager support
     "decorator>=4.1",
     "katcp-codec",
     "typing-extensions",
