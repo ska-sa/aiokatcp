@@ -79,7 +79,7 @@ async def async_main() -> int:
     assert current_task is not None
     asyncio.get_event_loop().add_signal_handler(signal.SIGINT, current_task.cancel)
     try:
-        with async_timeout.timeout(args.connect_timeout):
+        async with async_timeout.timeout(args.connect_timeout):
             client = await CmdClient.connect(host, port, auto_reconnect=False)
     except (OSError, aiokatcp.client.ProtocolError) as error:
         logging.error("Connection error: %s", error)
@@ -89,7 +89,7 @@ async def async_main() -> int:
         return 1
     async with client:
         try:
-            with async_timeout.timeout(args.request_timeout):
+            async with async_timeout.timeout(args.request_timeout):
                 reply, informs = await client.request_raw(args.command, *args.args)
         except (OSError, aiokatcp.client.ProtocolError) as error:
             logging.error("Connection error: %s", error)
