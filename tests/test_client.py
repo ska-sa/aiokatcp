@@ -1,4 +1,4 @@
-# Copyright 2017, 2019-2020, 2022, 2024 National Research Foundation (SARAO)
+# Copyright 2017, 2019-2020, 2022, 2024-2025 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -466,6 +466,15 @@ class SensorWatcherChannel(Channel):
         assert await self.reader.readline() == b"?sensor-sampling[2] device-status auto\n"
         assert self.watcher.mock_calls == [
             call.batch_start(),
+            call.filter(
+                "device-status",
+                "Device status",
+                "",
+                "discrete",
+                b"ok",
+                b"degraded",
+                b"fail",
+            ),
             call.sensor_added(
                 "device-status",
                 "Device status",
@@ -527,10 +536,12 @@ class TestSensorMonitor:
             b"#sensor-list[3] pressure Pressure Pa float\n"
             b"!sensor-list[3] ok 1\n"
         )
-        assert await channel.reader.readline() == b"?sensor-sampling[4] temp,pressure auto\n"
+        assert await channel.reader.readline() == b"?sensor-sampling[4] pressure,temp auto\n"
         assert channel.watcher.mock_calls == [
             call.batch_start(),
+            call.filter("temp", "Temperature", "F", "float"),
             call.sensor_added("temp", "Temperature", "F", "float"),
+            call.filter("pressure", "Pressure", "Pa", "float"),
             call.sensor_added("pressure", "Pressure", "Pa", "float"),
             call.sensor_removed("device-status"),
             call.batch_stop(),
@@ -563,20 +574,22 @@ class TestSensorMonitor:
             b"#sensor-list[3] pressure Pressure Pa float\n"
             b"!sensor-list[3] ok 1\n"
         )
-        assert await channel.reader.readline() == b"?sensor-sampling[4] temp,pressure auto\n"
+        assert await channel.reader.readline() == b"?sensor-sampling[4] pressure,temp auto\n"
 
         channel.writer.write(rb"!sensor-sampling[4] fail Unknown\_sensor\_'pressure'" + b"\n")
-        assert await channel.reader.readline() == b"?sensor-sampling[5] temp auto\n"
+        assert await channel.reader.readline() == b"?sensor-sampling[5] pressure auto\n"
+        channel.writer.write(rb"!sensor-sampling[5] fail Unknown\_sensor\_'pressure'" + b"\n")
+        assert await channel.reader.readline() == b"?sensor-sampling[6] temp auto\n"
         channel.writer.write(
-            b"#sensor-status 123456790.0 1 temp warn 451.0\n" b"!sensor-sampling[5] ok temp auto\n"
+            b"#sensor-status 123456790.0 1 temp warn 451.0\n" b"!sensor-sampling[6] ok temp auto\n"
         )
-        assert await channel.reader.readline() == b"?sensor-sampling[6] pressure auto\n"
-        channel.writer.write(rb"!sensor-sampling[6] fail Unknown\_sensor\_'pressure'" + b"\n")
         await asyncio.sleep(1)
 
         assert channel.watcher.mock_calls == [
             call.batch_start(),
+            call.filter("temp", "Temperature", "F", "float"),
             call.sensor_added("temp", "Temperature", "F", "float"),
+            call.filter("pressure", "Pressure", "Pa", "float"),
             call.sensor_added("pressure", "Pressure", "Pa", "float"),
             call.sensor_removed("device-status"),
             call.batch_stop(),
@@ -597,6 +610,7 @@ class TestSensorMonitor:
         assert await channel.reader.readline() == b"?sensor-sampling[4] device-status auto\n"
         assert channel.watcher.mock_calls == [
             call.batch_start(),
+            call.filter("device-status", "A different status", "", "int"),
             call.sensor_added("device-status", "A different status", "", "int"),
             call.batch_stop(),
         ]
@@ -626,7 +640,6 @@ class TestSensorMonitor:
         channel.writer.write(b"!sensor-list[3] ok 0\n")
         await asyncio.sleep(1)
         assert channel.watcher.mock_calls == [
-            call.state_updated(SyncState.SYNCING),
             call.batch_start(),
             call.sensor_removed("device-status"),
             call.batch_stop(),
