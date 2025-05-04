@@ -1,6 +1,7 @@
 async-solipsism
 async-timeout
 decorator
+hypothesis
 katcp-codec
 pre-commit
 pytest

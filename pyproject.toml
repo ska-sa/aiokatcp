@@ -45,6 +45,7 @@ katcpcmd = "aiokatcp.tools.katcpcmd:main"
 [project.optional-dependencies]
 test = [
     "async-solipsism>=0.6",
+    "hypothesis",
     "pytest",
     "pytest-asyncio>=0.23",
     "pytest-mock",
