@@ -543,6 +543,8 @@ class TestSensorMonitor:
     """Test the sensor monitoring interface.
 
     This mocks out the :class:`~.AbstractSensorWatcher`.
+
+    See also :class:`SensorMonitorStateMachine`, which uses randomised tests.
     """
 
     async def test_init(self, channel) -> None:
@@ -735,6 +737,48 @@ class TestSensorMonitor:
             call.batch_stop(),
             call.state_updated(SyncState.SYNCED),
         ]
+
+    async def test_unexpected_update(self, channel):
+        """If a ``#sensor-status`` inform arrives we weren't expecting, we're subscribed.
+
+        This can happen if we remove a watcher but receive the update before we
+        can unsubscribe. It could also happen if unsubscribing failed for some
+        server-side reason, or just because the server is buggy.
+        """
+        await channel.init()
+        watcher2 = unittest.mock.Mock(autospec=AbstractSensorWatcher)
+        watcher2.filter.return_value = False
+        channel.client.add_sensor_watcher(watcher2)
+        channel.client.remove_sensor_watcher(channel.watcher)
+        # watcher2 filters out all sensors, so we now unsubscribe from device-status
+        assert await channel.reader.readline() == b"?sensor-sampling[3] device-status none\n"
+        channel.writer.write(
+            b"#sensor-status 123456790.0 1 device-status nominal ok\n"
+            b"!sensor-sampling[3] ok device-status\n"
+        )
+        await asyncio.sleep(1)
+        # This one is unexpected - we will try to unsubscribe again
+        channel.writer.write(b"#sensor-status 123456791.0 1 device-status warn degraded\n")
+        assert await channel.reader.readline() == b"?sensor-sampling[4] device-status none\n"
+        channel.writer.write(b"!sensor-sampling[4] ok device-status\n")
+        await channel.writer.drain()
+
+    @pytest.mark.parametrize(
+        "update",
+        [
+            b"#sensor-status 123456789.0 hello\n",  # Count is not integer
+            b"#sensor-status 123456789.0 -1\n",  # Count is negative
+            b"#sensor-status 123456789.0 2 device-status nominal ok\n",  # Count is wrong
+            b"#sensor-status 123456789.0 1 device-status\xFF nominal ok\n",  # Non-UTF-8 name
+            b"#sensor-status 123456789.0 1 device-status spam ok\n",  # Invalid status
+            b"#sensor-status 123456789.0 1 unknown nominal ok\n",  # Unknown sensor
+        ],
+    )
+    async def test_invalid_update(self, channel, update):
+        """An invalidly-formatted ``#sensor-status`` inform has no effect."""
+        await channel.init()
+        channel.writer.write(update)
+        await channel.writer.drain()
 
 
 class DummySensorWatcher(SensorWatcher):
