@@ -1242,7 +1242,7 @@ class _SensorMonitor:
                     s.reading = sensor.Reading(value=value, status=status, timestamp=timestamp)
                     for watcher in s.watchers:
                         watcher.sensor_updated(name, value, status, timestamp)
-                    if not s.watchers:
+                    if not s.watchers and s not in self._need_subscribe:
                         # We received a value, so we must be subscribed even if
                         # didn't think we were.
                         s.subscribed = True
@@ -1263,7 +1263,11 @@ class _SensorMonitor:
         # client is closed. In the latter case, let the watchers know.
         self._set_state(SyncState.CLOSED)
         if not client_closing:
-            to_unsubscribe = [s for s in self._sensors.values() if s.subscribed]
+            # If it's in _need_subscribe, it's possible that we issued a subscribe but
+            # didn't wait for the response, in which case we are still subscribed.
+            to_unsubscribe = [
+                s for s in self._sensors.values() if s.subscribed or s in self._need_subscribe
+            ]
             if to_unsubscribe:
                 task = self.client.loop.create_task(self._set_sampling(to_unsubscribe, "none"))
                 task.add_done_callback(self._update_done)
