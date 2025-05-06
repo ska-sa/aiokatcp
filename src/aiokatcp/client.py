@@ -418,7 +418,7 @@ class Client(metaclass=ClientMeta):
                     # Exponential backoff if connections are failing
                     backoff = min(backoff * 2.0, 60.0)
                 # Pick a random value in [0.5 * backoff, backoff]
-                wait = (random.random() * 1.0) * 0.5 * backoff
+                wait = (random.random() + 1.0) * 0.5 * backoff
                 await asyncio.sleep(wait)
         else:
             await self._run_once()
