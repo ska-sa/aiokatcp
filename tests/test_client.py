@@ -776,14 +776,14 @@ class TestSensorWatcher:
         assert sensor.name == "test_foo"
         assert sensor.description == "A sensor"
         assert sensor.units == "F"
-        assert sensor.stype == float
+        assert sensor.stype is float
         assert sensor.status == Sensor.Status.UNKNOWN
         for name in ["test_bar1", "test_bar2"]:
             sensor = watcher.sensors[name]
             assert sensor.name == name
             assert sensor.description == "A duplicated sensor"
             assert sensor.units == "s"
-            assert sensor.stype == int
+            assert sensor.stype is int
             assert sensor.status == Sensor.Status.UNKNOWN
 
     def test_sensor_added_discrete(self, watcher: DummySensorWatcher) -> None:
