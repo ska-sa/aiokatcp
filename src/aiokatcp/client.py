@@ -176,6 +176,9 @@ class Client(metaclass=ClientMeta):
         self._disconnected_callbacks: List[Callable[[], None]] = []
         self._failed_connect_callbacks: List[Callable[[Exception], None]] = []
         self._inform_callbacks: Dict[str, List[_InformCallback]] = {}
+        # This is added the first time we add a watcher. Note that removing all
+        # watchers does not clear it: it needs to remain to ensure that we are
+        # properly unsubscribed from everything we subscribed to.
         self._sensor_monitor: Optional[_SensorMonitor] = None
         self._mid_support = False
         # Updated once we get the protocol version from the server
@@ -1137,7 +1140,6 @@ class _SensorMonitor:
         while True:
             try:
                 await self._update_event.wait()
-                await self.client.wait_connected()
                 while self._need_sensor_list or self._need_subscribe:
                     while self._need_sensor_list:
                         await self._update_sensor_list()
@@ -1151,6 +1153,9 @@ class _SensorMonitor:
                 self.logger.warning("Connection error in update task: %s", error)
             except Exception:
                 self.logger.exception("Exception in update task")
+            # Ensure that we don't live-lock if we're in a disconnected state but
+            # the disconnect callback hasn't had a chance to run.
+            await asyncio.sleep(0)
 
     async def _update_sensor_list(self) -> None:
         # If we throw, set it back to true to ensure we try again
@@ -1230,11 +1235,11 @@ class _SensorMonitor:
             s.subscribed = False
             self._update_need_subscribe(s)
         self._need_sensor_list = True
-        self._set_state(SyncState.SYNCING)
         self._trigger_update(True)
 
     def _disconnected(self) -> None:
         self._set_state(SyncState.DISCONNECTED)
+        self._update_event.clear()
 
     def _interface_changed(self, *args: bytes) -> None:
         # This could eventually be smarter and consult the args
@@ -1276,4 +1281,5 @@ class _SensorMonitor:
         self.client.remove_inform_callback("interface-changed", self._interface_changed)
         self.client.remove_inform_callback("sensor-status", self._sensor_status)
         self._set_state(SyncState.CLOSED)
+        self._update_event.clear()
         self._sensors.clear()

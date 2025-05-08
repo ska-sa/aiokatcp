@@ -101,7 +101,7 @@ class DummyClient(Client):
 
 @pytest.fixture
 async def client_queue() -> _ClientQueue:
-    """Queue to which client connections are added as they connection to :meth:`server`."""
+    """Queue to which client connections are added as they connect to :meth:`server`."""
     return asyncio.Queue()
 
 
@@ -779,6 +779,17 @@ class TestSensorMonitor:
         await channel.init()
         channel.writer.write(update)
         await channel.writer.drain()
+
+    @pytest.mark.channel_args(auto_reconnect=False)
+    async def test_no_reconnect(self, channel):
+        """Test the SensorMonitor stops gracefully when one-shot connection terminates."""
+        await channel.init()
+        channel.writer.write(b"#interface-changed sensor-list\n")
+        await channel.writer.drain()
+        channel.writer.close()
+        await channel.writer.wait_closed()
+        await channel.client.wait_disconnected()
+        await asyncio.sleep(1)
 
 
 class DummySensorWatcher(SensorWatcher):
