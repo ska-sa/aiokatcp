@@ -974,7 +974,8 @@ class _SensorMonitor:
         self._state = SyncState.DISCONNECTED
         # Task that continuously synchronises
         self._update_task = asyncio.create_task(self._update())
-        # Event used to wake up _update_task (via _trigger_update)
+        # Event used to wake up _update_task (via _trigger_update). This must
+        # always be consistent with _state (set iff _State is SYNCING)
         self._update_event = asyncio.Event()
         # Sensors we have seen, indexed by name
         self._sensors: Dict[str, _MonitoredSensor] = {}
