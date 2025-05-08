@@ -1035,7 +1035,8 @@ class SensorWatcherStateMachine(RuleBasedStateMachine):
         units=st.text(),
         stype=st.sampled_from([bytes, int, float, bool]),
     )
-    def add_sensor(self, stype: Type, name: str, description: str, units: str) -> None:
+    @run_in_loop
+    async def add_sensor(self, stype: Type, name: str, description: str, units: str) -> None:
         # Detection of changed sensors depends on the sensor actually changing.
         # We thus skip adding the sensor if it's identical to an existing one.
         orig = self.server.sensors.get(name)
@@ -1053,40 +1054,65 @@ class SensorWatcherStateMachine(RuleBasedStateMachine):
     @rule(
         name=st.runner().flatmap(lambda self: st.sampled_from(sorted(self.server.sensors.keys())))
     )
-    def remove_sensor(self, name: str) -> None:
+    @run_in_loop
+    async def remove_sensor(self, name: str) -> None:
         del self.server.sensors[name]
         self.server.mass_inform("interface-changed")
 
-    @precondition(lambda self: self.server.sensors)  # Must have a sensor to update
-    @rule(data=st.data(), status=st.sampled_from(sorted(Sensor.Status)))
-    def update_value(self, data: st.DataObject, status: Sensor.Status) -> None:
-        name = data.draw(st.sampled_from(sorted(self.server.sensors.keys())))
-        sensor = self.server.sensors[name]
-        value: Any
+    @staticmethod
+    def sensor_value_strategy(sensor: Sensor) -> st.SearchStrategy:
+        """Determine a suitable hypothesis strategy for the value of a sensor."""
         if sensor.stype is float:
             # Disallow nans because it causes problems for comparison.
-            value = data.draw(st.floats(allow_nan=False))
+            return st.floats(allow_nan=False)
         elif sensor.stype is int:
-            value = data.draw(st.integers())
+            return st.integers()
         elif sensor.stype is bytes:
-            value = data.draw(st.binary())
+            return st.binary()
         elif sensor.stype is bool:
-            value = data.draw(st.booleans())
+            return st.booleans()
         else:
-            raise RuntimeError(f"Unhandled sensor type {sensor.type_name}")
-        sensor.set_value(value, status=status)
+            raise TypeError(f"Unhandled sensor type {sensor.type_name}")
+
+    def sensor_update_strategy(self) -> st.SearchStrategy[Tuple[str, Any]]:
+        """Generate a strategy that will return a sensor name and a value for that sensor.
+
+        The sensor value will be suitable to the type of the sensor.
+        """
+        return st.one_of(
+            *(
+                st.tuples(st.just(sensor.name), self.sensor_value_strategy(sensor))
+                for sensor in self.server.sensors.values()
+            )
+        )
+
+    @precondition(lambda self: self.server.sensors)  # Must have a sensor to update
+    @rule(
+        name_value=st.runner().flatmap(lambda self: self.sensor_update_strategy()),
+        status=st.sampled_from(sorted(Sensor.Status)),
+    )
+    @run_in_loop
+    async def update_value(self, name_value: Tuple[str, Any], status: Sensor.Status) -> None:
+        name, value = name_value
+        self.server.sensors[name].set_value(value, status=status)
 
     @rule(mod=st.integers(min_value=1, max_value=4), phase=st.integers(min_value=0, max_value=4))
-    def add_watcher(self, mod: int, phase: int) -> None:
+    @run_in_loop
+    async def add_watcher(self, mod: int, phase: int) -> None:
         watcher = HashFilterSensorWatcher(self.client, mod=mod, phase=phase)
         self.watchers.append(watcher)
         self.client.add_sensor_watcher(watcher)
 
     @precondition(lambda self: self.watchers)  # Must have a watcher to remove
-    @rule(watcher=st.runner().flatmap(lambda self: st.sampled_from(self.watchers)))
-    def remove_watcher(self, watcher: HashFilterSensorWatcher) -> None:
-        self.client.remove_sensor_watcher(watcher)
-        self.watchers.remove(watcher)
+    @rule(
+        idx=st.runner().flatmap(
+            lambda self: st.integers(min_value=0, max_value=len(self.watchers) - 1)
+        )
+    )
+    @run_in_loop
+    async def remove_watcher(self, idx: int) -> None:
+        self.client.remove_sensor_watcher(self.watchers[idx])
+        del self.watchers[idx]
 
     @rule()
     @run_in_loop

@@ -439,12 +439,11 @@ class Client(metaclass=ClientMeta):
         """
         # TODO: also needs to abort any pending requests
         if not self._closing:
+            if self._sensor_monitor is not None:
+                self._sensor_monitor.close()
             self._run_task.cancel()
             self._close_connection()  # Ensures the transport gets closed now
             self._closing = True
-            if self._sensor_monitor is not None:
-                self._sensor_monitor.close(True)
-                self._sensor_monitor = None
 
     async def wait_closed(self) -> None:
         """Wait for the process started by :meth:`close` to complete."""
@@ -475,7 +474,7 @@ class Client(metaclass=ClientMeta):
             because the connection may fail immediately after waking up the
             waiter.
         """
-        if not self.is_connected:
+        if not self.is_connected or self._connection is None:
             if not self.auto_reconnect and self.last_exc is not None:
                 # This includes the case of having had a successful connection
                 # that disconnected.
@@ -552,7 +551,9 @@ class Client(metaclass=ClientMeta):
         ConnectionError
             if the connection was lost before the reply was received
         """
-        if not self.is_connected:
+        # TODO: a race condition means `is_connected` could still be true
+        # briefly after setting `_connection` to None.
+        if not self.is_connected or self._connection is None:
             raise BrokenPipeError("Not connected")
         if self._mid_support:
             mid = self._next_mid
@@ -708,9 +709,6 @@ class Client(metaclass=ClientMeta):
     def remove_sensor_watcher(self, watcher: "AbstractSensorWatcher") -> None:
         if self._sensor_monitor is not None:
             self._sensor_monitor.remove_watcher(watcher)
-            if not self._sensor_monitor:  # i.e. no more watchers
-                self._sensor_monitor.close(False)
-                self._sensor_monitor = None
 
 
 class SyncState(enum.Enum):
@@ -971,7 +969,10 @@ class _SensorMonitor:
         client.add_inform_callback("interface-changed", self._interface_changed)
         client.add_inform_callback("sensor-status", self._sensor_status)
         self._state = SyncState.DISCONNECTED
-        self._update_task: Optional[asyncio.Task] = None
+        # Task that continuously synchronises
+        self._update_task = asyncio.create_task(self._update())
+        # Event used to wake up _update_task (via _trigger_update)
+        self._update_event = asyncio.Event()
         # Sensors we have seen, indexed by name
         self._sensors: Dict[str, _MonitoredSensor] = {}
         self._in_batch = False
@@ -979,10 +980,11 @@ class _SensorMonitor:
         self._watchers: Dict[AbstractSensorWatcher, None] = {}
         # If the list of sensors is considered stale. Note: when
         # setting this to true, one must immediately (without awaiting)
-        # call _trigger_update() to cancel the update task to prevent
-        # the update task setting it back to false.
+        # call _trigger_update().
         self._need_sensor_list = False
-        # Sensors where we need to change the subscription status
+        # Sensors where we need to change the subscription status. When
+        # yielding, this must always contain exactly the sensors for which
+        # s.subscribed != bool(s.watchers).
         self._need_subscribe: Set[_MonitoredSensor] = set()
         if client.is_connected:
             self._connected()
@@ -992,7 +994,6 @@ class _SensorMonitor:
         # Populate the watcher with already-known information
         if self._state != SyncState.DISCONNECTED:
             watcher.state_updated(self._state)
-        subscribe = False
         with self._batch(watcher):
             for s in self._sensors.values():
                 if watcher.filter(
@@ -1009,10 +1010,8 @@ class _SensorMonitor:
                         s.info.type_name,
                         *s.info.args,
                     )
-                    if not s.subscribed:
-                        self._need_subscribe.add(s)
-                        subscribe = True
                     s.watchers[watcher] = None
+                    self._update_need_subscribe(s)
                     if s.reading is not None:
                         watcher.sensor_updated(
                             s.info.name,
@@ -1020,10 +1019,6 @@ class _SensorMonitor:
                             s.reading.status,
                             s.reading.timestamp,
                         )
-        if subscribe:
-            # TODO: this could interrupt ?sensor-list, which is wasteful,
-            # but still correct.
-            self._trigger_update()
 
     def remove_watcher(self, watcher: AbstractSensorWatcher) -> None:
         try:
@@ -1031,15 +1026,10 @@ class _SensorMonitor:
         except KeyError:
             pass
         else:
-            unsubscribe = False
             for s in self._sensors.values():
                 if watcher in s.watchers:
                     del s.watchers[watcher]
-                    if not s.watchers and s.subscribed:
-                        self._need_subscribe.add(s)
-                        unsubscribe = True
-            if unsubscribe:
-                self._trigger_update()
+                    self._update_need_subscribe(s)
 
     def __bool__(self) -> bool:
         """True if there are any watchers"""
@@ -1074,44 +1064,37 @@ class _SensorMonitor:
                 watcher.batch_stop()
             self._in_batch = False
 
-    def _cancel_update(self) -> None:
-        if self._update_task is not None:
-            self._update_task.cancel()
-            self._update_task = None
-
-    def _update_done(self, future):
-        try:
-            future.result()
-        except asyncio.CancelledError:
-            pass
-        except OSError as error:
-            # Connection died before we finished. Log it, but no need for
-            # a stack trace.
-            self.logger.warning("Connection error in update task: %s", error)
-        except Exception:
-            self.logger.exception("Exception in update task")
-
-    def _trigger_update(self) -> None:
-        if self._state in [SyncState.DISCONNECTED, SyncState.CLOSED]:
-            return  # Can't update while not connected
+    def _trigger_update(self, force: bool = False) -> None:
+        if self._state != SyncState.SYNCED and not force:
+            return  # Can't update while not connected, and no need while already SYNCING
         self.logger.debug("Sensor sync triggered")
         self._set_state(SyncState.SYNCING)
-        self._cancel_update()
-        self._update_task = self.client.loop.create_task(self._update())
-        self._update_task.add_done_callback(self._update_done)
+        self._update_event.set()
+
+    def _update_need_subscribe(self, s: _MonitoredSensor) -> None:
+        """Update _need_subscribe to be consistent with the state of `s`.
+
+        This will also trigger an update if the sensor is added to
+        _need_subscribe and the state is SYNCED.
+        """
+        if bool(s.watchers) == s.subscribed:
+            self._need_subscribe.discard(s)
+        elif s not in self._need_subscribe:
+            self._need_subscribe.add(s)
+            self._trigger_update()
 
     async def _set_sampling(self, sensors: List[_MonitoredSensor], strategy: str) -> None:
         """Register sampling strategy with sensors in `names`.
 
         If the strategy is "none", the sensors are marked as not subscribed on
         completion. Otherwise they are marked as subscribed. Once subscription
-        has been updated, sensors are removed from :attr:`_need_subscribe`.
+        has been updated, sensors are removed from :attr:`_need_subscribe` if
+        they are now in the correct state.
 
-        If this method is cancelled, all in-flight sensors are marked as
-        retained in :attr:`_need_subscribe` so that they will be re-tried. If
-        (un)subscription fails, we just ignore the error since there is nothing
-        we can usefully do about it. However, if we see a sensor update from a
-        sensor we believed we unsubscribed from, we will try again.
+        If (un)subscription fails, we just ignore the error since there is
+        nothing we can usefully do about it (trying again will probably just
+        keep failing in a loop). Usually it means the sensor has vanished and
+        so we'll resolve it once we re-read the sensor list.
         """
         # First try to set them all at once. This can fail if any of the
         # sensors disappeared in the meantime, in which case we recover by
@@ -1129,7 +1112,7 @@ class _SensorMonitor:
             else:
                 for s in sensors:
                     s.subscribed = add
-                self._need_subscribe.difference_update(sensors)
+                    self._update_need_subscribe(s)
                 return
 
         coros = [self.client.request("sensor-sampling", name, strategy) for name in names]
@@ -1143,11 +1126,37 @@ class _SensorMonitor:
                         "Failed to set strategy on %s to %s: %s", s.info.name, strategy, error
                     )
             s.subscribed = add
-            self._need_subscribe.discard(s)
+            self._update_need_subscribe(s)
 
     async def _update(self) -> None:
-        """Refresh the sensor list and subscriptions."""
-        if self._need_sensor_list:
+        """Keep the sensor list and subscriptions refreshed.
+
+        This wakes up when :attr:`_update_event` is set, and keeps working
+        until it achieves synchronisation.
+        """
+        while True:
+            try:
+                await self._update_event.wait()
+                await self.client.wait_connected()
+                while self._need_sensor_list or self._need_subscribe:
+                    while self._need_sensor_list:
+                        await self._update_sensor_list()
+                    if self._need_subscribe:
+                        await self._update_sampling()
+                self._update_event.clear()
+                self._set_state(SyncState.SYNCED)
+            except OSError as error:
+                # Connection died before we finished. Log it, but no need for
+                # a stack trace.
+                self.logger.warning("Connection error in update task: %s", error)
+            except Exception:
+                self.logger.exception("Exception in update task")
+
+    async def _update_sensor_list(self) -> None:
+        # If we throw, set it back to true to ensure we try again
+        restore_need_sensor_list = True
+        self._need_sensor_list = False
+        try:
             reply, informs = await self.client.request("sensor-list")
             seen: Set[str] = set()
             with self._batch():
@@ -1176,8 +1185,12 @@ class _SensorMonitor:
                                 # not want this new version.
                                 watcher.sensor_removed(name)
                         self._sensors[name] = s
-                        if s.watchers:
-                            self._need_subscribe.add(s)
+                        self._update_need_subscribe(s)
+                        # Note: there is a race condition in which we thought
+                        # we subscribed to `old`, but in fact subscribed to the
+                        # replacement (but don't want to be). That will get
+                        # fixed the first time we get a #sensor-status
+                        # inform.
                 # Remove old sensors
                 for name, s in list(self._sensors.items()):
                     if name not in seen:
@@ -1185,8 +1198,12 @@ class _SensorMonitor:
                             watcher.sensor_removed(name)
                         self._need_subscribe.discard(s)
                         del self._sensors[name]
-            self._need_sensor_list = False
+            restore_need_sensor_list = False
+        finally:
+            if restore_need_sensor_list:
+                self._need_sensor_list = True
 
+    async def _update_sampling(self) -> None:
         # Ensure that we're subscribed to the sensors we want to be.
         add = []
         remove = []
@@ -1195,28 +1212,28 @@ class _SensorMonitor:
                 add.append(s)
             elif not s.watchers and s.subscribed:
                 remove.append(s)
+            else:
+                assert False, "_need_subscribe inconsistent with sensor state"
         # Sorting is not needed for correctness, but it makes behaviour
         # predictable and easier to test.
         if add:
             add.sort(key=lambda s: s.info.name)
             await self._set_sampling(add, "auto")
-        if remove:
+        # Check _need_sensor_list again: if there are changes during adding we
+        # first re-read the sensor list rather than doing more work.
+        if not self._need_sensor_list and remove:
             remove.sort(key=lambda s: s.info.name)
             await self._set_sampling(remove, "none")
-        self._set_state(SyncState.SYNCED)
 
     def _connected(self) -> None:
         for s in self._sensors.values():
             s.subscribed = False
-        self._need_subscribe.update(self._sensors.values())
+            self._update_need_subscribe(s)
         self._need_sensor_list = True
-        # _trigger_update is normally ignored in SyncState.DISCONNECTED,
-        # so we have to set the state ourselves first.
         self._set_state(SyncState.SYNCING)
-        self._trigger_update()
+        self._trigger_update(True)
 
     def _disconnected(self) -> None:
-        self._cancel_update()
         self._set_state(SyncState.DISCONNECTED)
 
     def _interface_changed(self, *args: bytes) -> None:
@@ -1242,33 +1259,21 @@ class _SensorMonitor:
                     s.reading = sensor.Reading(value=value, status=status, timestamp=timestamp)
                     for watcher in s.watchers:
                         watcher.sensor_updated(name, value, status, timestamp)
-                    if not s.watchers and s not in self._need_subscribe:
+                    if not s.watchers and not s.subscribed:
                         # We received a value, so we must be subscribed even if
                         # didn't think we were.
                         s.subscribed = True
-                        self._need_subscribe.add(s)
-                        self._trigger_update()
+                        self._update_need_subscribe(s)
                 except Exception:
                     self.logger.warning(
                         "Failed to process #sensor-status for %s", name, exc_info=True
                     )
 
-    def close(self, client_closing: bool) -> None:
-        self._cancel_update()
+    def close(self) -> None:
+        self._update_task.cancel()
         self.client.remove_connected_callback(self._connected)
         self.client.remove_disconnected_callback(self._disconnected)
         self.client.remove_inform_callback("interface-changed", self._interface_changed)
         self.client.remove_inform_callback("sensor-status", self._sensor_status)
-        # The monitor is closed if there are no more watchers or if the
-        # client is closed. In the latter case, let the watchers know.
         self._set_state(SyncState.CLOSED)
-        if not client_closing:
-            # If it's in _need_subscribe, it's possible that we issued a subscribe but
-            # didn't wait for the response, in which case we are still subscribed.
-            to_unsubscribe = [
-                s for s in self._sensors.values() if s.subscribed or s in self._need_subscribe
-            ]
-            if to_unsubscribe:
-                task = self.client.loop.create_task(self._set_sampling(to_unsubscribe, "none"))
-                task.add_done_callback(self._update_done)
         self._sensors.clear()
