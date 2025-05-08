@@ -1220,7 +1220,7 @@ class _SensorMonitor:
                 add.append(s)
             elif not s.watchers and s.subscribed:
                 remove.append(s)
-            else:
+            else:  # pragma: nocover
                 assert False, "_need_subscribe inconsistent with sensor state"
         # Sorting is not needed for correctness, but it makes behaviour
         # predictable and easier to test.
