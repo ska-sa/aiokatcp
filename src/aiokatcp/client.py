@@ -993,6 +993,8 @@ class _SensorMonitor:
             self._connected()
 
     def add_watcher(self, watcher: AbstractSensorWatcher) -> None:
+        if watcher in self._watchers:
+            return
         self._watchers[watcher] = None
         # Populate the watcher with already-known information
         if self._state != SyncState.DISCONNECTED:
