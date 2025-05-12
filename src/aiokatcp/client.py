@@ -1,4 +1,4 @@
-# Copyright 2017, 2019, 2022, 2024 National Research Foundation (SARAO)
+# Copyright 2017, 2019, 2022, 2024-2025 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -418,7 +418,7 @@ class Client(metaclass=ClientMeta):
                     # Exponential backoff if connections are failing
                     backoff = min(backoff * 2.0, 60.0)
                 # Pick a random value in [0.5 * backoff, backoff]
-                wait = (random.random() * 1.0) * 0.5 * backoff
+                wait = (random.random() + 1.0) * 0.5 * backoff
                 await asyncio.sleep(wait)
         else:
             await self._run_once()
