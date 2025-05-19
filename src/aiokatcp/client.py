@@ -1017,7 +1017,7 @@ class _SensorMonitor:
                         *s.info.args,
                     )
                     s.watchers[watcher] = None
-                    self._update_need_subscribe(s)
+                    self._update_sensor_state(s)
                     if s.reading is not None:
                         watcher.sensor_updated(
                             s.info.name,
@@ -1035,7 +1035,7 @@ class _SensorMonitor:
             for s in self._sensors.values():
                 if watcher in s.watchers:
                     del s.watchers[watcher]
-                    self._update_need_subscribe(s)
+                    self._update_sensor_state(s)
 
     def __bool__(self) -> bool:
         """True if there are any watchers"""
@@ -1077,12 +1077,16 @@ class _SensorMonitor:
         self._set_state(SyncState.SYNCING)
         self._update_event.set()
 
-    def _update_need_subscribe(self, s: _MonitoredSensor) -> None:
-        """Update _need_subscribe to be consistent with the state of `s`.
+    def _update_sensor_state(self, s: _MonitoredSensor) -> None:
+        """Ensure consistency of state regarding a specific sensor.
 
-        This will also trigger an update if the sensor is added to
-        _need_subscribe and the state is SYNCED.
+        - Update _need_subscribe to be consistent with the state of `s`.
+        - Clear :attr:`_MonitoredSensor.reading` is we are not subscribed.
+        - Trigger an update if the sensor is added to _need_subscribe and
+          the state is SYNCED.
         """
+        if not s.subscribed:
+            s.reading = None
         if bool(s.watchers) == s.subscribed:
             self._need_subscribe.discard(s)
         elif s not in self._need_subscribe:
@@ -1118,7 +1122,7 @@ class _SensorMonitor:
             else:
                 for s in sensors:
                     s.subscribed = add
-                    self._update_need_subscribe(s)
+                    self._update_sensor_state(s)
                 return
 
         coros = [self.client.request("sensor-sampling", name, strategy) for name in names]
@@ -1132,7 +1136,7 @@ class _SensorMonitor:
                         "Failed to set strategy on %s to %s: %s", s.info.name, strategy, error
                     )
             s.subscribed = add
-            self._update_need_subscribe(s)
+            self._update_sensor_state(s)
 
     async def _update(self) -> None:
         """Keep the sensor list and subscriptions refreshed.
@@ -1193,7 +1197,7 @@ class _SensorMonitor:
                                 # not want this new version.
                                 watcher.sensor_removed(name)
                         self._sensors[name] = s
-                        self._update_need_subscribe(s)
+                        self._update_sensor_state(s)
                         # Note: there is a race condition in which we thought
                         # we subscribed to `old`, but in fact subscribed to the
                         # replacement (but don't want to be). That will get
@@ -1236,7 +1240,7 @@ class _SensorMonitor:
     def _connected(self) -> None:
         for s in self._sensors.values():
             s.subscribed = False
-            self._update_need_subscribe(s)
+            self._update_sensor_state(s)
         self._need_sensor_list = True
         self._trigger_update(True)
 
@@ -1265,13 +1269,13 @@ class _SensorMonitor:
                         self.logger.warning("Received update for sensor %s we haven't seen", name)
                         continue
                     s.reading = sensor.Reading(value=value, status=status, timestamp=timestamp)
-                    for watcher in s.watchers:
-                        watcher.sensor_updated(name, value, status, timestamp)
-                    if not s.watchers and not s.subscribed:
+                    if not s.subscribed:
                         # We received a value, so we must be subscribed even if
                         # didn't think we were.
                         s.subscribed = True
-                        self._update_need_subscribe(s)
+                        self._update_sensor_state(s)
+                    for watcher in s.watchers:
+                        watcher.sensor_updated(name, value, status, timestamp)
                 except Exception:
                     self.logger.warning(
                         "Failed to process #sensor-status for %s", name, exc_info=True

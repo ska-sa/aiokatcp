@@ -1185,6 +1185,11 @@ class SensorWatcherStateMachine(RuleBasedStateMachine):
             ):
                 assert conn.get_sampler(sensor) is None
 
+        # Check that we don't have any readings stored for unsubscribed sensors
+        if self.client._sensor_monitor is not None:
+            for s in self.client._sensor_monitor._sensors.values():
+                assert s.subscribed or s.reading is None
+
 
 TestSensorWatcherStateMachine = SensorWatcherStateMachine.TestCase
 
