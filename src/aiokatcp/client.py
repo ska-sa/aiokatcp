@@ -945,12 +945,23 @@ class _MonitoredSensor:
     :attr:`watchers` is not empty.
     """
 
+    class Subscribed(enum.Enum):
+        """Current subscription status for a sensor."""
+
+        NO = 0
+        YES = 1
+        # This is needed for a special case: if a sensor is replaced on the
+        # server concurrently with ?sensor-sampling, there is no way to tell
+        # whether the update was applied to the old version of the sensor or
+        # the new. So in that case we force the strategy to be applied again.
+        UNKNOWN = 2
+
     def __init__(self, info: _SensorInfo) -> None:
         self.info = info
         # Actually an ordered set, but Python has no such type
         self.watchers: Dict[AbstractSensorWatcher, None] = {}
-        self.subscribed = False
-        # May be non-None only if subscribed is True (but may also be None in
+        self.subscribed = _MonitoredSensor.Subscribed.NO
+        # May be non-None only if subscribed is YES (but may also be None in
         # that case if we haven't yet seen the initial value).
         self.reading: Optional[sensor.Reading[bytes]] = None
 
@@ -988,7 +999,9 @@ class _SensorMonitor:
         self._need_sensor_list = False
         # Sensors where we need to change the subscription status. When
         # yielding, this must always contain exactly the sensors for which
-        # s.subscribed != bool(s.watchers).
+        # - s.subscribed is UNKNOWN
+        # - s.subscribed is YES and s.watchers is empty
+        # - s.subscribed is NO and s.watchers is not empty
         self._need_subscribe: Set[_MonitoredSensor] = set()
         if client.is_connected:
             self._connected()
@@ -1081,17 +1094,24 @@ class _SensorMonitor:
         """Ensure consistency of state regarding a specific sensor.
 
         - Update _need_subscribe to be consistent with the state of `s`.
-        - Clear :attr:`_MonitoredSensor.reading` is we are not subscribed.
+        - Clear :attr:`_MonitoredSensor.reading` if we are not subscribed.
         - Trigger an update if the sensor is added to _need_subscribe and
           the state is SYNCED.
         """
-        if not s.subscribed:
+        if s.subscribed == _MonitoredSensor.Subscribed.YES:
+            need_subscribe = not s.watchers
+        elif s.subscribed == _MonitoredSensor.Subscribed.NO:
+            need_subscribe = bool(s.watchers)
             s.reading = None
-        if bool(s.watchers) == s.subscribed:
-            self._need_subscribe.discard(s)
-        elif s not in self._need_subscribe:
+        else:  # UNKNOWN
+            need_subscribe = True
+            s.reading = None
+
+        if need_subscribe:
             self._need_subscribe.add(s)
             self._trigger_update()
+        else:
+            self._need_subscribe.discard(s)
 
     async def _set_sampling(self, sensors: List[_MonitoredSensor], strategy: str) -> None:
         """Register sampling strategy with sensors in `names`.
@@ -1109,7 +1129,11 @@ class _SensorMonitor:
         # First try to set them all at once. This can fail if any of the
         # sensors disappeared in the meantime, in which case we recover by
         # falling back to subscribing individually.
-        add = strategy != "none"
+        state = (
+            _MonitoredSensor.Subscribed.YES
+            if strategy != "none"
+            else _MonitoredSensor.Subscribed.NO
+        )
         names = [s.info.name for s in sensors]
         if "B" in self.client.protocol_flags and len(names) > 1:
             try:
@@ -1121,7 +1145,7 @@ class _SensorMonitor:
                 )
             else:
                 for s in sensors:
-                    s.subscribed = add
+                    s.subscribed = state
                     self._update_sensor_state(s)
                 return
 
@@ -1135,7 +1159,7 @@ class _SensorMonitor:
                     self.logger.warning(
                         "Failed to set strategy on %s to %s: %s", s.info.name, strategy, error
                     )
-            s.subscribed = add
+            s.subscribed = state
             self._update_sensor_state(s)
 
     async def _update(self) -> None:
@@ -1197,12 +1221,12 @@ class _SensorMonitor:
                                 # not want this new version.
                                 watcher.sensor_removed(name)
                         self._sensors[name] = s
+                        # If we (un)subscribed while the sensor was being
+                        # replaced, we don't know which version that applied to,
+                        # so we can't be sure we're in the correct state.
+                        if old is not None:
+                            s.subscribed = _MonitoredSensor.Subscribed.UNKNOWN
                         self._update_sensor_state(s)
-                        # Note: there is a race condition in which we thought
-                        # we subscribed to `old`, but in fact subscribed to the
-                        # replacement (but don't want to be). That will get
-                        # fixed the first time we get a #sensor-status
-                        # inform.
                 # Remove old sensors
                 for name, s in list(self._sensors.items()):
                     if name not in seen:
@@ -1220,9 +1244,9 @@ class _SensorMonitor:
         add = []
         remove = []
         for s in self._need_subscribe:
-            if s.watchers and not s.subscribed:
+            if s.watchers and s.subscribed != _MonitoredSensor.Subscribed.YES:
                 add.append(s)
-            elif not s.watchers and s.subscribed:
+            elif not s.watchers and s.subscribed != _MonitoredSensor.Subscribed.NO:
                 remove.append(s)
             else:  # pragma: nocover
                 assert False, "_need_subscribe inconsistent with sensor state"
@@ -1239,7 +1263,7 @@ class _SensorMonitor:
 
     def _connected(self) -> None:
         for s in self._sensors.values():
-            s.subscribed = False
+            s.subscribed = _MonitoredSensor.Subscribed.NO
             self._update_sensor_state(s)
         self._need_sensor_list = True
         self._trigger_update(True)
@@ -1269,10 +1293,10 @@ class _SensorMonitor:
                         self.logger.warning("Received update for sensor %s we haven't seen", name)
                         continue
                     s.reading = sensor.Reading(value=value, status=status, timestamp=timestamp)
-                    if not s.subscribed:
+                    if s.subscribed != _MonitoredSensor.Subscribed.YES:
                         # We received a value, so we must be subscribed even if
-                        # didn't think we were.
-                        s.subscribed = True
+                        # we didn't think we were.
+                        s.subscribed = _MonitoredSensor.Subscribed.YES
                         self._update_sensor_state(s)
                     for watcher in s.watchers:
                         watcher.sensor_updated(name, value, status, timestamp)
