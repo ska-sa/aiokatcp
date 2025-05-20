@@ -1013,7 +1013,9 @@ class SensorWatcherStateMachine(RuleBasedStateMachine):
         # Unique value that is appended to the units of each sensor created.
         # This ensures that any replacement of a sensor with one of the same
         # name (but different properties) can be detected by the client so
-        # that it can resubscribe.
+        # that it can resubscribe. In reality nothing prevents a server from
+        # doing this, but it's a shortcoming of the protocol that this cannot
+        # be detected.
         self.counter = itertools.count()
         self._start()
 
