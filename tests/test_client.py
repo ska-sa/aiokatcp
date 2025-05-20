@@ -30,6 +30,7 @@ import enum
 import functools
 import gc
 import hashlib
+import itertools
 import logging
 import re
 import unittest
@@ -1009,6 +1010,11 @@ class SensorWatcherStateMachine(RuleBasedStateMachine):
         super().__init__()
         self.loop = async_solipsism.EventLoop()
         self.watchers: List[HashFilterSensorWatcher] = []
+        # Unique value that is appended to the units of each sensor created.
+        # This ensures that any replacement of a sensor with one of the same
+        # name (but different properties) can be detected by the client so
+        # that it can resubscribe.
+        self.counter = itertools.count()
         self._start()
 
     def teardown(self):
@@ -1048,17 +1054,7 @@ class SensorWatcherStateMachine(RuleBasedStateMachine):
     )
     @run_in_loop
     async def add_sensor(self, stype: Type, name: str, description: str, units: str) -> None:
-        # Detection of changed sensors depends on the sensor actually changing.
-        # We thus skip adding the sensor if it's identical to an existing one.
-        orig = self.server.sensors.get(name)
-        if (
-            orig is not None
-            and orig.name == name
-            and orig.description == description
-            and orig.units == units
-        ):
-            return
-        self.server.sensors.add(Sensor(stype, name, description, units))
+        self.server.sensors.add(Sensor(stype, name, description, f"{units} [{next(self.counter)}]"))
         self.server.mass_inform("interface-changed")
 
     @precondition(lambda self: self.server.sensors)  # Must have a sensor to remove
