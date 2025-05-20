@@ -1225,6 +1225,7 @@ class _SensorMonitor:
                         # replaced, we don't know which version that applied to,
                         # so we can't be sure we're in the correct state.
                         if old is not None:
+                            self._need_subscribe.discard(old)
                             s.subscribed = _MonitoredSensor.Subscribed.UNKNOWN
                         self._update_sensor_state(s)
                 # Remove old sensors
