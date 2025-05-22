@@ -42,6 +42,7 @@ from typing import (
     Callable,
     List,
     Sequence,
+    Set,
     Tuple,
     Type,
     TypeVar,
@@ -975,21 +976,57 @@ def run_in_loop(
 class HashFilterSensorWatcher(SensorWatcher):
     """Sensor watcher that filters based on the SHA256 hash of the sensor description.
 
-    If the hash, interpreted as an integer, is equivalent to `phase` modulo
-    `mod` then the sensor is retained; otherwise it is discarded.
+    If the hash, interpreted as an integer, is equivalent to an element of
+    `phase` modulo `mod` then the sensor is retained; otherwise it is
+    discarded.
     """
 
     def __init__(
-        self, client: Client, enum_types: Sequence[Type[enum.Enum]] = (), *, mod: int, phase: int
+        self,
+        client: Client,
+        enum_types: Sequence[Type[enum.Enum]] = (),
+        *,
+        mod: int,
+        phases: Set[int],
     ) -> None:
         super().__init__(client, enum_types)
         self._mod = mod
-        self._phase = phase % mod
+        self._phases = phases
 
     def filter(self, name: str, description: str, units: str, type_name: str, *args: bytes) -> bool:
         m = hashlib.sha256()
         m.update(description.encode())
-        return int.from_bytes(m.digest(), "big") % self._mod == self._phase
+        return int.from_bytes(m.digest(), "big") % self._mod in self._phases
+
+
+def sensor_value_strategy(sensor: Sensor) -> st.SearchStrategy:
+    """Determine a suitable hypothesis strategy for the value of a sensor."""
+    if sensor.stype is float:
+        # Disallow nans because it causes problems for comparison.
+        return st.floats(allow_nan=False)
+    elif sensor.stype is int:
+        return st.integers()
+    elif sensor.stype is bytes:
+        return st.binary()
+    elif sensor.stype is bool:
+        return st.booleans()
+    else:
+        raise TypeError(f"Unhandled sensor type {sensor.type_name}")
+
+
+@st.composite
+def mod_phases_strategy(draw: st.DrawFn) -> Tuple[int, Set[int]]:
+    """Strategy used to generate :class:`HashFilterSensorWatcher` parameters.
+
+    It generates a modulus and a set of values modulo that modulus.
+    """
+    mod = draw(st.integers(min_value=1, max_value=10))
+    phases = draw(st.sets(st.integers(min_value=0, max_value=mod - 1), max_size=mod))
+    # Hypothesis shrinks sets by removing elements, but more interesting
+    # examples tend to have filters that accept more sensors, so we invert
+    # the set.
+    phases = set(range(mod)) - phases
+    return mod, phases
 
 
 class SensorWatcherStateMachine(RuleBasedStateMachine):
@@ -1069,21 +1106,6 @@ class SensorWatcherStateMachine(RuleBasedStateMachine):
         del self.server.sensors[name]
         self.server.mass_inform("interface-changed")
 
-    @staticmethod
-    def sensor_value_strategy(sensor: Sensor) -> st.SearchStrategy:
-        """Determine a suitable hypothesis strategy for the value of a sensor."""
-        if sensor.stype is float:
-            # Disallow nans because it causes problems for comparison.
-            return st.floats(allow_nan=False)
-        elif sensor.stype is int:
-            return st.integers()
-        elif sensor.stype is bytes:
-            return st.binary()
-        elif sensor.stype is bool:
-            return st.booleans()
-        else:
-            raise TypeError(f"Unhandled sensor type {sensor.type_name}")
-
     def sensor_update_strategy(self) -> st.SearchStrategy[Tuple[str, Any]]:
         """Generate a strategy that will return a sensor name and a value for that sensor.
 
@@ -1091,7 +1113,7 @@ class SensorWatcherStateMachine(RuleBasedStateMachine):
         """
         return st.one_of(
             *(
-                st.tuples(st.just(sensor.name), self.sensor_value_strategy(sensor))
+                st.tuples(st.just(sensor.name), sensor_value_strategy(sensor))
                 for sensor in self.server.sensors.values()
             )
         )
@@ -1106,10 +1128,11 @@ class SensorWatcherStateMachine(RuleBasedStateMachine):
         name, value = name_value
         self.server.sensors[name].set_value(value, status=status)
 
-    @rule(mod=st.integers(min_value=1, max_value=4), phase=st.integers(min_value=0, max_value=4))
+    @rule(mod_phases=mod_phases_strategy())
     @run_in_loop
-    async def add_watcher(self, mod: int, phase: int) -> None:
-        watcher = HashFilterSensorWatcher(self.client, mod=mod, phase=phase)
+    async def add_watcher(self, mod_phases: Tuple[int, Set[int]]) -> None:
+        mod, phases = mod_phases
+        watcher = HashFilterSensorWatcher(self.client, mod=mod, phases=phases)
         self.watchers.append(watcher)
         self.client.add_sensor_watcher(watcher)
 
