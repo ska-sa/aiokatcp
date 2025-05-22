@@ -741,7 +741,7 @@ class AbstractSensorWatcher:
     def filter(self, name: str, description: str, units: str, type_name: str, *args: bytes) -> bool:
         """Query whether this watcher is interested in this sensor.
 
-        If it returns false, this watcher will not receive any of the other
+        If it returns ``False``, this watcher will not receive any of the other
         callbacks for this sensor.
 
         By default, all sensors are used.
@@ -755,7 +755,7 @@ class AbstractSensorWatcher:
 
         This is also called if a sensor changed its properties. In that case
         there is *no* call to :meth:`sensor_removed`, unless the :meth:`filter`
-        indicated that the new version was not of interest.
+        returned ``False`` for the new version.
         """
         pass  # pragma: nocover
 
@@ -958,7 +958,9 @@ class _MonitoredSensor:
 
     def __init__(self, info: _SensorInfo) -> None:
         self.info = info
-        # Actually an ordered set, but Python has no such type
+        # Actually an ordered set, but Python has no such type. Keeping the
+        # watchers ordered is not an API guarantee, but makes behaviour more
+        # predictable and reproducible.
         self.watchers: Dict[AbstractSensorWatcher, None] = {}
         self.subscribed = _MonitoredSensor.Subscribed.NO
         # May be non-None only if subscribed is YES (but may also be None in
@@ -991,7 +993,10 @@ class _SensorMonitor:
         # Sensors we have seen, indexed by name
         self._sensors: Dict[str, _MonitoredSensor] = {}
         self._in_batch = False
-        # Really an OrderedSet, but no such type exists
+        # Really an OrderedSet, but no such type exists. The API doesn't
+        # guarantee ordering, but maintaining it keeps callbacks in the same
+        # order that watchers are registered, making behaviour more predictable
+        # and reproducible.
         self._watchers: Dict[AbstractSensorWatcher, None] = {}
         # If the list of sensors is considered stale. Note: when
         # setting this to true, one must immediately (without awaiting)

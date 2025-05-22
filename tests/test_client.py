@@ -790,6 +790,7 @@ class TestSensorMonitor:
         channel.writer.close()
         await channel.writer.wait_closed()
         await channel.client.wait_disconnected()
+        # Give anything that might go wrong on disconnection time to go wrong.
         await asyncio.sleep(1)
 
 
