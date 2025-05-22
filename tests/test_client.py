@@ -54,7 +54,7 @@ from unittest.mock import call
 import async_solipsism
 import hypothesis.strategies as st
 import pytest
-from hypothesis.stateful import Bundle, RuleBasedStateMachine, precondition, rule
+from hypothesis.stateful import Bundle, RuleBasedStateMachine, invariant, precondition, rule
 from typing_extensions import Concatenate, ParamSpec
 
 from aiokatcp import (
@@ -72,6 +72,7 @@ from aiokatcp import (
     SyncState,
     encode,
 )
+from aiokatcp.client import _MonitoredSensor
 
 _ClientQueue = Union["asyncio.Queue[Tuple[asyncio.StreamReader, asyncio.StreamWriter]]"]
 _P = ParamSpec("_P")
@@ -1166,12 +1167,40 @@ class SensorWatcherStateMachine(RuleBasedStateMachine):
         self.server.mass_inform("disconnect", "Server shutting down")
         await self.client.wait_disconnected()
 
+    @invariant()
+    def check_reading_invariant(self) -> None:
+        """Check that we don't have any readings stored for unsubscribed sensors."""
+        if self.client._sensor_monitor is not None:
+            for s in self.client._sensor_monitor._sensors.values():
+                assert s.subscribed or s.reading is None
+
+    @invariant()
+    def check_need_subscribe_invariant(self) -> None:
+        """Check that `_need_subscribe` is consistent with sensor state."""
+        if self.client._sensor_monitor is not None:
+            expected = set()
+            for s in self.client._sensor_monitor._sensors.values():
+                if (
+                    s.subscribed == _MonitoredSensor.Subscribed.UNKNOWN
+                    or (s.subscribed == _MonitoredSensor.Subscribed.YES and not s.watchers)
+                    or (s.subscribed == _MonitoredSensor.Subscribed.NO and s.watchers)
+                ):
+                    expected.add(s)
+            assert self.client._sensor_monitor._need_subscribe == expected
+
+    @invariant()
+    def check_state_invariant(self) -> None:
+        """Check that state is consistent with the update event."""
+        monitor = self.client._sensor_monitor
+        if monitor is not None:
+            assert (monitor._state == SyncState.SYNCING) == (monitor._update_event.is_set())
+
     # This is a @rule rather than @invariant, to allow multiple rules to run
     # in between without the event loop running.
     @rule()
     @run_in_loop
     async def check_consistency(self) -> None:
-        """Check that everything is in the expected state."""
+        """Check that mirrored state converges."""
 
         def sensor_key(sensor: Sensor) -> Tuple[type, str, str, str, float, Sensor.Status, Any]:
             """Map a sensor to something that can be checked for equality."""
@@ -1206,11 +1235,6 @@ class SensorWatcherStateMachine(RuleBasedStateMachine):
                 for watcher in self.watchers
             ):
                 assert conn.get_sampler(sensor) is None
-
-        # Check that we don't have any readings stored for unsubscribed sensors
-        if self.client._sensor_monitor is not None:
-            for s in self.client._sensor_monitor._sensors.values():
-                assert s.subscribed or s.reading is None
 
 
 TestSensorWatcherStateMachine = SensorWatcherStateMachine.TestCase
