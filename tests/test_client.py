@@ -1,4 +1,4 @@
-# Copyright 2017, 2019-2020, 2022, 2024 National Research Foundation (SARAO)
+# Copyright 2017, 2019-2020, 2022, 2024-2025 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -27,20 +27,40 @@
 
 import asyncio.base_events
 import enum
+import functools
 import gc
+import hashlib
+import itertools
 import logging
 import re
 import unittest
 import unittest.mock
-from typing import AsyncGenerator, Sequence, Tuple, Type, Union, cast
+from typing import (
+    Any,
+    AsyncGenerator,
+    Awaitable,
+    Callable,
+    List,
+    Sequence,
+    Set,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+    cast,
+)
 from unittest.mock import call
 
 import async_solipsism
+import hypothesis.strategies as st
 import pytest
+from hypothesis.stateful import Bundle, RuleBasedStateMachine, invariant, precondition, rule
+from typing_extensions import Concatenate, ParamSpec
 
 from aiokatcp import (
     AbstractSensorWatcher,
     Client,
+    DeviceServer,
     DeviceStatus,
     FailReply,
     InvalidReply,
@@ -52,8 +72,11 @@ from aiokatcp import (
     SyncState,
     encode,
 )
+from aiokatcp.client import _MonitoredSensor
 
 _ClientQueue = Union["asyncio.Queue[Tuple[asyncio.StreamReader, asyncio.StreamWriter]]"]
+_P = ParamSpec("_P")
+_T = TypeVar("_T")
 
 
 @pytest.fixture
@@ -81,7 +104,7 @@ class DummyClient(Client):
 
 @pytest.fixture
 async def client_queue() -> _ClientQueue:
-    """Queue to which client connections are added as they connection to :meth:`server`."""
+    """Queue to which client connections are added as they connect to :meth:`server`."""
     return asyncio.Queue()
 
 
@@ -466,6 +489,15 @@ class SensorWatcherChannel(Channel):
         assert await self.reader.readline() == b"?sensor-sampling[2] device-status auto\n"
         assert self.watcher.mock_calls == [
             call.batch_start(),
+            call.filter(
+                "device-status",
+                "Device status",
+                "",
+                "discrete",
+                b"ok",
+                b"degraded",
+                b"fail",
+            ),
             call.sensor_added(
                 "device-status",
                 "Device status",
@@ -514,6 +546,8 @@ class TestSensorMonitor:
     """Test the sensor monitoring interface.
 
     This mocks out the :class:`~.AbstractSensorWatcher`.
+
+    See also :class:`SensorMonitorStateMachine`, which uses randomised tests.
     """
 
     async def test_init(self, channel) -> None:
@@ -527,10 +561,12 @@ class TestSensorMonitor:
             b"#sensor-list[3] pressure Pressure Pa float\n"
             b"!sensor-list[3] ok 1\n"
         )
-        assert await channel.reader.readline() == b"?sensor-sampling[4] temp,pressure auto\n"
+        assert await channel.reader.readline() == b"?sensor-sampling[4] pressure,temp auto\n"
         assert channel.watcher.mock_calls == [
             call.batch_start(),
+            call.filter("temp", "Temperature", "F", "float"),
             call.sensor_added("temp", "Temperature", "F", "float"),
+            call.filter("pressure", "Pressure", "Pa", "float"),
             call.sensor_added("pressure", "Pressure", "Pa", "float"),
             call.sensor_removed("device-status"),
             call.batch_stop(),
@@ -563,20 +599,22 @@ class TestSensorMonitor:
             b"#sensor-list[3] pressure Pressure Pa float\n"
             b"!sensor-list[3] ok 1\n"
         )
-        assert await channel.reader.readline() == b"?sensor-sampling[4] temp,pressure auto\n"
+        assert await channel.reader.readline() == b"?sensor-sampling[4] pressure,temp auto\n"
 
         channel.writer.write(rb"!sensor-sampling[4] fail Unknown\_sensor\_'pressure'" + b"\n")
-        assert await channel.reader.readline() == b"?sensor-sampling[5] temp auto\n"
+        assert await channel.reader.readline() == b"?sensor-sampling[5] pressure auto\n"
+        channel.writer.write(rb"!sensor-sampling[5] fail Unknown\_sensor\_'pressure'" + b"\n")
+        assert await channel.reader.readline() == b"?sensor-sampling[6] temp auto\n"
         channel.writer.write(
-            b"#sensor-status 123456790.0 1 temp warn 451.0\n" b"!sensor-sampling[5] ok temp auto\n"
+            b"#sensor-status 123456790.0 1 temp warn 451.0\n" b"!sensor-sampling[6] ok temp auto\n"
         )
-        assert await channel.reader.readline() == b"?sensor-sampling[6] pressure auto\n"
-        channel.writer.write(rb"!sensor-sampling[6] fail Unknown\_sensor\_'pressure'" + b"\n")
         await asyncio.sleep(1)
 
         assert channel.watcher.mock_calls == [
             call.batch_start(),
+            call.filter("temp", "Temperature", "F", "float"),
             call.sensor_added("temp", "Temperature", "F", "float"),
+            call.filter("pressure", "Pressure", "Pa", "float"),
             call.sensor_added("pressure", "Pressure", "Pa", "float"),
             call.sensor_removed("device-status"),
             call.batch_stop(),
@@ -597,6 +635,7 @@ class TestSensorMonitor:
         assert await channel.reader.readline() == b"?sensor-sampling[4] device-status auto\n"
         assert channel.watcher.mock_calls == [
             call.batch_start(),
+            call.filter("device-status", "A different status", "", "int"),
             call.sensor_added("device-status", "A different status", "", "int"),
             call.batch_stop(),
         ]
@@ -626,7 +665,6 @@ class TestSensorMonitor:
         channel.writer.write(b"!sensor-list[3] ok 0\n")
         await asyncio.sleep(1)
         assert channel.watcher.mock_calls == [
-            call.state_updated(SyncState.SYNCING),
             call.batch_start(),
             call.sensor_removed("device-status"),
             call.batch_stop(),
@@ -703,6 +741,60 @@ class TestSensorMonitor:
             call.state_updated(SyncState.SYNCED),
         ]
 
+    async def test_unexpected_update(self, channel):
+        """If a ``#sensor-status`` inform arrives we weren't expecting, we're subscribed.
+
+        This can happen if we remove a watcher but receive the update before we
+        can unsubscribe. It could also happen if unsubscribing failed for some
+        server-side reason, or just because the server is buggy.
+        """
+        await channel.init()
+        watcher2 = unittest.mock.Mock(autospec=AbstractSensorWatcher)
+        watcher2.filter.return_value = False
+        channel.client.add_sensor_watcher(watcher2)
+        channel.client.remove_sensor_watcher(channel.watcher)
+        # watcher2 filters out all sensors, so we now unsubscribe from device-status
+        assert await channel.reader.readline() == b"?sensor-sampling[3] device-status none\n"
+        channel.writer.write(
+            b"#sensor-status 123456790.0 1 device-status nominal ok\n"
+            b"!sensor-sampling[3] ok device-status\n"
+        )
+        await asyncio.sleep(1)
+        # This one is unexpected - we will try to unsubscribe again
+        channel.writer.write(b"#sensor-status 123456791.0 1 device-status warn degraded\n")
+        assert await channel.reader.readline() == b"?sensor-sampling[4] device-status none\n"
+        channel.writer.write(b"!sensor-sampling[4] ok device-status\n")
+        await channel.writer.drain()
+
+    @pytest.mark.parametrize(
+        "update",
+        [
+            b"#sensor-status 123456789.0 hello\n",  # Count is not integer
+            b"#sensor-status 123456789.0 -1\n",  # Count is negative
+            b"#sensor-status 123456789.0 2 device-status nominal ok\n",  # Count is wrong
+            b"#sensor-status 123456789.0 1 device-status\xFF nominal ok\n",  # Non-UTF-8 name
+            b"#sensor-status 123456789.0 1 device-status spam ok\n",  # Invalid status
+            b"#sensor-status 123456789.0 1 unknown nominal ok\n",  # Unknown sensor
+        ],
+    )
+    async def test_invalid_update(self, channel, update):
+        """An invalidly-formatted ``#sensor-status`` inform has no effect."""
+        await channel.init()
+        channel.writer.write(update)
+        await channel.writer.drain()
+
+    @pytest.mark.channel_args(auto_reconnect=False)
+    async def test_no_reconnect(self, channel):
+        """Test the SensorMonitor stops gracefully when one-shot connection terminates."""
+        await channel.init()
+        channel.writer.write(b"#interface-changed sensor-list\n")
+        await channel.writer.drain()
+        channel.writer.close()
+        await channel.writer.wait_closed()
+        await channel.client.wait_disconnected()
+        # Give anything that might go wrong on disconnection time to go wrong.
+        await asyncio.sleep(1)
+
 
 class DummySensorWatcher(SensorWatcher):
     def rewrite_name(self, name: str) -> Union[str, Sequence[str]]:
@@ -743,14 +835,14 @@ class TestSensorWatcher:
         assert sensor.name == "test_foo"
         assert sensor.description == "A sensor"
         assert sensor.units == "F"
-        assert sensor.stype == float
+        assert sensor.stype is float
         assert sensor.status == Sensor.Status.UNKNOWN
         for name in ["test_bar1", "test_bar2"]:
             sensor = watcher.sensors[name]
             assert sensor.name == name
             assert sensor.description == "A duplicated sensor"
             assert sensor.units == "s"
-            assert sensor.stype == int
+            assert sensor.stype is int
             assert sensor.status == Sensor.Status.UNKNOWN
 
     def test_sensor_added_discrete(self, watcher: DummySensorWatcher) -> None:
@@ -857,6 +949,295 @@ class TestSensorWatcher:
         # Disconnecting should set all sensors to UNREACHABLE
         for name in ["test_foo", "test_bar1", "test_bar2"]:
             assert watcher.sensors[name].status == Sensor.Status.UNREACHABLE
+
+
+class BasicServer(DeviceServer):
+    VERSION = "dummy-1.0"
+    BUILD_STATE = "dummy-build-1.0.0"
+
+
+def run_in_loop(
+    func: Callable[Concatenate["SensorWatcherStateMachine", _P], Awaitable[_T]]
+) -> Callable[Concatenate["SensorWatcherStateMachine", _P], _T]:
+    """Decorator used by :class:`SensorWatcherStateMachine`.
+
+    The wrapped coroutine function will be run until completion in the event
+    loop.
+    """
+
+    def wrapper(self: "SensorWatcherStateMachine", *args: _P.args, **kwargs: _P.kwargs) -> _T:
+        return self.loop.run_until_complete(func(self, *args, **kwargs))
+
+    functools.update_wrapper(
+        wrapper, func, assigned=["__module__", "__name__", "__qualname__", "__doc__"]
+    )
+    return wrapper
+
+
+class HashFilterSensorWatcher(SensorWatcher):
+    """Sensor watcher that filters based on the SHA256 hash of the sensor description.
+
+    If the hash, interpreted as an integer, is equivalent to an element of
+    `phase` modulo `mod` then the sensor is retained; otherwise it is
+    discarded.
+    """
+
+    def __init__(
+        self,
+        client: Client,
+        enum_types: Sequence[Type[enum.Enum]] = (),
+        *,
+        mod: int,
+        phases: Set[int],
+    ) -> None:
+        super().__init__(client, enum_types)
+        self._mod = mod
+        self._phases = phases
+
+    def filter(self, name: str, description: str, units: str, type_name: str, *args: bytes) -> bool:
+        m = hashlib.sha256()
+        m.update(description.encode())
+        return int.from_bytes(m.digest(), "big") % self._mod in self._phases
+
+
+def sensor_value_strategy(sensor: Sensor) -> st.SearchStrategy:
+    """Determine a suitable hypothesis strategy for the value of a sensor."""
+    if sensor.stype is float:
+        # Disallow nans because it causes problems for comparison.
+        return st.floats(allow_nan=False)
+    elif sensor.stype is int:
+        return st.integers()
+    elif sensor.stype is bytes:
+        return st.binary()
+    elif sensor.stype is bool:
+        return st.booleans()
+    else:
+        raise TypeError(f"Unhandled sensor type {sensor.type_name}")
+
+
+@st.composite
+def mod_phases_strategy(draw: st.DrawFn) -> Tuple[int, Set[int]]:
+    """Strategy used to generate :class:`HashFilterSensorWatcher` parameters.
+
+    It generates a modulus and a set of values modulo that modulus.
+    """
+    mod = draw(st.integers(min_value=1, max_value=10))
+    phases = draw(st.sets(st.integers(min_value=0, max_value=mod - 1), max_size=mod))
+    # Hypothesis shrinks sets by removing elements, but more interesting
+    # examples tend to have filters that accept more sensors, so we invert
+    # the set.
+    phases = set(range(mod)) - phases
+    return mod, phases
+
+
+class SensorWatcherStateMachine(RuleBasedStateMachine):
+    """State machine for testing sensor watchers.
+
+    This state machine creates a number of watchers with different filters,
+    adds, removes, replaces and updates sensors, and after each step, checks
+    that the state in the watchers matches the state in the server.
+
+    Unfortunately :class:`.RuleBasedStateMachine` doesn't support asyncio
+    natively. To make things work, each rule that needs to do asynchronous
+    work runs the event loop just until that work is complete.
+
+    This exercises the simpler code-paths. It does not test error handling/race
+    conditions (e.g. sensor is missing by the time you subscribe).
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.loop = async_solipsism.EventLoop()
+        self.watchers: List[HashFilterSensorWatcher] = []
+        # Unique value that is appended to the units of each sensor created.
+        # This ensures that any replacement of a sensor with one of the same
+        # name (but different properties) can be detected by the client so
+        # that it can resubscribe. In reality nothing prevents a server from
+        # doing this, but it's a shortcoming of the protocol that this cannot
+        # be detected.
+        self.counter = itertools.count()
+        self._start()
+
+    def teardown(self):
+        self._stop()
+        self.loop.close()
+
+    @run_in_loop
+    async def _start(self) -> None:
+        self.server = BasicServer(host="::1", port=1234)
+        await self.server.start()
+        self.client = await Client.connect("::1", 1234)
+
+    @run_in_loop
+    async def _stop(self) -> None:
+        self.client.close()
+        await self.client.wait_closed()
+        await self.server.stop()
+
+    sensor_names = Bundle("sensor_names")
+
+    @rule(
+        target=sensor_names,
+        name=st.text(
+            alphabet=st.characters(
+                codec="us-ascii", categories=("L", "Nd"), include_characters=".-_"
+            )
+        ),
+    )
+    def add_sensor_name(self, name: str) -> str:
+        return name
+
+    @rule(
+        name=sensor_names,
+        description=st.text(),
+        units=st.text(),
+        stype=st.sampled_from([bytes, int, float, bool]),
+    )
+    @run_in_loop
+    async def add_sensor(self, stype: Type, name: str, description: str, units: str) -> None:
+        self.server.sensors.add(Sensor(stype, name, description, f"{units} [{next(self.counter)}]"))
+        self.server.mass_inform("interface-changed")
+
+    @precondition(lambda self: self.server.sensors)  # Must have a sensor to remove
+    @rule(
+        name=st.runner().flatmap(lambda self: st.sampled_from(sorted(self.server.sensors.keys())))
+    )
+    @run_in_loop
+    async def remove_sensor(self, name: str) -> None:
+        del self.server.sensors[name]
+        self.server.mass_inform("interface-changed")
+
+    def sensor_update_strategy(self) -> st.SearchStrategy[Tuple[str, Any]]:
+        """Generate a strategy that will return a sensor name and a value for that sensor.
+
+        The sensor value will be suitable to the type of the sensor.
+        """
+        return st.one_of(
+            *(
+                st.tuples(st.just(sensor.name), sensor_value_strategy(sensor))
+                for sensor in self.server.sensors.values()
+            )
+        )
+
+    @precondition(lambda self: self.server.sensors)  # Must have a sensor to update
+    @rule(
+        name_value=st.runner().flatmap(lambda self: self.sensor_update_strategy()),
+        status=st.sampled_from(sorted(Sensor.Status)),
+    )
+    @run_in_loop
+    async def update_value(self, name_value: Tuple[str, Any], status: Sensor.Status) -> None:
+        name, value = name_value
+        self.server.sensors[name].set_value(value, status=status)
+
+    @rule(mod_phases=mod_phases_strategy())
+    @run_in_loop
+    async def add_watcher(self, mod_phases: Tuple[int, Set[int]]) -> None:
+        mod, phases = mod_phases
+        watcher = HashFilterSensorWatcher(self.client, mod=mod, phases=phases)
+        self.watchers.append(watcher)
+        self.client.add_sensor_watcher(watcher)
+
+    @precondition(lambda self: self.watchers)  # Must have a watcher to remove
+    @rule(
+        idx=st.runner().flatmap(
+            lambda self: st.integers(min_value=0, max_value=len(self.watchers) - 1)
+        )
+    )
+    @run_in_loop
+    async def remove_watcher(self, idx: int) -> None:
+        self.client.remove_sensor_watcher(self.watchers[idx])
+        del self.watchers[idx]
+
+    @rule()
+    @run_in_loop
+    async def step(self) -> None:
+        """Allow the event loop to progress for one iteration."""
+        await asyncio.sleep(0)
+
+    @precondition(lambda self: self.client.is_connected)
+    @rule()
+    @run_in_loop
+    async def disconnect(self) -> None:
+        """Disconnect the client.
+
+        Note that the client will automatically reconnect.
+        """
+        # Server isn't really shutting down, but sending this inform will
+        # cause the client to disconnect.
+        self.server.mass_inform("disconnect", "Server shutting down")
+        await self.client.wait_disconnected()
+
+    @invariant()
+    def check_reading_invariant(self) -> None:
+        """Check that we don't have any readings stored for unsubscribed sensors."""
+        if self.client._sensor_monitor is not None:
+            for s in self.client._sensor_monitor._sensors.values():
+                assert s.subscribed or s.reading is None
+
+    @invariant()
+    def check_need_subscribe_invariant(self) -> None:
+        """Check that `_need_subscribe` is consistent with sensor state."""
+        if self.client._sensor_monitor is not None:
+            expected = set()
+            for s in self.client._sensor_monitor._sensors.values():
+                if (
+                    s.subscribed == _MonitoredSensor.Subscribed.UNKNOWN
+                    or (s.subscribed == _MonitoredSensor.Subscribed.YES and not s.watchers)
+                    or (s.subscribed == _MonitoredSensor.Subscribed.NO and s.watchers)
+                ):
+                    expected.add(s)
+            assert self.client._sensor_monitor._need_subscribe == expected
+
+    @invariant()
+    def check_state_invariant(self) -> None:
+        """Check that state is consistent with the update event."""
+        monitor = self.client._sensor_monitor
+        if monitor is not None:
+            assert (monitor._state == SyncState.SYNCING) == (monitor._update_event.is_set())
+
+    # This is a @rule rather than @invariant, to allow multiple rules to run
+    # in between without the event loop running.
+    @rule()
+    @run_in_loop
+    async def check_consistency(self) -> None:
+        """Check that mirrored state converges."""
+
+        def sensor_key(sensor: Sensor) -> Tuple[type, str, str, str, float, Sensor.Status, Any]:
+            """Map a sensor to something that can be checked for equality."""
+            return (
+                sensor.stype,
+                sensor.name,
+                sensor.description,
+                sensor.units,
+                sensor.timestamp,
+                sensor.status,
+                sensor.value,
+            )
+
+        # Allow everything to reach steady state (including automatic
+        # reconnection after `disconnect`).
+        await asyncio.sleep(1)
+        # Check that each watcher has the correct sensor information
+        for watcher in self.watchers:
+            expected = {
+                sensor_key(sensor)
+                for sensor in self.server.sensors.values()
+                if watcher.filter(sensor.name, sensor.description, sensor.units, sensor.type_name)
+            }
+            actual = {sensor_key(sensor) for sensor in watcher.sensors.values()}
+            assert actual == expected
+
+        # Check that we don't have any unwanted subscriptions
+        conn = next(iter(self.server._connections))
+        for sensor in self.server.sensors.values():
+            if not any(
+                watcher.filter(sensor.name, sensor.description, sensor.units, sensor.type_name)
+                for watcher in self.watchers
+            ):
+                assert conn.get_sampler(sensor) is None
+
+
+TestSensorWatcherStateMachine = SensorWatcherStateMachine.TestCase
 
 
 @pytest.mark.channel_args(auto_reconnect=False)

@@ -8,3 +8,4 @@
 src/aiokatcp.egg-info
 *.pyc
 __pycache__
+.hypothesis

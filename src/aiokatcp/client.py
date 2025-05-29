@@ -35,7 +35,7 @@ import random
 import re
 import time
 import warnings
-from collections import OrderedDict
+from dataclasses import dataclass
 from typing import (
     Any,
     Callable,
@@ -176,6 +176,9 @@ class Client(metaclass=ClientMeta):
         self._disconnected_callbacks: List[Callable[[], None]] = []
         self._failed_connect_callbacks: List[Callable[[Exception], None]] = []
         self._inform_callbacks: Dict[str, List[_InformCallback]] = {}
+        # This is added the first time we add a watcher. Note that removing all
+        # watchers does not clear it: it needs to remain to ensure that we are
+        # properly unsubscribed from everything we subscribed to.
         self._sensor_monitor: Optional[_SensorMonitor] = None
         self._mid_support = False
         # Updated once we get the protocol version from the server
@@ -439,12 +442,11 @@ class Client(metaclass=ClientMeta):
         """
         # TODO: also needs to abort any pending requests
         if not self._closing:
+            if self._sensor_monitor is not None:
+                self._sensor_monitor.close()
             self._run_task.cancel()
             self._close_connection()  # Ensures the transport gets closed now
             self._closing = True
-            if self._sensor_monitor is not None:
-                self._sensor_monitor.close(True)
-                self._sensor_monitor = None
 
     async def wait_closed(self) -> None:
         """Wait for the process started by :meth:`close` to complete."""
@@ -475,7 +477,7 @@ class Client(metaclass=ClientMeta):
             because the connection may fail immediately after waking up the
             waiter.
         """
-        if not self.is_connected:
+        if not self.is_connected or self._connection is None:
             if not self.auto_reconnect and self.last_exc is not None:
                 # This includes the case of having had a successful connection
                 # that disconnected.
@@ -552,7 +554,9 @@ class Client(metaclass=ClientMeta):
         ConnectionError
             if the connection was lost before the reply was received
         """
-        if not self.is_connected:
+        # TODO: a race condition means `is_connected` could still be true
+        # briefly after setting `_connection` to None.
+        if not self.is_connected or self._connection is None:
             raise BrokenPipeError("Not connected")
         if self._mid_support:
             mid = self._next_mid
@@ -708,9 +712,6 @@ class Client(metaclass=ClientMeta):
     def remove_sensor_watcher(self, watcher: "AbstractSensorWatcher") -> None:
         if self._sensor_monitor is not None:
             self._sensor_monitor.remove_watcher(watcher)
-            if not self._sensor_monitor:  # i.e. no more watchers
-                self._sensor_monitor.close(False)
-                self._sensor_monitor = None
 
 
 class SyncState(enum.Enum):
@@ -731,7 +732,21 @@ class AbstractSensorWatcher:
 
     This class is intended to be subclassed to implement any of the
     notification callbacks.
+
+    Subclasses must *not* override :meth:`__hash__` or :meth:`__eq__`: the
+    implementation depends on being able to store the watchers in a dictionary
+    keyed by identity.
     """
+
+    def filter(self, name: str, description: str, units: str, type_name: str, *args: bytes) -> bool:
+        """Query whether this watcher is interested in this sensor.
+
+        If it returns ``False``, this watcher will not receive any of the other
+        callbacks for this sensor.
+
+        By default, all sensors are used.
+        """
+        return True
 
     def sensor_added(
         self, name: str, description: str, units: str, type_name: str, *args: bytes
@@ -739,12 +754,17 @@ class AbstractSensorWatcher:
         """A sensor was added on the remote server.
 
         This is also called if a sensor changed its properties. In that case
-        there is *no* call to :meth:`sensor_removed`.
+        there is *no* call to :meth:`sensor_removed`, unless the :meth:`filter`
+        returned ``False`` for the new version.
         """
         pass  # pragma: nocover
 
     def sensor_removed(self, name: str) -> None:
-        """A sensor disappeared from the remote server."""
+        """A sensor disappeared from the remote server.
+
+        This will also be called if the sensor changed properties and
+        :meth:`filter` returned ``False`` for the new version.
+        """
         pass  # pragma: nocover
 
     def sensor_updated(
@@ -876,24 +896,24 @@ class SensorWatcher(AbstractSensorWatcher):
     ) -> None:
         for new_name in self._rewritten_names(name):
             try:
-                sensor = self.sensors[new_name]
+                s = self.sensors[new_name]
             except KeyError:
                 self.logger.warning("Received update for unknown sensor %s", name)
                 continue
 
             try:
-                decoded = core.decode(sensor.stype, value)
+                decoded = core.decode(s.stype, value)
             except ValueError as exc:
                 self.logger.warning(
                     "Sensor %s: value %r does not match type %s: %s",
                     name,
                     value,
-                    sensor.type_name,
+                    s.type_name,
                     exc,
                 )
                 continue
 
-            sensor.set_value(decoded, status=status, timestamp=timestamp)
+            s.set_value(decoded, status=status, timestamp=timestamp)
 
     def state_updated(self, state: SyncState) -> None:
         if state == SyncState.DISCONNECTED:
@@ -905,6 +925,47 @@ class SensorWatcher(AbstractSensorWatcher):
             self.synced.set()
         else:
             self.synced.clear()
+
+
+@dataclass(frozen=True)
+class _SensorInfo:
+    """Static data about a sensor."""
+
+    name: str
+    description: str
+    units: str
+    type_name: str
+    args: Tuple[bytes, ...]
+
+
+class _MonitoredSensor:
+    """A sensor in :class:`_SensorMonitor`.
+
+    We want to be subscribed to updates on this sensor if and only if
+    :attr:`watchers` is not empty.
+    """
+
+    class Subscribed(enum.Enum):
+        """Current subscription status for a sensor."""
+
+        NO = 0
+        YES = 1
+        # This is needed for a special case: if a sensor is replaced on the
+        # server concurrently with ?sensor-sampling, there is no way to tell
+        # whether the update was applied to the old version of the sensor or
+        # the new. So in that case we force the strategy to be applied again.
+        UNKNOWN = 2
+
+    def __init__(self, info: _SensorInfo) -> None:
+        self.info = info
+        # Actually an ordered set, but Python has no such type. Keeping the
+        # watchers ordered is not an API guarantee, but makes behaviour more
+        # predictable and reproducible.
+        self.watchers: Dict[AbstractSensorWatcher, None] = {}
+        self.subscribed = _MonitoredSensor.Subscribed.NO
+        # May be non-None only if subscribed is YES (but may also be None in
+        # that case if we haven't yet seen the initial value).
+        self.reading: Optional[sensor.Reading[bytes]] = None
 
 
 class _SensorMonitor:
@@ -923,151 +984,309 @@ class _SensorMonitor:
         client.add_disconnected_callback(self._disconnected)
         client.add_inform_callback("interface-changed", self._interface_changed)
         client.add_inform_callback("sensor-status", self._sensor_status)
-        self._update_task: Optional[asyncio.Task] = None
-        # Sensors we have seen: maps name to arguments
-        self._sensors: Dict[str, Tuple[bytes, ...]] = {}
-        # Sensors whose sampling strategy has been set
-        self._sampling_set: Set[str] = set()
+        self._state = SyncState.DISCONNECTED
+        # Task that continuously synchronises
+        self._update_task = asyncio.create_task(self._update())
+        # Event used to wake up _update_task (via _trigger_update). This must
+        # always be consistent with _state (set iff _State is SYNCING)
+        self._update_event = asyncio.Event()
+        # Sensors we have seen, indexed by name
+        self._sensors: Dict[str, _MonitoredSensor] = {}
         self._in_batch = False
-        # Really an OrderedSet, but no such type exists
-        self._watchers: Dict[AbstractSensorWatcher, None] = OrderedDict()
+        # Really an OrderedSet, but no such type exists. The API doesn't
+        # guarantee ordering, but maintaining it keeps callbacks in the same
+        # order that watchers are registered, making behaviour more predictable
+        # and reproducible.
+        self._watchers: Dict[AbstractSensorWatcher, None] = {}
+        # If the list of sensors is considered stale. Note: when
+        # setting this to true, one must immediately (without awaiting)
+        # call _trigger_update().
+        self._need_sensor_list = False
+        # Sensors where we need to change the subscription status. When
+        # yielding, this must always contain exactly the sensors for which
+        # - s.subscribed is UNKNOWN
+        # - s.subscribed is YES and s.watchers is empty
+        # - s.subscribed is NO and s.watchers is not empty
+        self._need_subscribe: Set[_MonitoredSensor] = set()
+        if client.is_connected:
+            self._connected()
 
     def add_watcher(self, watcher: AbstractSensorWatcher) -> None:
+        if watcher in self._watchers:
+            return
         self._watchers[watcher] = None
+        # Populate the watcher with already-known information
+        if self._state != SyncState.DISCONNECTED:
+            watcher.state_updated(self._state)
+        with self._batch(watcher):
+            for s in self._sensors.values():
+                if watcher.filter(
+                    s.info.name,
+                    s.info.description,
+                    s.info.units,
+                    s.info.type_name,
+                    *s.info.args,
+                ):
+                    watcher.sensor_added(
+                        s.info.name,
+                        s.info.description,
+                        s.info.units,
+                        s.info.type_name,
+                        *s.info.args,
+                    )
+                    s.watchers[watcher] = None
+                    self._update_sensor_state(s)
+                    if s.reading is not None:
+                        watcher.sensor_updated(
+                            s.info.name,
+                            s.reading.value,
+                            s.reading.status,
+                            s.reading.timestamp,
+                        )
 
     def remove_watcher(self, watcher: AbstractSensorWatcher) -> None:
         try:
             del self._watchers[watcher]
         except KeyError:
             pass
+        else:
+            for s in self._sensors.values():
+                if watcher in s.watchers:
+                    del s.watchers[watcher]
+                    self._update_sensor_state(s)
 
     def __bool__(self) -> bool:
         """True if there are any watchers"""
         return bool(self._watchers)
 
+    def _set_state(self, state: SyncState) -> None:
+        if state != self._state:
+            self._state = state
+            for watcher in self._watchers:
+                watcher.state_updated(state)
+
     @contextlib.contextmanager
-    def _batch(self) -> Generator[None, None, None]:
+    def _batch(
+        self, watcher: Optional[AbstractSensorWatcher] = None
+    ) -> Generator[None, None, None]:
+        """Context manager for a batched update.
+
+        If `watcher` is provided, only that watcher is notified of the
+        batch start and stop. Otherwise, all watchers are notified.
+        """
         assert not self._in_batch, "Re-entered _batch"
+        watchers = self._watchers if watcher is None else [watcher]
         self._in_batch = True
         self.logger.debug("Entering batch")
         try:
-            for watcher in self._watchers:
+            for watcher in watchers:
                 watcher.batch_start()
             yield
         finally:
             self.logger.debug("Exiting batch")
-            for watcher in self._watchers:
+            for watcher in watchers:
                 watcher.batch_stop()
             self._in_batch = False
 
-    def _cancel_update(self) -> None:
-        if self._update_task is not None:
-            self._update_task.cancel()
-            self._update_task = None
-
-    def _update_done(self, future):
-        try:
-            future.result()
-        except asyncio.CancelledError:
-            pass
-        except OSError as error:
-            # Connection died before we finished. Log it, but no need for
-            # a stack trace.
-            self.logger.warning("Connection error in update task: %s", error)
-        except Exception:
-            self.logger.exception("Exception in update task")
-
-    def _trigger_update(self) -> None:
+    def _trigger_update(self, force: bool = False) -> None:
+        if self._state != SyncState.SYNCED and not force:
+            return  # Can't update while not connected, and no need while already SYNCING
         self.logger.debug("Sensor sync triggered")
-        for watcher in self._watchers:
-            watcher.state_updated(SyncState.SYNCING)
-        self._cancel_update()
-        self._update_task = self.client.loop.create_task(self._update())
-        self._update_task.add_done_callback(self._update_done)
+        self._set_state(SyncState.SYNCING)
+        self._update_event.set()
 
-    async def _set_sampling(self, names: Sequence[str]) -> None:
-        """Register sampling strategy with sensors in `names`"""
+    def _update_sensor_state(self, s: _MonitoredSensor) -> None:
+        """Ensure consistency of state regarding a specific sensor.
+
+        - Update _need_subscribe to be consistent with the state of `s`.
+        - Clear :attr:`_MonitoredSensor.reading` if we are not subscribed.
+        - Trigger an update if the sensor is added to _need_subscribe and
+          the state is SYNCED.
+        """
+        if s.subscribed == _MonitoredSensor.Subscribed.YES:
+            need_subscribe = not s.watchers
+        elif s.subscribed == _MonitoredSensor.Subscribed.NO:
+            need_subscribe = bool(s.watchers)
+            s.reading = None
+        else:  # UNKNOWN
+            need_subscribe = True
+            s.reading = None
+
+        if need_subscribe:
+            self._need_subscribe.add(s)
+            self._trigger_update()
+        else:
+            self._need_subscribe.discard(s)
+
+    async def _set_sampling(self, sensors: List[_MonitoredSensor], strategy: str) -> None:
+        """Register sampling strategy with sensors in `names`.
+
+        If the strategy is "none", the sensors are marked as not subscribed on
+        completion. Otherwise they are marked as subscribed. Once subscription
+        has been updated, sensors are removed from :attr:`_need_subscribe` if
+        they are now in the correct state.
+
+        If (un)subscription fails, we just ignore the error since there is
+        nothing we can usefully do about it (trying again will probably just
+        keep failing in a loop). Usually it means the sensor has vanished and
+        so we'll resolve it once we re-read the sensor list.
+        """
         # First try to set them all at once. This can fail if any of the
         # sensors disappeared in the meantime, in which case we recover by
         # falling back to subscribing individually.
+        state = (
+            _MonitoredSensor.Subscribed.YES
+            if strategy != "none"
+            else _MonitoredSensor.Subscribed.NO
+        )
+        names = [s.info.name for s in sensors]
         if "B" in self.client.protocol_flags and len(names) > 1:
             try:
-                await self.client.request("sensor-sampling", ",".join(names), "auto")
+                await self.client.request("sensor-sampling", ",".join(names), strategy)
             except (FailReply, InvalidReply) as error:
                 self.logger.debug(
                     "Failed to use bulk sampling (%s), falling back to one at a time",
                     error,
                 )
             else:
-                self._sampling_set.update(names)
+                for s in sensors:
+                    s.subscribed = state
+                    self._update_sensor_state(s)
                 return
 
-        coros = [self.client.request("sensor-sampling", name, "auto") for name in names]
+        coros = [self.client.request("sensor-sampling", name, strategy) for name in names]
         results = await asyncio.gather(*coros, return_exceptions=True)
-        for name, result in zip(names, results):
+        for s, result in zip(sensors, results):
             if isinstance(result, Exception):
                 try:
                     raise result
                 except (FailReply, InvalidReply) as error:
-                    self.logger.warning("Failed to set strategy on %s: %s", name, error)
-            else:
-                self._sampling_set.add(name)
+                    self.logger.warning(
+                        "Failed to set strategy on %s to %s: %s", s.info.name, strategy, error
+                    )
+            s.subscribed = state
+            self._update_sensor_state(s)
 
     async def _update(self) -> None:
-        """Refresh the sensor list and subscriptions."""
-        reply, informs = await self.client.request("sensor-list")
-        sampling: List[str] = []
-        seen: Set[str] = set()
-        with self._batch():
-            # Enumerate all sensors and add new or changed ones
-            for inform in informs:
-                name, description, units, type_name = (
-                    core.decode(str, inform.arguments[i]) for i in range(4)
-                )
-                seen.add(name)
-                params = tuple(inform.arguments[1:])
-                # Check if it already exists with the same parameters
-                old = self._sensors.get(name)
-                if old != params:
-                    for watcher in self._watchers:
-                        watcher.sensor_added(
-                            name, description, units, type_name, *inform.arguments[4:]
-                        )
-                    self._sensors[name] = params
-                    self._sampling_set.discard(name)
-                if name not in self._sampling_set:
-                    sampling.append(name)
-            # Remove old sensors
-            for name in list(self._sensors.keys()):
-                if name not in seen:
-                    for watcher in self._watchers:
-                        watcher.sensor_removed(name)
-                    self._sampling_set.discard(name)
-        await self._set_sampling(sampling)
-        for watcher in self._watchers:
-            watcher.state_updated(SyncState.SYNCED)
+        """Keep the sensor list and subscriptions refreshed.
 
-    async def _unsubscribe(self, sampling_set: Set[str]) -> None:
-        for name in sampling_set:
-            await self.client.request("sensor-sampling", name, "none")
+        This wakes up when :attr:`_update_event` is set, and keeps working
+        until it achieves synchronisation.
+        """
+        while True:
+            try:
+                await self._update_event.wait()
+                while self._need_sensor_list or self._need_subscribe:
+                    while self._need_sensor_list:
+                        await self._update_sensor_list()
+                    if self._need_subscribe:
+                        await self._update_sampling()
+                self._update_event.clear()
+                self._set_state(SyncState.SYNCED)
+            except OSError as error:
+                # Connection died before we finished. Log it, but no need for
+                # a stack trace.
+                self.logger.warning("Connection error in update task: %s", error)
+            except Exception:
+                self.logger.exception("Exception in update task")
+            # Ensure that we don't live-lock if we're in a disconnected state but
+            # the disconnect callback hasn't had a chance to run.
+            await asyncio.sleep(0)
+
+    async def _update_sensor_list(self) -> None:
+        # If we throw, set it back to true to ensure we try again
+        restore_need_sensor_list = True
+        self._need_sensor_list = False
+        try:
+            reply, informs = await self.client.request("sensor-list")
+            seen: Set[str] = set()
+            with self._batch():
+                # Enumerate all sensors and add new or changed ones
+                for inform in informs:
+                    try:
+                        name, description, units, type_name = (
+                            core.decode(str, inform.arguments[i]) for i in range(4)
+                        )
+                    except (IndexError, ValueError):
+                        self.logger.warning("Invalid sensor description, ignoring")
+                        continue
+                    args = tuple(inform.arguments[4:])
+                    info = _SensorInfo(name, description, units, type_name, args)
+                    seen.add(name)
+                    # Check if it already exists with the same parameters
+                    old = self._sensors.get(name)
+                    if old is None or old.info != info:
+                        s = _MonitoredSensor(info)
+                        for watcher in self._watchers:
+                            if watcher.filter(name, description, units, type_name, *args):
+                                watcher.sensor_added(name, description, units, type_name, *args)
+                                s.watchers[watcher] = None
+                            elif old is not None and watcher in old.watchers:
+                                # The watcher was previously interested, but does
+                                # not want this new version.
+                                watcher.sensor_removed(name)
+                        self._sensors[name] = s
+                        # If we (un)subscribed while the sensor was being
+                        # replaced, we don't know which version that applied to,
+                        # so we can't be sure we're in the correct state.
+                        if old is not None:
+                            self._need_subscribe.discard(old)
+                            s.subscribed = _MonitoredSensor.Subscribed.UNKNOWN
+                        self._update_sensor_state(s)
+                # Remove old sensors
+                for name, s in list(self._sensors.items()):
+                    if name not in seen:
+                        for watcher in s.watchers:
+                            watcher.sensor_removed(name)
+                        self._need_subscribe.discard(s)
+                        del self._sensors[name]
+            restore_need_sensor_list = False
+        finally:
+            if restore_need_sensor_list:
+                self._need_sensor_list = True
+
+    async def _update_sampling(self) -> None:
+        # Ensure that we're subscribed to the sensors we want to be.
+        add = []
+        remove = []
+        for s in self._need_subscribe:
+            if s.watchers and s.subscribed != _MonitoredSensor.Subscribed.YES:
+                add.append(s)
+            elif not s.watchers and s.subscribed != _MonitoredSensor.Subscribed.NO:
+                remove.append(s)
+            else:  # pragma: nocover
+                assert False, "_need_subscribe inconsistent with sensor state"
+        # Sorting is not needed for correctness, but it makes behaviour
+        # predictable and easier to test.
+        if add:
+            add.sort(key=lambda s: s.info.name)
+            await self._set_sampling(add, "auto")
+        # Check _need_sensor_list again: if there are changes during adding we
+        # first re-read the sensor list rather than doing more work.
+        if not self._need_sensor_list and remove:
+            remove.sort(key=lambda s: s.info.name)
+            await self._set_sampling(remove, "none")
 
     def _connected(self) -> None:
-        self._sampling_set.clear()
-        self._trigger_update()
+        for s in self._sensors.values():
+            s.subscribed = _MonitoredSensor.Subscribed.NO
+            self._update_sensor_state(s)
+        self._need_sensor_list = True
+        self._trigger_update(True)
 
     def _disconnected(self) -> None:
-        self._sampling_set.clear()
-        self._cancel_update()
-        for watcher in self._watchers:
-            watcher.state_updated(SyncState.DISCONNECTED)
+        self._set_state(SyncState.DISCONNECTED)
+        self._update_event.clear()
 
     def _interface_changed(self, *args: bytes) -> None:
         # This could eventually be smarter and consult the args
+        self._need_sensor_list = True
         self._trigger_update()
 
     def _sensor_status(self, timestamp: core.Timestamp, n: int, *args) -> None:
         if len(args) != 3 * n:
             raise FailReply("Incorrect number of arguments")
+        # TODO: could limit _batch to only watchers that are affected
         with self._batch():
             for i in range(n):
                 name = "<unknown>"
@@ -1075,25 +1294,29 @@ class _SensorMonitor:
                     name = core.decode(str, args[3 * i])
                     status = core.decode(sensor.Sensor.Status, args[3 * i + 1])
                     value = args[3 * i + 2]
-                    for watcher in self._watchers:
+                    s = self._sensors.get(name)
+                    if s is None:
+                        self.logger.warning("Received update for sensor %s we haven't seen", name)
+                        continue
+                    s.reading = sensor.Reading(value=value, status=status, timestamp=timestamp)
+                    if s.subscribed != _MonitoredSensor.Subscribed.YES:
+                        # We received a value, so we must be subscribed even if
+                        # we didn't think we were.
+                        s.subscribed = _MonitoredSensor.Subscribed.YES
+                        self._update_sensor_state(s)
+                    for watcher in s.watchers:
                         watcher.sensor_updated(name, value, status, timestamp)
                 except Exception:
                     self.logger.warning(
                         "Failed to process #sensor-status for %s", name, exc_info=True
                     )
 
-    def close(self, client_closing: bool) -> None:
-        self._cancel_update()
+    def close(self) -> None:
+        self._update_task.cancel()
         self.client.remove_connected_callback(self._connected)
         self.client.remove_disconnected_callback(self._disconnected)
         self.client.remove_inform_callback("interface-changed", self._interface_changed)
         self.client.remove_inform_callback("sensor-status", self._sensor_status)
-        # The monitor is closed if there are no more watchers or if the
-        # client is closed. In the latter case, let the watchers know.
-        for watcher in self._watchers:
-            watcher.state_updated(SyncState.CLOSED)
-        if not client_closing and self._sampling_set:
-            task = self.client.loop.create_task(self._unsubscribe(set(self._sampling_set)))
-            task.add_done_callback(self._update_done)
+        self._set_state(SyncState.CLOSED)
+        self._update_event.clear()
         self._sensors.clear()
-        self._sampling_set.clear()

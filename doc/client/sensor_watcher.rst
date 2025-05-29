@@ -10,9 +10,11 @@ mirroring its sensors) and pushing sensor values into another monitoring
 system.
 
 To facilitate these use cases, it is possible to add one or more sensor
-watchers to a client, using :meth:`~.Client.add_sensor_watcher`.
-Whenever a client has at least one sensor watcher, it will automatically stay
-subscribed to all sensors.
+watchers to a client, using :meth:`~.Client.add_sensor_watcher`. Sensor
+watchers can be freely added and removed, but once a sensor watcher has been
+added to a client (even if it is later removed), one should not manually
+subscribe to any sensors as this will conflict with the automatic subscription
+logic.
 
 The sensor watcher must be an instance of :class:`~.AbstractSensorWatcher`.
 This is a low-level base class which should be subclassed to implement callbacks.
@@ -28,6 +30,11 @@ via the :meth:`~.AbstractSensorWatcher.state_updated` callback, which takes a
 
 One can also use :attr:`~.SensorWatcher.synced` (an :class:`asyncio.Event`) to
 determine the sync status and to wait for sync to be achieved.
+
+By default, a watcher will receive updates for all sensors of the server.
+However, one can override :meth:`~.AbstractSensorWatcher.filter` to select
+only sensors of interest. Doing so can improve efficiency, since the client
+will only subscribe to sensors that are of interest to at least one watcher.
 
 There is an example of using a :class:`~.SensorWatcher` to proxy the sensors of
 one another in :file:`examples/mirror_sensors.py` in the aiokatcp source
