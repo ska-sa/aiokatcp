@@ -1,6 +1,15 @@
 Changelog
 =========
 
+.. rubric:: Version 2.1.0
+
+- Add :meth:`.AbstractSensorWatcher.filter` to allow only a subset of sensors
+  to be watched.
+
+- Fix calculation of the randomised exponent backoff for connection attempts.
+
+- Update CI to use Ubuntu 24.04.
+
 .. rubric:: Version 2.0.2
 
 - Support async-timeout 5.0 (and remove support for pre-1.3 versions).
