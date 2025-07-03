@@ -228,9 +228,14 @@ class Connection:
     def close(self) -> None:
         """Start closing the connection.
 
-        Any currently running message handler will be cancelled. The closing
-        process completes asynchronously. Use :meth:`wait_closed` to wait for
-        things to be completely closed off.
+        Any currently running message handler will be cancelled. In practice,
+        that will only cancel requests that are blocked from being started by
+        the server's max_pending semaphore. Requests that are already in
+        progress will not be cancelled, because they are placed in separate
+        asyncio tasks.
+
+        The closing process completes asynchronously. Use :meth:`wait_closed`
+        to wait for things to be completely closed off.
         """
         if not self._closing:
             self._task.cancel()
