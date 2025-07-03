@@ -52,6 +52,9 @@ class ConvertCRProtocol(asyncio.StreamReaderProtocol):
     This simplifies extracting the data with :class:`asyncio.StreamReader`,
     whose :meth:`~asyncio.StreamReader.readuntil` method is limited to a single
     separator.
+
+    This can be retired once Python 3.13 is the minimum version, as it supports
+    a tuple of separators.
     """
 
     def data_received(self, data: bytes) -> None:
@@ -135,7 +138,6 @@ class Connection:
         self.owner = owner
         self.reader = reader
         self.writer = writer
-        self._writer_closing = False
         host, port, *_ = writer.get_extra_info("peername")
         self.address = core.Address(ipaddress.ip_address(host), port)
         self._drain_lock = asyncio.Lock()
@@ -143,20 +145,16 @@ class Connection:
         self.logger = ConnectionLoggerAdapter(logger, dict(address=self.address))
         self._task = self.owner.loop.create_task(self._run())
         self._task.add_done_callback(self._done_callback)
-        self._closing = False
         self._closed_event = asyncio.Event()
 
-    def _close_writer(self):
-        self.writer.close()
-        self._writer_closing = True
-
     def write_messages(self, msgs: Iterable[core.Message]) -> None:
-        """Write a stream of messages to the connection.
+        """Write an iterable of messages to the connection.
 
         Connection errors are logged and swallowed.
         """
-        if self._writer_closing:
-            return  # We previously detected that it was closed
+        if self.writer.is_closing():
+            self.logger.debug("Connection closed before message could be sent")
+            return
         try:
             # Normally this would be checked by the internals of
             # self.writer.drain and bubble out to self.drain, but there is no
@@ -169,7 +167,6 @@ class Connection:
             self.logger.debug("Sent message %r", raw)
         except ConnectionError as error:
             self.logger.warning("Connection closed before message could be sent: %s", error)
-            self._close_writer()
 
     def write_message(self, msg: core.Message) -> None:
         """Write a message to the connection.
@@ -183,14 +180,7 @@ class Connection:
         # StreamWriter.drain is not reentrant prior to Python 3.10.8, so we use
         # a lock (https://github.com/python/cpython/issues/74116).
         async with self._drain_lock:
-            if not self._writer_closing:
-                try:
-                    await self.writer.drain()
-                except ConnectionError as error:
-                    # The writer could have been closed during the await
-                    if not self._writer_closing:
-                        self.logger.warning("Connection closed while draining: %s", error)
-                        self._close_writer()
+            await self.writer.drain()
 
     # The self: Self is needed due to https://github.com/python/mypy/issues/17723
     async def _run(self: Self) -> None:
@@ -206,7 +196,7 @@ class Connection:
                     self.write_message(
                         core.Message.inform("log", "error", time.time(), __name__, str(error))
                     )
-            except ConnectionResetError:
+            except (ConnectionResetError, BrokenPipeError):
                 # Client closed connection without consuming everything we sent it.
                 break
             else:
@@ -219,6 +209,7 @@ class Connection:
 
     def _done_callback(self, task: asyncio.Future) -> None:
         self._closed_event.set()
+        self.writer.close()
         if not task.cancelled():
             try:
                 task.result()
@@ -237,10 +228,7 @@ class Connection:
         The closing process completes asynchronously. Use :meth:`wait_closed`
         to wait for things to be completely closed off.
         """
-        if not self._closing:
-            self._task.cancel()
-            self._close_writer()
-            self._closing = True
+        self._task.cancel()  # The done callback for the task closes the writer
 
     async def wait_closed(self) -> None:
         """Wait until the connection is closed.
@@ -249,7 +237,6 @@ class Connection:
         to wait for the remote end to close the connection.
         """
         await self._closed_event.wait()
-        self._close_writer()
         try:
             await self.writer.wait_closed()
         except ConnectionError:
