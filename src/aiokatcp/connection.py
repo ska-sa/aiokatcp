@@ -66,6 +66,12 @@ class _ConnectionOwner(Protocol[_C_contra]):
     def handle_message(self, conn: _C_contra, msg: core.Message) -> None:
         ...
 
+    def _connection_made(self, conn: _C_contra) -> None:
+        ...
+
+    def _connection_lost(self, conn: _C_contra, exc: Optional[Exception]) -> None:
+        ...
+
 
 class Connection(asyncio.BufferedProtocol):
     # These fields are only set by connection_made. That's called before
@@ -91,7 +97,8 @@ class Connection(asyncio.BufferedProtocol):
         self._paused = False
         self._drain_waiters: Deque[asyncio.Future[None]] = deque()
 
-    def connection_made(self, transport: asyncio.BaseTransport) -> None:
+    # self: Self to work around https://github.com/python/mypy/issues/17723
+    def connection_made(self: Self, transport: asyncio.BaseTransport) -> None:
         # argument is declared as BaseTransport in parent class, but we know it
         # will be a Transport.
         assert isinstance(transport, asyncio.Transport)
@@ -99,8 +106,10 @@ class Connection(asyncio.BufferedProtocol):
         host, port, *_ = transport.get_extra_info("peername")
         self.address = core.Address(ipaddress.ip_address(host), port)
         self.logger = ConnectionLoggerAdapter(logger, dict(address=self.address))
+        self.owner._connection_made(self)
 
-    def connection_lost(self, exc: Optional[Exception]) -> None:
+    def connection_lost(self: Self, exc: Optional[Exception]) -> None:
+        self.owner._connection_lost(self, exc)
         self._exc = exc
         self._closed_event.set()
         self._buffer = memoryview(bytearray(0))  # Free up the buffer without changing type

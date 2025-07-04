@@ -79,19 +79,11 @@ class ClientConnection(connection.Connection):
         #: Protects against concurrent request_sensor_sampling (but not sensor removal)
         self.samplers_lock = asyncio.Lock()
 
-    def connection_made(self, transport: asyncio.BaseTransport) -> None:
-        super().connection_made(transport)
-        self.owner._connection_made(self)
-
     def connection_lost(self, exc: Optional[Exception]) -> None:
-        self.owner._connections.discard(self)
-        super().connection_lost(exc)
-
-    def close(self) -> None:
         for sampler in self._samplers.values():
             sampler.close()
         self._samplers = {}
-        super().close()
+        super().connection_lost(exc)
 
     def set_sampler(self, s: sensor.Sensor, sampler: Optional[sensor.SensorSampler]) -> None:
         """Set or clear the sampler for a sensor."""
@@ -563,6 +555,9 @@ class DeviceServer(metaclass=DeviceServerMeta):
         msg = core.Message.inform("client-connected", conn.address)
         for old_conn in connections:
             self._write_async_message(old_conn, msg)
+
+    def _connection_lost(self, conn: ClientConnection, exc: Optional[Exception]) -> None:
+        self._connections.discard(conn)
 
     def _handle_request_done_callback(self, ctx: RequestContext, task: asyncio.Task) -> None:
         """Completion callback for request handlers.
