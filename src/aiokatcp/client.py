@@ -204,7 +204,7 @@ class Client(metaclass=ClientMeta):
         else:
             self.logger = connection.ConnectionLoggerAdapter(logger, dict(address=conn.address))
 
-    async def handle_message(self, conn: connection.Connection, msg: core.Message) -> None:
+    def handle_message(self, conn: connection.Connection, msg: core.Message) -> None:
         """Called by :class:`~.Connection` for each incoming message."""
         if msg.mtype == core.Message.Type.REQUEST:
             self.logger.info("Received unexpected request %s from server", msg.name)
@@ -388,19 +388,16 @@ class Client(metaclass=ClientMeta):
 
     async def _run_once(self) -> bool:
         """Make a single attempt to connect and run the connection if successful."""
-        # Open the connection. Based on asyncio.open_connection.
-        reader = asyncio.StreamReader(limit=self._limit)
-        protocol = connection.ConvertCRProtocol(reader)
+        # Open the connection.
         try:
-            transport, _ = await self.loop.create_connection(lambda: protocol, self.host, self.port)
+            _, conn = await self.loop.create_connection(
+                lambda: connection.Connection(owner=self, is_server=False, limit=self._limit),
+                self.host,
+                self.port,
+            )
         except OSError as error:
             self._on_failed_connect(error)
             return False
-        # Ignore due to https://github.com/python/typeshed/issues/9199
-        writer = asyncio.StreamWriter(
-            transport, protocol, reader, self.loop  # type: ignore[arg-type]
-        )
-        conn = connection.Connection(self, reader, writer, False)
         self._set_connection(conn)
         # Process replies until connection closes. _on_connected is
         # called by the version-info inform handler.

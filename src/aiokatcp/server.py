@@ -34,10 +34,12 @@ import re
 import socket
 import time
 import traceback
+from collections import deque
 from typing import (
     Any,
     Awaitable,
     Callable,
+    Deque,
     Dict,
     Iterable,
     List,
@@ -69,14 +71,21 @@ class ClientConnection(connection.Connection):
     def __init__(
         self,
         owner: "DeviceServer",
-        reader: asyncio.StreamReader,
-        writer: asyncio.StreamWriter,
+        limit: int,
     ) -> None:
-        super().__init__(owner, reader, writer, True)
+        super().__init__(owner, True, limit)
         #: Maps sensors to their samplers, for sensors that are being sampled
         self._samplers: Dict[sensor.Sensor, sensor.SensorSampler] = {}
         #: Protects against concurrent request_sensor_sampling (but not sensor removal)
         self.samplers_lock = asyncio.Lock()
+
+    def connection_made(self, transport: asyncio.BaseTransport) -> None:
+        super().connection_made(transport)
+        self.owner._connection_made(self)
+
+    def connection_lost(self, exc: Optional[Exception]) -> None:
+        self.owner._connections.discard(self)
+        super().connection_lost(exc)
 
     def close(self) -> None:
         for sampler in self._samplers.values():
@@ -308,7 +317,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             raise TypeError(f"{self.__class__.__name__} does not define BUILD_STATE")
         self._connections: Set[ClientConnection] = set()
         self._pending: Set[asyncio.Task] = set()
-        self._pending_space = asyncio.Semaphore(value=max_pending)
+        self._max_pending = max_pending
         if loop is None:
             loop = asyncio.get_event_loop()
         self.loop = loop
@@ -322,6 +331,10 @@ class DeviceServer(metaclass=DeviceServerMeta):
         self._port = port
         self._stop_task: Optional[asyncio.Task] = None
         self._service_tasks: List[asyncio.Task] = []
+        # Parking area for requests received once max_pending has been reached.
+        # This is needed (despite using Connection.pause_reading) because a single
+        # recvmsg could receive several requests at once.
+        self._buffered_requests: Deque[RequestContext] = deque()
         self.sensors = sensor.SensorSet()
         self.sensors.add_remove_callback(
             functools.partial(self._remove_sensor_callback, self._connections)
@@ -342,10 +355,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         """
 
         def factory():
-            # Based on asyncio.start_server, but using ConvertCRProtocol
-            reader = asyncio.StreamReader(limit=self._limit)
-            protocol = connection.ConvertCRProtocol(reader, self._client_connected_cb)
-            return protocol
+            return ClientConnection(owner=self, limit=self._limit)
 
         async with self._server_lock:
             if self._server is not None:
@@ -534,29 +544,18 @@ class DeviceServer(metaclass=DeviceServerMeta):
         # and it's only drained in batches (for efficiency). So we suspend the
         # usual heuristic for detecting too-slow clients while that is in
         # progress.
-        if conn.writer is not None and not conn.samplers_lock.locked():
-            transport = cast(asyncio.WriteTransport, conn.writer.transport)
-            backlog = transport.get_write_buffer_size()
+        if not conn.samplers_lock.locked():
+            backlog = conn.get_write_buffer_size()
             if backlog > self.max_backlog:
                 conn.logger.warning("Disconnecting client because it is too slow")
-                transport.abort()
-                conn.close()
+                conn.abort()
                 self._connections.discard(conn)
 
-    async def _client_connected_cb(
-        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
-        async def cleanup():
-            await conn.wait_closed()
-            conn.close()
-            self._connections.discard(conn)
-
-        conn = ClientConnection(self, reader, writer)
+    def _connection_made(self, conn: ClientConnection) -> None:
         # Copy the connection list, to avoid mutation while iterating and to
         # exclude the new connection from it.
         connections = list(self._connections)
         self._connections.add(conn)
-        self.loop.create_task(cleanup())
         # Make a fake request context for send_version_info
         request = core.Message.request("version-connect")
         ctx = RequestContext(conn, request)
@@ -575,7 +574,11 @@ class DeviceServer(metaclass=DeviceServerMeta):
         error_type = core.Message.FAIL
         if task in self._pending:
             self._pending.discard(task)
-            self._pending_space.release()
+            if self._buffered_requests:
+                self._start_request(self._buffered_requests.popleft())
+            elif len(self._pending) == self._max_pending:
+                # We now have room for more requests
+                ctx.conn.resume_reading()
         if task.cancelled():
             if ctx.replied:
                 return  # Cancelled while draining the reply - not critical
@@ -633,19 +636,25 @@ class DeviceServer(metaclass=DeviceServerMeta):
             ctx.reply(core.Message.OK, *ret)
         await ctx.drain()
 
-    async def handle_message(self, conn: ClientConnection, msg: core.Message) -> None:
+    def _start_request(self, ctx: RequestContext) -> None:
+        """Create an asyncio task to handle a request."""
+        task = self.loop.create_task(self._handle_request(ctx))
+        self._pending.add(task)
+        task.add_done_callback(functools.partial(self._handle_request_done_callback, ctx))
+
+    def handle_message(self, conn: ClientConnection, msg: core.Message) -> None:
         """Called by :class:`ClientConnection` for each incoming message."""
         if self._stop_task is not None:
             return
         if msg.mtype == core.Message.Type.REQUEST:
-            await self._pending_space.acquire()
             ctx = RequestContext(conn, msg)
-            task = self.loop.create_task(self._handle_request(ctx))
-            self._pending.add(task)
-            task.add_done_callback(functools.partial(self._handle_request_done_callback, ctx))
-        else:
-            pass
-            # TODO: handle other message types
+            if len(self._pending) >= self._max_pending:
+                self._buffered_requests.append(ctx)
+                return
+            self._start_request(ctx)
+            if len(self._pending) == self._max_pending:
+                conn.pause_reading()
+        # TODO: handle other message types
 
     def mass_inform(self, name: str, *args: Any) -> None:
         """Send an asynchronous inform to all clients.
