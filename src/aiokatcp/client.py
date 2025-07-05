@@ -295,7 +295,7 @@ class Client(metaclass=ClientMeta):
         if conn is not self._connection:
             self.logger.debug("Ignoring _connection_lost on non-current connection")
             return
-        old_state = self._state
+        self.logger.warning("connection_lost", exc_info=exc)
         # We only set last_exc if we have an exception, because an
         # invalid #katcp-protocol moves from NEGOTIATING -> DISCONNECTING and
         # sets an exception, and we don't want to overwrite it when moving
@@ -307,8 +307,13 @@ class Client(metaclass=ClientMeta):
             self._set_state(_ClientState.SLEEPING)
         else:
             self._set_state(_ClientState.CLOSED)
-        if old_state in {_ClientState.CONNECTING, _ClientState.NEGOTIATING}:
-            self._run_callbacks(self._failed_connect_callbacks, exc)
+
+    def _eof_received(self, conn: connection.Connection) -> bool:
+        if self._state in {_ClientState.NEGOTIATING, _ClientState.CONNECTED}:
+            # The other end disconnected unexpectedly
+            self.last_exc = ConnectionResetError("Connection lost")
+            self._set_state(_ClientState.DISCONNECTING)
+        return False  # Close the transport
 
     def _connect_done(self, task: asyncio.Task) -> None:
         if not task.cancelled():
@@ -394,7 +399,7 @@ class Client(metaclass=ClientMeta):
             self._run_callbacks(self._connected_callbacks)
         if old_state == _ClientState.CONNECTED:
             if self.last_exc is None:
-                self.last_exc = ConnectionResetError("Connection to server lost")
+                self.last_exc = ConnectionResetError("Connection lost")
             for req in self._pending.values():
                 if not req.reply.done():
                     req.reply.set_exception(self.last_exc)
@@ -404,8 +409,8 @@ class Client(metaclass=ClientMeta):
         if (
             old_state in {_ClientState.CONNECTING, _ClientState.NEGOTIATING}
             and state != _ClientState.CONNECTED
-        ):
-            if self._auto_reconnect and self.last_exc is not None:
+        ) and self.last_exc is not None:
+            if self._auto_reconnect:
                 self.logger.warning(
                     "Failed to connect to %s:%s: %s", self.host, self.port, self.last_exc
                 )
@@ -445,7 +450,6 @@ class Client(metaclass=ClientMeta):
             )
 
     def handle_inform(self, msg: core.Message) -> None:
-        self.logger.debug("Received %s", bytes(msg))
         handler = self._inform_handlers.get(msg.name, self.__class__.unhandled_inform)
         try:
             handler(self, msg)

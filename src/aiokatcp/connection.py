@@ -72,6 +72,9 @@ class _ConnectionOwner(Protocol[_C_contra]):
     def _connection_lost(self, conn: _C_contra, exc: Optional[Exception]) -> None:
         ...
 
+    def _eof_received(self, conn: _C_contra) -> bool:
+        ...
+
 
 class Connection(asyncio.BufferedProtocol):
     # These fields are only set by connection_made. That's called before
@@ -113,6 +116,15 @@ class Connection(asyncio.BufferedProtocol):
         self._exc = exc
         self._closed_event.set()
         self._buffer = memoryview(bytearray(0))  # Free up the buffer without changing type
+        for waiter in self._drain_waiters:
+            if not waiter.done():
+                if exc is not None:
+                    waiter.set_exception(exc)
+                else:
+                    waiter.set_result(None)
+
+    def eof_received(self: Self) -> bool:
+        return self.owner._eof_received(self)
 
     def pause_writing(self) -> None:
         assert not self._paused

@@ -559,6 +559,13 @@ class DeviceServer(metaclass=DeviceServerMeta):
     def _connection_lost(self, conn: ClientConnection, exc: Optional[Exception]) -> None:
         self._connections.discard(conn)
 
+    def _eof_received(self, conn: ClientConnection) -> bool:
+        # Close the transport. In theory a client could shut down just its
+        # sending side and still want to receive informs. But that can cause
+        # sockets to linger unnecessarily, and is not a use case that's ever
+        # been requested.
+        return False
+
     def _handle_request_done_callback(self, ctx: RequestContext, task: asyncio.Task) -> None:
         """Completion callback for request handlers.
 

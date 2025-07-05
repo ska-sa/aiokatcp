@@ -1272,7 +1272,7 @@ class TestClientNoReconnect:
         await asyncio.sleep(1)
         assert not client_task.done()
         writer.close()
-        with pytest.raises(ConnectionAbortedError):
+        with pytest.raises(ConnectionResetError):
             await client_task
 
 
