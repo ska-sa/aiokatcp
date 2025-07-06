@@ -136,32 +136,6 @@ class _ClientState(enum.Enum):
       a fatal I/O error on the connection will schedule a connection_lost call for
       the next event loop iteration).
     - TODO: When exactly is last_exc set?
-
-    Note that it is possible for
-
-    The following transitions can occur:
-
-    - :attr:`SLEEPING` to :attr:`CONNECTING` (backoff timer reached)
-    - :attr:`SLEEPING` to :attr:`CLOSED` (close called)
-    - :attr:`CONNECTING` to :attr:`NEGOTIATING` (connection established)
-    - :attr:`CONNECTING` to :attr:`SLEEPING` (connect failed and retrying)
-    - :attr:`CONNECTING` to :attr:`CLOSED`
-      (close called, or connect failed and auto_reconnect=False)
-    - :attr:`NEGOTIATING` to :attr:`CONNECTED` (``#katcp-protocol``)
-    - :attr:`NEGOTIATING` to :attr:`DISCONNECTING`
-      (unparsable protocol version, ``#disconnect`` or close called)
-    - :attr:`NEGOTIATING` to :attr:`SLEEPING` or :attr:`CLOSED` (lost connection)
-    - :attr:`CONNECTED` to :attr:`SLEEPING` or :attr:`CLOSED` (lost connection)
-    - :attr:`CONNECTED` to :attr:`DISCONNECTING` (``#disconnect`` or close called)
-    - :attr:`DISCONNECTING` to :attr:`SLEEPING` or :attr:`CLOSED` (lost connection)
-
-    These transitions are associated with calls to the various callbacks:
-
-    - Transitioning to :attr:`CONNECTED` calls connection callbacks.
-    - Transitioning from :attr:`CONNECTED` calls disconnection callbacks.
-    - Transitioning from :attr:`CONNECTING` or :attr:`NEGOTIATING` to any state
-      other than :attr:`CONNECTED` calls failed-connection callbacks, unless
-      triggered by a call to :meth:`Client.close` (TODO: this may need fine-tuning).
     """
 
     #: We're sleeping between reconnection attempts

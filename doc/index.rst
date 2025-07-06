@@ -12,6 +12,7 @@ Welcome to aiokatcp's documentation!
 
    intro
    user
+   dev/developer
    Reference manual <modules>
    changelog
 

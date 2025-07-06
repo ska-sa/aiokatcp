@@ -33,6 +33,7 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
     "sphinx.ext.intersphinx",
+    "sphinxcontrib.tikz",
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -49,6 +50,13 @@ napoleon_custom_sections = [("Informs", "params_style")]
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
 }
+
+tikz_latex_preamble = r"""
+\usetikzlibrary{graphs,graphdrawing,quotes}
+\usegdlibrary{layered,circular}
+"""
+
+latex_engine = "lualatex"  # required by graph drawing library
 
 # -- Options for HTML output -------------------------------------------------
 
