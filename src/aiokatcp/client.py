@@ -203,8 +203,6 @@ class Client(metaclass=ClientMeta):
 
     Attributes
     ----------
-    is_connected : bool
-        Whether the connection is currently established.
     last_exc : Exception
         An exception object associated with the last connection attempt. It is
         always ``None`` if :attr:`is_connected` is True.
