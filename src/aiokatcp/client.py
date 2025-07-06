@@ -380,7 +380,7 @@ class Client(metaclass=ClientMeta):
         # TODO: Should failed connect callbacks be suppressed by close() somehow?
         if (
             old_state in {_ClientState.CONNECTING, _ClientState.NEGOTIATING}
-            and state != _ClientState.CONNECTED
+            and state not in {_ClientState.NEGOTIATING, _ClientState.CONNECTED}
         ) and self.last_exc is not None:
             if self._auto_reconnect:
                 self.logger.warning(
