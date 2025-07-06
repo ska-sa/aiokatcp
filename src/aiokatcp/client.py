@@ -28,17 +28,18 @@
 import asyncio
 import contextlib
 import enum
-import functools
 import inspect
 import logging
 import random
 import re
 import time
 import warnings
+from collections import deque
 from dataclasses import dataclass
 from typing import (
     Any,
     Callable,
+    Deque,
     Dict,
     FrozenSet,
     Generator,
@@ -124,7 +125,6 @@ class _ClientState(enum.Enum):
     true any time control is yielded to the event loop or a client callback is made.
 
     - :attr:`Client.is_connected` is true iff the state is :attr:`CONNECTED`.
-    - :attr:`Client._connected_event` is set iff the state is :attr:`CONNECTED`.
     - :attr:`Client._closed_event` is set iff the state is :attr:`CLOSED`.
     - :attr:`Client._connection` is ``None`` iff the state is :attr:`CONNECTING`,
       :attr:`SLEEPING` or :attr:`CLOSED`.
@@ -153,6 +153,11 @@ class _ClientState(enum.Enum):
     #: :meth:`Client.close()` was called or because auto-reconnect is
     #: disabled).
     CLOSED = 5
+
+
+def _default_exception() -> ConnectionError:
+    """Exception to report when there is no OS-level error."""
+    return ConnectionResetError("Connection reset by peer")
 
 
 class Client(metaclass=ClientMeta):
@@ -201,11 +206,15 @@ class Client(metaclass=ClientMeta):
         self.loop = loop
         self.logger: Union[logging.Logger, connection.ConnectionLoggerAdapter] = logger
         self._limit = limit
+        #: Requests that have been sent but for which we have not received a reply.
         self._pending: Dict[Optional[int], _PendingRequest] = {}
+        #: Message ID to use for the next request
         self._next_mid = 1
-        self._connected_event = asyncio.Event()
+        self._connected_waiters: Deque[asyncio.Future[None]] = deque()
         self._disconnected_event = asyncio.Event()
+        #: Event that is set iff the state is CLOSED
         self._closed_event = asyncio.Event()
+        #: Maximum time to sleep before next connection attempt
         self._backoff = 0.5  # TODO: unify with other setting of _backoff
         self._connected_callbacks: List[Callable[[], None]] = []
         self._disconnected_callbacks: List[Callable[[], None]] = []
@@ -215,13 +224,14 @@ class Client(metaclass=ClientMeta):
         # watchers does not clear it: it needs to remain to ensure that we are
         # properly unsubscribed from everything we subscribed to.
         self._sensor_monitor: Optional[_SensorMonitor] = None
+        # Updated once we get the protocol version from the server
         self._mid_support = False
         # Updated once we get the protocol version from the server
         self.protocol_flags: FrozenSet[str] = frozenset()
         # Used to serialize requests if the server does not support message IDs
         self._request_lock = asyncio.Lock()
         self.auto_reconnect = auto_reconnect
-        # Unlike the public version, it gets cleared by close()
+        #: Whether auto-reconnect is current active (cleared by :meth:`close`)
         self._auto_reconnect = auto_reconnect
         self.last_exc: Optional[Exception] = None
         self._sleep_handle: Optional[asyncio.TimerHandle] = None
@@ -267,13 +277,15 @@ class Client(metaclass=ClientMeta):
         if conn is not self._connection:
             self.logger.debug("Ignoring _connection_lost on non-current connection")
             return
-        self.logger.warning("connection_lost", exc_info=exc)
-        # We only set last_exc if we have an exception, because an
-        # invalid #katcp-protocol moves from NEGOTIATING -> DISCONNECTING and
-        # sets an exception, and we don't want to overwrite it when moving
-        # from DISCONNECTING to CLOSED/SLEEPING.
         if exc is not None:
+            self.logger.warning("connection lost", exc_info=exc)
+        else:
+            exc = _default_exception()
+        # If we were in DISCONNECTING, then we've already set an exception,
+        # and we don't want to change it.
+        if self._state != _ClientState.DISCONNECTING:
             self.last_exc = exc
+
         assert self._connection is not None
         if self._auto_reconnect:
             self._set_state(_ClientState.SLEEPING)
@@ -283,7 +295,7 @@ class Client(metaclass=ClientMeta):
     def _eof_received(self, conn: connection.Connection) -> bool:
         if self._state in {_ClientState.NEGOTIATING, _ClientState.CONNECTED}:
             # The other end disconnected unexpectedly
-            self.last_exc = ConnectionResetError("Connection lost")
+            self.last_exc = _default_exception()
             self._set_state(_ClientState.DISCONNECTING)
         return False  # Close the transport
 
@@ -310,14 +322,10 @@ class Client(metaclass=ClientMeta):
         self.logger.debug("Transitioning %s -> %s", old_state, state)
         assert state != old_state
         self._state = state
-        # Set events to reflect state
         if state == _ClientState.CONNECTED:
-            self._connected_event.set()
             self.last_exc = None
             # Next transition to SLEEPING will double it to 1.0
             self._backoff = 0.5
-        else:
-            self._connected_event.clear()
 
         if state == _ClientState.CLOSED:
             self._closed_event.set()
@@ -333,7 +341,7 @@ class Client(metaclass=ClientMeta):
             if state != _ClientState.NEGOTIATING:
                 # We don't cancel _connect_task when moving from CONNECTING to
                 # NEGOTIATING, because that occurs before the task is completely
-                # finished (there are few deferred callbacks to run), and
+                # finished (there are some deferred callbacks to run), and
                 # cancelling it will cause the connection to be closed. The task
                 # should be guaranteed to succeed at this point.
                 self._connect_task.cancel()
@@ -366,18 +374,24 @@ class Client(metaclass=ClientMeta):
             assert self._connection is not None
             self._connection.close()
 
-        # Now that we're in a consistent state, run callbacks
+        # Now that we're in a consistent state, run callbacks and wake up futures
         if state == _ClientState.CONNECTED:
+            for future in self._connected_waiters:
+                if not future.done():
+                    future.set_result(None)
             self._run_callbacks(self._connected_callbacks)
+        elif state == _ClientState.CLOSED:
+            assert self.last_exc is not None
+            for future in self._connected_waiters:
+                if not future.done():
+                    future.set_exception(self.last_exc)
         if old_state == _ClientState.CONNECTED:
-            if self.last_exc is None:
-                self.last_exc = ConnectionResetError("Connection lost")
+            assert self.last_exc is not None  # The caller must provide it
             for req in self._pending.values():
                 if not req.reply.done():
                     req.reply.set_exception(self.last_exc)
             self._pending.clear()
             self._run_callbacks(self._disconnected_callbacks)
-        # TODO: Should failed connect callbacks be suppressed by close() somehow?
         if (
             old_state in {_ClientState.CONNECTING, _ClientState.NEGOTIATING}
             and state not in {_ClientState.NEGOTIATING, _ClientState.CONNECTED}
@@ -470,6 +484,7 @@ class Client(metaclass=ClientMeta):
         # This could occur when we're already in DISCONNECTING state, in which
         # case there is nothing to do.
         if self._state in {_ClientState.CONNECTED, _ClientState.NEGOTIATING}:
+            self.last_exc = _default_exception()
             self._set_state(_ClientState.DISCONNECTING)
 
     def add_connected_callback(self, callback: Callable[[], None]) -> None:
@@ -548,11 +563,14 @@ class Client(metaclass=ClientMeta):
         if self._sensor_monitor is not None:
             self._sensor_monitor.close()
             self._sensor_monitor = None
+        exc = ConnectionAbortedError("Software caused connection abort")
         if self._state in {_ClientState.SLEEPING, _ClientState.CONNECTING}:
             # We can just cancel what we're trying and go directly to CLOSED
+            self.last_exc = exc
             self._set_state(_ClientState.CLOSED)
         elif self._state in {_ClientState.NEGOTIATING, _ClientState.CONNECTED}:
             # We have an open connection, so we need to shut down gracefully
+            self.last_exc = exc
             self._set_state(_ClientState.DISCONNECTING)
         # If we're already in DISCONNECTING or CLOSED, nothing to do
 
@@ -575,9 +593,9 @@ class Client(metaclass=ClientMeta):
     async def wait_connected(self) -> None:
         """Wait until a connection is established.
 
-        If constructed with ``auto_reconnect=False``, then this will raise an
-        exception if the single connection attempt failed. Otherwise, it will
-        block indefinitely until a connection is successful.
+        If the client is closed (either manually or because ``auto_reconnect``
+        is false and the single connection attempt failed) this will raise an
+        exception.
 
         .. note::
 
@@ -585,26 +603,16 @@ class Client(metaclass=ClientMeta):
             because the connection may fail immediately after waking up the
             waiter.
         """
-        # TODO: revisit this logic: it can probably be made simpler
+        if self._state == _ClientState.CLOSED:
+            assert self.last_exc is not None
+            raise self.last_exc
         if self._state != _ClientState.CONNECTED:
-            if not self.auto_reconnect and self.last_exc is not None:
-                # This includes the case of having had a successful connection
-                # that disconnected.
-                raise self.last_exc
             future = self.loop.create_future()
-            callback = functools.partial(_make_done, future)
-            if self.auto_reconnect:
-                failed_callback: Optional[Callable[[Exception], None]] = None
-            else:
-                failed_callback = functools.partial(self._set_last_exc, future)
-                self.add_failed_connect_callback(failed_callback)
-            self.add_connected_callback(callback)
+            self._connected_waiters.append(future)
             try:
                 await future
             finally:
-                self.remove_connected_callback(callback)
-                if failed_callback:
-                    self.remove_failed_connect_callback(failed_callback)
+                self._connected_waiters.remove(future)
 
     async def wait_disconnected(self) -> None:
         """Wait until there is no connection."""
