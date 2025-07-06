@@ -575,7 +575,7 @@ class Client(metaclass=ClientMeta):
     async def wait_connected(self) -> None:
         """Wait until a connection is established.
 
-        If construct with ``auto_reconnect=False``, then this will raise an
+        If constructed with ``auto_reconnect=False``, then this will raise an
         exception if the single connection attempt failed. Otherwise, it will
         block indefinitely until a connection is successful.
 
