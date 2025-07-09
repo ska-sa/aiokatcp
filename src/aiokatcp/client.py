@@ -223,7 +223,7 @@ class Client(metaclass=ClientMeta):
         self._set_state(_ClientState.CONNECTING)
 
     def __del__(self) -> None:
-        if hasattr(self, "_closed_event") and not self._closed_event.is_set():
+        if hasattr(self, "_state") and self._state != _ClientState.CLOSED:
             warnings.warn(f"unclosed Client {self!r}", ResourceWarning)
             if not self.loop.is_closed():
                 self.loop.call_soon_threadsafe(self.close)
