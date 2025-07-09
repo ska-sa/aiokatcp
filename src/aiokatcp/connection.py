@@ -99,6 +99,7 @@ class Connection(asyncio.BufferedProtocol):
         self._exc: Optional[Exception] = None
         self._paused = False
         self._drain_waiters: Deque[asyncio.Future[None]] = deque()
+        self._warned_on_closed = False
 
     # self: Self to work around https://github.com/python/mypy/issues/17723
     def connection_made(self: Self, transport: asyncio.BaseTransport) -> None:
@@ -112,7 +113,6 @@ class Connection(asyncio.BufferedProtocol):
         self.owner._connection_made(self)
 
     def connection_lost(self: Self, exc: Optional[Exception]) -> None:
-        self.owner._connection_lost(self, exc)
         self._exc = exc
         self._closed_event.set()
         self._buffer = memoryview(bytearray(0))  # Free up the buffer without changing type
@@ -122,8 +122,11 @@ class Connection(asyncio.BufferedProtocol):
                     waiter.set_exception(exc)
                 else:
                     waiter.set_result(None)
+        self.owner._connection_lost(self, exc)
 
     def eof_received(self: Self) -> bool:
+        if self._parser.buffer_size > 0:
+            self.logger.warning("EOF received on connection with partial message")
         return self.owner._eof_received(self)
 
     def pause_writing(self) -> None:
@@ -170,7 +173,10 @@ class Connection(asyncio.BufferedProtocol):
                 if self.logger.isEnabledFor(logging.DEBUG):
                     # Check isEnabledFor because bytes(msg) can be expensive
                     self.logger.debug("Received message %r", bytes(msg))
-                self.owner.handle_message(self, msg)
+                try:
+                    self.owner.handle_message(self, msg)
+                except Exception:
+                    self.logger.exception("Exception in message handler")
 
     def write_messages(self, msgs: Iterable[core.Message]) -> None:
         """Write an iterable of messages to the connection.
@@ -179,10 +185,14 @@ class Connection(asyncio.BufferedProtocol):
         """
         assert self._transport is not None
         if self._closed_event.is_set():
-            if self._exc is not None:
-                self.logger.warning("Connection closed before message could be sent: %s", self._exc)
-            else:
-                self.logger.warning("Connection closed before message could be sent")
+            if not self._warned_on_closed:
+                if self._exc is not None:
+                    self.logger.warning(
+                        "Connection closed before message could be sent: %s", self._exc
+                    )
+                else:
+                    self.logger.warning("Connection closed before message could be sent")
+                self._warned_on_closed = True  # Avoid a string of warnings
             return
 
         raw = [bytes(msg) for msg in msgs]
@@ -201,13 +211,8 @@ class Connection(asyncio.BufferedProtocol):
         self.write_messages([msg])
 
     async def drain(self) -> None:
-        """Block until the outgoing write buffer is small enough.
-
-        If the connection is lost, raises ConnectionResetError.
-        """
-        if self._closed_event.is_set():
-            raise ConnectionResetError("Connection lost")
-        if not self._paused:
+        """Block until the outgoing write buffer is small enough."""
+        if self._closed_event.is_set() or not self._paused:
             return
         waiter = asyncio.get_running_loop().create_future()
         self._drain_waiters.append(waiter)

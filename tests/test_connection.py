@@ -34,8 +34,8 @@ from unittest import mock
 import async_solipsism
 import pytest
 
-from aiokatcp.connection import Connection, read_message
-from aiokatcp.core import KatcpSyntaxError, Message
+from aiokatcp.connection import Connection
+from aiokatcp.core import Message
 
 
 @pytest.fixture
@@ -43,73 +43,47 @@ def event_loop_policy():
     return async_solipsism.EventLoopPolicy()
 
 
-class TestReadMessage:
-    async def test_read(self) -> None:
-        data = b"?help[123] foo\n#log info msg\n \t\n\n!help[123] bar\n\n"
-        reader = asyncio.StreamReader()
-        reader.feed_data(data)
-        reader.feed_eof()
-        msg = await read_message(reader)
-        assert msg == Message.request("help", "foo", mid=123)
-        msg = await read_message(reader)
-        assert msg == Message.inform("log", "info", "msg")
-        msg = await read_message(reader)
-        assert msg == Message.reply("help", "bar", mid=123)
-        msg = await read_message(reader)
-        assert msg is None
-
-    async def test_read_overrun(self) -> None:
-        data = b"!foo a_string_that_doesnt_fit_in_the_buffer\n!foo short_string\n"
-        reader = asyncio.StreamReader(limit=25)
-        reader.feed_data(data)
-        reader.feed_eof()
-        with pytest.raises(KatcpSyntaxError):
-            await read_message(reader)
-        msg = await read_message(reader)
-        assert msg == Message.reply("foo", "short_string")
-
-    async def test_read_overrun_eof(self) -> None:
-        data = b"!foo a_string_that_doesnt_fit_in_the_buffer"
-        reader = asyncio.StreamReader(limit=25)
-        reader.feed_data(data)
-        reader.feed_eof()
-        with pytest.raises(KatcpSyntaxError):
-            await read_message(reader)
-        msg = await read_message(reader)
-        assert msg is None
-
-    async def test_read_partial(self) -> None:
-        data = b"!foo nonewline"
-        reader = asyncio.StreamReader()
-        reader.feed_data(data)
-        reader.feed_eof()
-        with pytest.raises(KatcpSyntaxError):
-            await read_message(reader)
-
-
 @pytest.fixture
 def owner(event_loop):
     owner = mock.MagicMock()
     owner.loop = event_loop
     owner.handle_message = mock.MagicMock(side_effect=_ok_handler)
+    # Close the transport on EOF
+    owner._eof_received = mock.MagicMock(return_value=False)
     return owner
 
 
 @pytest.fixture
-def connection_queue() -> "asyncio.Queue[Tuple[asyncio.StreamReader, asyncio.StreamWriter]]":
+def connection_queue() -> "asyncio.Queue[Connection]":
     return asyncio.Queue()
 
 
 @pytest.fixture
-async def server(connection_queue):
-    server = await asyncio.start_server(
-        lambda reader, writer: connection_queue.put_nowait((reader, writer)),
-        "::1",
-        7777,
-    )
+async def server(owner, connection_queue):
+    def protocol_factory():
+        # Very low limit to test overrun handling
+        conn = Connection(owner, is_server=True, limit=25)
+        connection_queue.put_nowait(conn)
+        return conn
+
+    server = await asyncio.get_running_loop().create_server(protocol_factory, "::1", 7777)
     yield server
     server.close()
     await server.wait_closed()
+
+
+# Note: we don't reference the 'client_reader_writer' fixture, but it must
+# be listed as a dependency so that the connection_queue will be populated.
+@pytest.fixture
+async def server_connection(client_reader_writer, connection_queue):
+    conn = await connection_queue.get()
+    # connection_queue is populated as soon as the Connection is created, but
+    # we need to wait at least until connection_made has been called before we
+    # can actually use it.
+    await asyncio.sleep(1)
+    yield conn
+    conn.close()
+    await conn.wait_closed()
 
 
 async def _close_writer(writer):
@@ -130,13 +104,6 @@ async def client_reader_writer(server):
 
 
 @pytest.fixture
-async def server_reader_writer(client_reader_writer, connection_queue):
-    reader, writer = await connection_queue.get()
-    yield reader, writer
-    await _close_writer(writer)
-
-
-@pytest.fixture
 def client_reader(client_reader_writer):
     return client_reader_writer[0]
 
@@ -146,32 +113,6 @@ def client_writer(client_reader_writer):
     return client_reader_writer[1]
 
 
-@pytest.fixture
-def server_reader(server_reader_writer):
-    return server_reader_writer[0]
-
-
-@pytest.fixture
-def server_writer(server_reader_writer):
-    return server_reader_writer[1]
-
-
-@pytest.fixture
-async def client_connection(owner, client_reader, client_writer):
-    conn = Connection(owner, client_reader, client_writer, False)
-    yield conn
-    conn.close()
-    await conn.wait_closed()
-
-
-@pytest.fixture
-async def server_connection(owner, server_reader, server_writer):
-    conn = Connection(owner, server_reader, server_writer, True)
-    yield conn
-    conn.close()
-    await conn.wait_closed()
-
-
 async def _ok_reply(conn, msg):
     # Give test code virtual time to run between request and reply.
     await asyncio.sleep(0.5)
@@ -179,7 +120,7 @@ async def _ok_reply(conn, msg):
     await conn.drain()
 
 
-async def _ok_handler(conn, msg):
+def _ok_handler(conn, msg):
     asyncio.get_event_loop().create_task(_ok_reply(conn, msg))
 
 
@@ -191,7 +132,7 @@ async def test_write_message(server_connection, client_reader) -> None:
     assert line == b"!ok[1]\n"
 
 
-async def test_run(owner, server_connection, client_reader, client_writer) -> None:
+async def test_basic(owner, server_connection, client_reader, client_writer) -> None:
     conn = server_connection
     client_writer.write(b"?watchdog[2]\n")
     await client_writer.drain()
@@ -202,8 +143,7 @@ async def test_run(owner, server_connection, client_reader, client_writer) -> No
     # Check that it exits when the client disconnects its write end
     client_writer.write_eof()
     await client_writer.drain()
-    close_task = asyncio.ensure_future(conn.wait_closed())
-    await close_task
+    await conn.wait_closed()
 
 
 async def test_disconnected(owner, server_connection, client_writer, caplog) -> None:
@@ -218,7 +158,9 @@ async def test_disconnected(owner, server_connection, client_writer, caplog) -> 
     owner.handle_message.assert_called_with(conn, Message.request("watchdog", mid=4))
     # Note: should only be one warning, not two
     assert 1 == len(caplog.records)
-    assert re.fullmatch(r"Connection closed .*: Connection lost \[.*\]", caplog.records[0].message)
+    assert re.fullmatch(
+        r"Connection closed before message could be sent \[.*\]", caplog.records[0].message
+    )
     # Allow the final watchdog to go through. This just provides test coverage
     # that Connection.write_message handles the writer having already gone away.
     await asyncio.sleep(10)
@@ -234,6 +176,27 @@ async def test_malformed(owner, server_connection, client_writer, caplog) -> Non
         owner.handle_message.assert_not_called()
     assert len(caplog.records) == 1
     assert re.match("Malformed message received", caplog.records[0].message)
+
+
+async def test_read_overrun(owner, server_connection, client_writer, caplog) -> None:
+    client_writer.write(b"?foo a_string_that_doesnt_fit_in_the_buffer\n?foo short_string\n")
+    with caplog.at_level(logging.WARNING, "aiokatcp.connection"):
+        await asyncio.sleep(10)
+    owner.handle_message.assert_called_once_with(
+        server_connection, Message.request("foo", b"short_string")
+    )
+    assert len(caplog.records) == 1
+    assert re.match("Malformed message received", caplog.records[0].message)
+
+
+async def test_read_partial(owner, server_connection, client_writer, caplog) -> None:
+    client_writer.write(b"?foo nonewline")
+    client_writer.write_eof()
+    with caplog.at_level(logging.WARNING, "aiokatcp.connection"):
+        await asyncio.sleep(10)
+    owner.handle_message.assert_not_called()
+    assert len(caplog.records) == 1
+    assert re.match("EOF received on connection with partial message", caplog.records[0].message)
 
 
 async def test_close_early(server_connection) -> None:
@@ -257,5 +220,5 @@ async def test_exception(owner, server_connection, client_writer, caplog) -> Non
     with caplog.at_level(logging.ERROR, "aiokatcp.connection"):
         await conn.wait_closed()
     assert len(caplog.records) == 1
-    assert re.match("Exception in connection handler", caplog.records[0].message)
+    assert re.match("Exception in message handler", caplog.records[0].message)
     assert re.search("test error", caplog.text)
