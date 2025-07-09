@@ -56,6 +56,7 @@ transitions from **CLOSED**.
     NEGOTIATING ->["connection\_lost", red] SC;
     NEGOTIATING ->["invalid \#katcp-protocol / \#disconnect / EOF / close", red] { DISCONNECTING };
     CONNECTED ->["connection\_lost", near end] SC;
+    SC ->["close", loop right] SC;
   };
 
 Transitions marked in red above will call the failed connection callbacks,
