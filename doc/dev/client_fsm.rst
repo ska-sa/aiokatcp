@@ -63,3 +63,25 @@ Transitions marked in red above will call the failed connection callbacks,
 provided that there is an exception to report. Transitions to **CONNECTED**
 trigger connected callbacks, while transitions from **CONNECTED** trigger
 disconnected callbacks.
+
+Invariants
+----------
+The following invariants are maintained at any time the event loop runs or
+when calling user callbacks. Most of the work of ensuring this occurs in
+:meth:`.Client._set_state`.
+
+- :attr:`.Client.is_connected` is true iff the state is **CONNECTED**.
+- :attr:`.Client._closed_event` is set iff the state is **CLOSED**.
+- :attr:`.Client._connection` is ``None`` iff the state is :attr:`CONNECTING`,
+  :attr:`SLEEPING` or :attr:`CLOSED`.
+- :attr:`Client._disconnected_event` is set iff :attr:`Client._connection` is ``None``.
+- :attr:`Client._connect_task` is set iff the state is :attr:`CONNECTING`.
+- :attr:`Client._sleep_handle` is set iff the state is :attr:`SLEEPING`.
+- If the state is :attr:`DISCONNECTING`, then
+  :attr:`Client._connection.is_closing()` is true (the reverse is not true:
+  a fatal I/O error on the connection will schedule a
+  :meth:`asyncio.BaseProtocol.connection_lost` call for the next event loop
+  iteration).
+- In states **DISCONNECTING**, **CLOSED** and **SLEEPING**,
+  :attr:`.Client.last_exc` will be set.
+- In state **CONNECTED**, :attr:`.Client.last_exc` will be ``None``.

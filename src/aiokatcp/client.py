@@ -121,37 +121,14 @@ class ProtocolError(ValueError):
 class _ClientState(enum.Enum):
     """State machine for the client's connection to the server.
 
-    These states are tied to invariants in :class:`Client`, which must be
-    true any time control is yielded to the event loop or a client callback is made.
-
-    - :attr:`Client.is_connected` is true iff the state is :attr:`CONNECTED`.
-    - :attr:`Client._closed_event` is set iff the state is :attr:`CLOSED`.
-    - :attr:`Client._connection` is ``None`` iff the state is :attr:`CONNECTING`,
-      :attr:`SLEEPING` or :attr:`CLOSED`.
-    - :attr:`Client._disconnected_event` is set iff :attr:`Client._connection` is None.
-    - :attr:`Client._connect_task` is set iff the state is :attr:`CONNECTING`.
-    - :attr:`Client._sleep_handle` is set iff the state is :attr:`SLEEPING`.
-    - If the state is :attr:`DISCONNECTING`, then
-      :attr:`Client._connection.is_closing()` is true (the reverse is not true:
-      a fatal I/O error on the connection will schedule a connection_lost call for
-      the next event loop iteration).
-    - TODO: When exactly is last_exc set?
+    See :doc:`dev/client_fsm` for more information about the state machine.
     """
 
-    #: We're sleeping between reconnection attempts
     SLEEPING = 0
-    #: We're establishing the TCP connection
     CONNECTING = 1
-    #: We've established the TCP connection and are waiting for ``#katcp-protocol``
     NEGOTIATING = 2
-    #: We're fully connected
     CONNECTED = 3
-    #: :meth:`Client.close()` has been called or we received a ``#disconnect``,
-    #: but the connection still exists.
     DISCONNECTING = 4
-    #: There is no connection and we are not going to try again (either because
-    #: :meth:`Client.close()` was called or because auto-reconnect is
-    #: disabled).
     CLOSED = 5
 
 
@@ -210,7 +187,10 @@ class Client(metaclass=ClientMeta):
         self._pending: Dict[Optional[int], _PendingRequest] = {}
         #: Message ID to use for the next request
         self._next_mid = 1
+        #: Waiters for wait_connected. May have incomplete futures only in states
+        #: other than CONNECTED or CLOSED.
         self._connected_waiters: Deque[asyncio.Future[None]] = deque()
+        #: Event that is set iff the state is SLEEPING, CONNECTING or CLOSED
         self._disconnected_event = asyncio.Event()
         #: Event that is set iff the state is CLOSED
         self._closed_event = asyncio.Event()
@@ -234,7 +214,10 @@ class Client(metaclass=ClientMeta):
         #: Whether auto-reconnect is current active (cleared by :meth:`close`)
         self._auto_reconnect = auto_reconnect
         self.last_exc: Optional[Exception] = None
+        #: Timer handle for backoff (set only in SLEEPING)
         self._sleep_handle: Optional[asyncio.TimerHandle] = None
+        #: Task that makes the TCP connection (set only in CONNECTING, although
+        #: the task itself may linger for further event loop cycles).
         self._connect_task: Optional[asyncio.Task] = None
         self._state = _ClientState.SLEEPING
         self._set_state(_ClientState.CONNECTING)
