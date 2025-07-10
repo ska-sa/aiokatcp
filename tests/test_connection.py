@@ -98,7 +98,7 @@ async def _close_writer(writer):
 
 @pytest.fixture
 async def client_reader_writer(server):
-    reader, writer = await asyncio.open_connection("::1", 7777)
+    reader, writer = await asyncio.open_connection("::1", 7777, limit=1024 * 1024)
     yield reader, writer
     await _close_writer(writer)
 
@@ -222,3 +222,64 @@ async def test_exception(owner, server_connection, client_writer, caplog) -> Non
     assert len(caplog.records) == 1
     assert re.match("Exception in message handler", caplog.records[0].message)
     assert re.search("test error", caplog.text)
+
+
+async def test_write_big(server_connection, client_reader) -> None:
+    """Write a big message, to test that :meth:`.Connection.drain` works as expected."""
+    read_task = asyncio.create_task(client_reader.readline())
+    payload = b"x" * 1_000_000  # Less than the client_reader's limit
+    server_connection.write_message(Message.inform("big", payload))
+    await server_connection.drain()
+    msg = await read_task
+    assert msg == b"#big " + payload + b"\n"
+
+
+async def test_drain_disconnect(server_connection, client_reader, client_writer) -> None:
+    """Disconnect in the middle of draining."""
+
+    async def reader():
+        await client_reader.readexactly(100000)
+        await _close_writer(client_writer)
+
+    read_task = asyncio.create_task(reader())
+    # More than the client_reader's limit, so that it doesn't consume it all
+    payload = b"x" * 4_000_000
+    server_connection.write_message(Message.inform("big", payload))
+    with pytest.raises(BrokenPipeError):
+        await server_connection.drain()
+    await read_task
+
+
+async def test_drain_disconnect_abort(server_connection, client_reader, client_writer) -> None:
+    """Disconnect in the middle of draining, and abort the connection."""
+
+    async def reader():
+        await client_reader.readexactly(100000)
+        await asyncio.sleep(1)
+        server_connection.abort()
+
+    read_task = asyncio.create_task(reader())
+    # More than the client_reader's limit, so that it doesn't consume it all
+    payload = b"x" * 4_000_000
+    server_connection.write_message(Message.inform("big", payload))
+    await asyncio.sleep(0.5)  # Allow the first read, but not the close
+    await server_connection.drain()
+    await read_task
+
+
+async def test_drain_error(server_connection, client_reader) -> None:
+    """Provoke a write error during draining."""
+
+    async def reader():
+        await client_reader.readexactly(100000)
+        server_connection._transport._sock.sendmsg = mock.MagicMock(
+            side_effect=ConnectionResetError
+        )
+
+    read_task = asyncio.create_task(reader())
+    # More than the client_reader's limit, so that it doesn't consume it all
+    payload = b"x" * 4_000_000
+    server_connection.write_message(Message.inform("big", payload))
+    with pytest.raises(ConnectionResetError):
+        await server_connection.drain()
+    await read_task
