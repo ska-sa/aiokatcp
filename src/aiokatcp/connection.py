@@ -197,7 +197,9 @@ class Connection(asyncio.BufferedProtocol):
 
         raw = [bytes(msg) for msg in msgs]
         try:
-            self._transport.writelines(raw)
+            # Would be nice to use self._transport.writelines, but it can cause
+            # problems due to https://github.com/python/cpython/issues/136234.
+            self._transport.write(b"".join(raw))
             for raw_msg in raw:
                 self.logger.debug("Sent message %r", raw_msg)
         except ConnectionError as error:
