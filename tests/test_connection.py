@@ -146,6 +146,24 @@ async def test_basic(owner, server_connection, client_reader, client_writer) -> 
     await conn.wait_closed()
 
 
+async def test_is_closing(server_connection) -> None:
+    """Test :meth:`.Connection.is_closing` when closed locally."""
+    assert not server_connection.is_closing()
+    server_connection.close()
+    assert server_connection.is_closing()
+    await server_connection.wait_closed()
+    assert server_connection.is_closing()
+
+
+async def test_is_closing_remote(server_connection, client_writer) -> None:
+    """Test :meth:`.Connection.is_closing` when triggered by remote EOF."""
+    client_writer.write_eof()
+    await asyncio.sleep(1)
+    assert server_connection.is_closing()
+    await server_connection.wait_closed()
+    assert server_connection.is_closing()
+
+
 async def test_disconnected(owner, server_connection, client_writer, caplog) -> None:
     conn = server_connection
     client_writer.write(b"?watchdog[2]\n?watchdog[3]\n?watchdog[4]\n")
