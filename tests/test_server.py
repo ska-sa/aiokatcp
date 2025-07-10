@@ -530,6 +530,7 @@ async def test_message_while_stopping(
     await server.wait_reached.wait()
     # Start stopping the server, but wait for outstanding tasks
     stop_task = asyncio.create_task(server.stop(cancel=False))
+    await asyncio.sleep(1)
     writer.write(b"?watchdog\n")  # Should be ignored, because we're stopping
     # Ensure the ?watchdog makes it through to the message handler
     await asyncio.sleep(1)
