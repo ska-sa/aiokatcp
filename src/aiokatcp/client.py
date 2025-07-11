@@ -574,10 +574,6 @@ class Client(metaclass=ClientMeta):
         self.close()
         await self.wait_closed()
 
-    def _set_last_exc(self, future: asyncio.Future, exc: Exception) -> None:
-        if not future.done():
-            future.set_exception(exc)
-
     async def wait_connected(self) -> None:
         """Wait until a connection is established.
 
