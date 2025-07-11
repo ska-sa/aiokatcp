@@ -59,10 +59,19 @@ def connection_queue() -> "asyncio.Queue[Connection]":
 
 
 @pytest.fixture
-async def server(owner, connection_queue):
+def is_server() -> bool:
+    """Control the `is_server` parameter to :class:`.Connection`.
+
+    This is made a fixture so that it can be overridden by individual tests.
+    """
+    return True
+
+
+@pytest.fixture
+async def server(owner, connection_queue, is_server):
     def protocol_factory():
         # Very low limit to test overrun handling
-        conn = Connection(owner, is_server=True, limit=25)
+        conn = Connection(owner, is_server=is_server, limit=25)
         connection_queue.put_nowait(conn)
         return conn
 
@@ -146,6 +155,23 @@ async def test_basic(owner, server_connection, client_reader, client_writer) -> 
     await conn.wait_closed()
 
 
+async def test_debug_log(client_writer, caplog) -> None:
+    with caplog.at_level(logging.DEBUG, logger="aiokatcp.connection"):
+        client_writer.write(b"?watchdog[2]\n")
+        await client_writer.drain()
+        await asyncio.sleep(1)
+    assert (
+        "aiokatcp.connection",
+        logging.DEBUG,
+        r"Received message b'?watchdog[2]\n' [[::1]:1]",
+    ) in caplog.record_tuples
+    assert (
+        "aiokatcp.connection",
+        logging.DEBUG,
+        r"Sent message b'!watchdog[2] ok\n' [[::1]:1]",
+    ) in caplog.record_tuples
+
+
 async def test_is_closing(server_connection) -> None:
     """Test :meth:`.Connection.is_closing` when closed locally."""
     assert not server_connection.is_closing()
@@ -165,6 +191,7 @@ async def test_is_closing_remote(server_connection, client_writer) -> None:
 
 
 async def test_disconnected(owner, server_connection, client_writer, caplog) -> None:
+    """Test the remote end disconnecting when we're in the middle of replying."""
     conn = server_connection
     client_writer.write(b"?watchdog[2]\n?watchdog[3]\n?watchdog[4]\n")
     # Close the socket before the replies can be sent.
@@ -184,7 +211,11 @@ async def test_disconnected(owner, server_connection, client_writer, caplog) -> 
     await asyncio.sleep(10)
 
 
-async def test_malformed(owner, server_connection, client_writer, caplog) -> None:
+@pytest.mark.parametrize("is_server", [False, True])
+async def test_malformed(
+    owner, server_connection, client_reader, client_writer, caplog, is_server
+) -> None:
+    """Test that receiving a malformed message is handled gracefully with suitable logging."""
     conn = server_connection
     client_writer.write(b"malformed\n")
     client_writer.write_eof()
@@ -194,6 +225,15 @@ async def test_malformed(owner, server_connection, client_writer, caplog) -> Non
         owner.handle_message.assert_not_called()
     assert len(caplog.records) == 1
     assert re.match("Malformed message received", caplog.records[0].message)
+    line = await client_reader.readline()
+    if is_server:
+        assert re.fullmatch(
+            rb'#log error [0-9.]+ aiokatcp\.connection "Invalid\\_character"\\_at\\_character\\_1'
+            + b"\n",
+            line,
+        )
+    else:
+        assert line == b""
 
 
 async def test_read_overrun(owner, server_connection, client_writer, caplog) -> None:
@@ -223,14 +263,22 @@ async def test_close_early(server_connection) -> None:
     await conn.wait_closed()
 
 
-async def test_close(server_connection) -> None:
+async def test_close(server_connection, caplog) -> None:
     conn = server_connection
     await asyncio.sleep(1)
     conn.close()
     await conn.wait_closed()
+    with caplog.at_level(logging.WARNING, "aiokatcp.connection"):
+        conn.write_message(Message.inform("foo"))
+        await conn.drain()
+    assert (
+        "aiokatcp.connection",
+        logging.WARNING,
+        "Connection closed before message could be sent [[::1]:1]",
+    ) in caplog.record_tuples
 
 
-async def test_exception(owner, server_connection, client_writer, caplog) -> None:
+async def test_handler_exception(owner, server_connection, client_writer, caplog) -> None:
     owner.handle_message.side_effect = RuntimeError("test error")
     conn = server_connection
     client_writer.write(b"?watchdog[2]\n")
@@ -252,7 +300,18 @@ async def test_write_big(server_connection, client_reader) -> None:
     assert msg == b"#big " + payload + b"\n"
 
 
-async def test_drain_disconnect(server_connection, client_reader, client_writer) -> None:
+async def test_pause_reading(owner, server_connection, client_writer) -> None:
+    server_connection.pause_reading()
+    client_writer.write(b"?watchdog\n")
+    await client_writer.drain()  # Will drain it into the socket, even though it is not read
+    await asyncio.sleep(1)
+    owner.handle_message.assert_not_called()
+    server_connection.resume_reading()
+    await asyncio.sleep(1)
+    owner.handle_message.assert_called_with(server_connection, Message.request("watchdog"))
+
+
+async def test_drain_disconnect(server_connection, client_reader, client_writer, caplog) -> None:
     """Disconnect in the middle of draining."""
 
     async def reader():
@@ -266,6 +325,13 @@ async def test_drain_disconnect(server_connection, client_reader, client_writer)
     with pytest.raises(BrokenPipeError):
         await server_connection.drain()
     await read_task
+    with caplog.at_level(logging.WARNING, "aiokatcp.connection"):
+        server_connection.write_message(Message.inform("foo"))
+    assert (
+        "aiokatcp.connection",
+        logging.WARNING,
+        "Connection closed before message could be sent: [Errno 32] Broken pipe [[::1]:1]",
+    ) in caplog.record_tuples
 
 
 async def test_drain_disconnect_abort(server_connection, client_reader, client_writer) -> None:

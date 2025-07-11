@@ -202,7 +202,10 @@ class Connection(asyncio.BufferedProtocol):
             self._transport.write(b"".join(raw))
             for raw_msg in raw:
                 self.logger.debug("Sent message %r", raw_msg)
-        except ConnectionError as error:
+        except ConnectionError as error:  # pragma: nocover
+            # This is not reachable, at least in CPython 3.8-3.13: write()
+            # may optimistically try to write synchronously, but if it fails
+            # the error is still reported asynchronously (via `drain`).
             self.logger.warning("Connection error while writing message: %s", error)
 
     def write_message(self, msg: core.Message) -> None:
