@@ -220,7 +220,17 @@ class Client(metaclass=ClientMeta):
     def __del__(self) -> None:
         if hasattr(self, "_state") and self._state != _ClientState.CLOSED:
             warnings.warn(f"unclosed Client {self!r}", ResourceWarning)
-            if not self.loop.is_closed():
+            if not self.loop.is_closed():  # pragma: nocover
+                # I don't think this is currently reachable, because in
+                # every other state the event loop will have a reference
+                # to the client:
+                # SLEEPING: via _sleep_handle
+                # CONNECTING: via _connect_task
+                # NEGOTIATING / CONNECTED / DISCONNECTING: via the transport
+                #
+                # However, if we were ever to use Connection.pause_reading then
+                # I think it would be possible, as the event loop would have no
+                # references to the transport.
                 self.loop.call_soon_threadsafe(self.close)
 
     @property
