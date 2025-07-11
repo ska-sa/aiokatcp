@@ -465,6 +465,19 @@ async def test_bad_address(caplog) -> None:
         await client.wait_closed()
 
 
+async def test_cancelled_connect(monkeypatch) -> None:
+    async def slow_create_connection(*args, **kwargs):
+        await asyncio.sleep(1)
+        raise ConnectionRefusedError
+
+    monkeypatch.setattr(asyncio.get_running_loop(), "create_connection", slow_create_connection)
+    client = Client("::1", 7777)
+    await asyncio.sleep(0.5)  # Allow sleep to start but not finish
+    client.close()
+    await client.wait_closed()
+    await asyncio.sleep(1)  # Allow some callbacks to finish
+
+
 class SensorWatcherChannel(Channel):
     """Mock out :class:`.AbstractSensorWatcher` and add to the client."""
 
