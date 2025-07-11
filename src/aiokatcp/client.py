@@ -105,11 +105,6 @@ class ClientMeta(type):
         return result
 
 
-def _make_done(future):
-    if not future.done():
-        future.set_result(None)
-
-
 class ProtocolError(ValueError):
     """The server does not implement the required protocol version"""
 
