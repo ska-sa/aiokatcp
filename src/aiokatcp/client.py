@@ -1153,6 +1153,7 @@ class _SensorMonitor:
 
     def _set_state(self, state: SyncState) -> None:
         if state != self._state:
+            self.logger.debug("Transitioning %s -> %s", self._state, state)
             self._state = state
             for watcher in self._watchers:
                 watcher.state_updated(state)
@@ -1274,7 +1275,8 @@ class _SensorMonitor:
                     if self._need_subscribe:
                         await self._update_sampling()
                 self._update_event.clear()
-                self._set_state(SyncState.SYNCED)
+                if self._state == SyncState.SYNCING:
+                    self._set_state(SyncState.SYNCED)
             except OSError as error:
                 # Connection died before we finished. Log it, but no need for
                 # a stack trace.
