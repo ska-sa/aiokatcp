@@ -466,15 +466,47 @@ async def test_bad_address(caplog) -> None:
 
 
 async def test_cancelled_connect(monkeypatch) -> None:
+    """Close the client before the connection can be established."""
+
     async def slow_create_connection(*args, **kwargs):
         await asyncio.sleep(1)
-        raise ConnectionRefusedError
+        raise ConnectionRefusedError  # pragma: nocover (won't be reached due to cancellation)
 
     monkeypatch.setattr(asyncio.get_running_loop(), "create_connection", slow_create_connection)
     client = Client("::1", 7777)
     await asyncio.sleep(0.5)  # Allow sleep to start but not finish
     client.close()
     await client.wait_closed()
+    await asyncio.sleep(1)  # Allow some callbacks to finish
+
+
+@pytest.mark.parametrize("steps", range(5))
+async def test_cancelled_connect_race(monkeypatch, server, client_queue, steps) -> None:
+    """Close the client just as the connection is established."""
+
+    async def slow_create_connection(*args, **kwargs):
+        await asyncio.sleep(1)
+        return await orig_create_connection(*args, **kwargs)
+
+    loop = asyncio.get_running_loop()
+    orig_create_connection = loop.create_connection
+    monkeypatch.setattr(loop, "create_connection", slow_create_connection)
+    client = Client("::1", 7777)
+    await asyncio.sleep(1)  # Races with sleep in slow_create_connection
+    # Let the event loop run a few times to tweak the exact order of callbacks
+    for _ in range(steps):
+        await asyncio.sleep(0)
+    client.close()
+    await client.wait_closed()
+
+    # If a connection was created, clean up the server side
+    await asyncio.sleep(1)
+    try:
+        (reader, writer) = client_queue.get_nowait()
+    except asyncio.QueueEmpty:
+        pass
+    else:
+        writer.close()
     await asyncio.sleep(1)  # Allow some callbacks to finish
 
 

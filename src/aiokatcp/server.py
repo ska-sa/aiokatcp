@@ -462,11 +462,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         """
         if self._server is None:
             return ()
-        sockets = self._server.sockets
-        if isinstance(sockets, tuple):  # Python 3.8+
-            return sockets
-        else:
-            return tuple(sockets)
+        return self._server.sockets
 
     @property
     def service_tasks(self) -> Tuple[asyncio.Task, ...]:
