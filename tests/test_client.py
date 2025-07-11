@@ -1304,8 +1304,6 @@ class TestClientNoMidSupport:
         assert result2 == ([b"2"], [Message.inform("echo", b"value", b"2")])
 
 
-# Workaround for https://github.com/python/cpython/issues/109538
-@pytest.mark.filterwarnings("ignore:.*StreamWriter.__del__:pytest.PytestUnraisableExceptionWarning")
 class TestUnclosedClient:
     async def body(self) -> None:
         # We can't use the existing fixtures, because their cleanup depends
@@ -1322,8 +1320,6 @@ class TestUnclosedClient:
         server.close()
         await server.wait_closed()
 
-    @pytest.mark.filterwarnings("ignore:unclosed transport:ResourceWarning")
-    @pytest.mark.filterwarnings("ignore:loop is closed:ResourceWarning")
     def test(self) -> None:
         loop = async_solipsism.EventLoop()
         with pytest.warns(ResourceWarning, match="unclosed Client"):
