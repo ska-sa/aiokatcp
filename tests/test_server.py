@@ -58,8 +58,8 @@ class DummyServer(DeviceServer):
     VERSION = "dummy-1.0"
     BUILD_STATE = "dummy-build-1.0.0"
 
-    def __init__(self):
-        super().__init__("::1", 7777)
+    def __init__(self, **kwargs):
+        super().__init__("::1", 7777, **kwargs)
         self.event = asyncio.Event()
         self.wait_reached = asyncio.Event()
         sensor = Sensor(
@@ -110,6 +110,10 @@ class DummyServer(DeviceServer):
         """Wait for an internal event to fire"""
         self.wait_reached.set()
         await self.event.wait()
+
+    async def request_sleep(self, ctx: RequestContext, time: float) -> None:
+        """Sleep for a given amount of time."""
+        await asyncio.sleep(time)
 
     async def request_crash(self, ctx: RequestContext) -> None:
         """Request that always raises an exception"""
@@ -172,7 +176,7 @@ class BadServer(DummyServer):
 async def server(request) -> AsyncGenerator[DummyServer, None]:
     marker = request.node.get_closest_marker("server_cls")
     server_cls = marker.args[0] if marker is not None else DummyServer
-    server = server_cls()
+    server = server_cls(max_pending=3)
     await server.start()
     yield server
     await server.stop()
@@ -272,6 +276,7 @@ async def test_help(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) 
             "bytes-arg",
             "double",
             "wait",
+            "sleep",
             "crash",
             "add-bulk-sensors",
             "remove-bulk-sensors",
@@ -505,6 +510,32 @@ async def test_concurrent(
     assert await reader.readline() == b"!echo[2] ok test\n"
     server.event.set()
     assert await reader.readline() == b"!wait[1] ok\n"
+
+
+async def test_concurrent_many(
+    server: DummyServer, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+) -> None:
+    """Use more concurrent requests than the server supports.
+
+    The extra requests should go into :attr:`.Server._buffered_requests`.
+    """
+    # max_pending is set to 3, so the first 3 requests start immediately, and
+    # the last one has to wait.
+    writer.write(b"?sleep[1] 10\n?sleep[2] 5\n?sleep[3] 2\n?sleep[4] 4\n")
+    await asyncio.sleep(1)
+    # Test coverage for pause_reading/resume_reading
+    writer.write(b"?sleep[5] 20\n")
+    loop = asyncio.get_running_loop()
+    assert await reader.readline() == b"!sleep[3] ok\n"
+    assert loop.time() == 2.0
+    assert await reader.readline() == b"!sleep[2] ok\n"
+    assert loop.time() == 5.0
+    assert await reader.readline() == b"!sleep[4] ok\n"
+    assert loop.time() == 6.0
+    assert await reader.readline() == b"!sleep[1] ok\n"
+    assert loop.time() == 10.0
+    assert await reader.readline() == b"!sleep[5] ok\n"
+    assert loop.time() == 25.0
 
 
 async def test_client_connected_inform(
