@@ -257,6 +257,29 @@ async def test_request_with_informs(channel) -> None:
     )
 
 
+async def test_cancel_request(channel) -> None:
+    await channel.wait_connected()
+    future1 = asyncio.create_task(channel.client.request("wait"))
+    future2 = asyncio.create_task(channel.client.request("wait"))
+    future3 = asyncio.create_task(channel.client.request("wait"))
+    await asyncio.sleep(1)
+    future2.cancel()  # Cancel the second request
+    await asyncio.sleep(1)
+    # Process all requests
+    assert await channel.reader.readline() == b"?wait[1]\n"
+    channel.writer.write(b"!wait[1] ok\n!wait[2] ok\n!wait[3] ok\n")
+    # Cancel the third request just as the reply arrives. The sleep(0)
+    # is found by trial-and-error to cover the case where the future
+    # is cancelled but still in _pending.
+    await asyncio.sleep(0)
+    future3.cancel()
+    assert (await future1) == ([], [])
+    with pytest.raises(asyncio.CancelledError):
+        await future2
+    with pytest.raises(asyncio.CancelledError):
+        await future3
+
+
 async def test_sensor_reading_explicit_type(channel) -> None:
     await channel.wait_connected()
     future = asyncio.create_task(channel.client.sensor_reading("device-status", DeviceStatus))
@@ -465,7 +488,8 @@ async def test_bad_address(caplog) -> None:
         await client.wait_closed()
 
 
-async def test_cancelled_connect(monkeypatch) -> None:
+@pytest.mark.parametrize("auto_reconnect", [False, True])
+async def test_cancelled_connect(monkeypatch, auto_reconnect: bool) -> None:
     """Close the client before the connection can be established."""
 
     async def slow_create_connection(*args, **kwargs):
@@ -473,9 +497,10 @@ async def test_cancelled_connect(monkeypatch) -> None:
         raise ConnectionRefusedError  # pragma: nocover (won't be reached due to cancellation)
 
     monkeypatch.setattr(asyncio.get_running_loop(), "create_connection", slow_create_connection)
-    client = Client("::1", 7777)
+    client = Client("::1", 7777, auto_reconnect=auto_reconnect)
     await asyncio.sleep(0.5)  # Allow sleep to start but not finish
-    client.close()
+    if auto_reconnect:
+        client.close()
     await client.wait_closed()
     await asyncio.sleep(1)  # Allow some callbacks to finish
 
