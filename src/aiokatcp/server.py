@@ -574,7 +574,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             self._pending.discard(task)
             if self._buffered_requests:
                 self._start_request(self._buffered_requests.popleft())
-            elif len(self._pending) == self._max_pending:
+            elif len(self._pending) == self._max_pending - 1:
                 # We now have room for more requests
                 ctx.conn.resume_reading()
         if task.cancelled():
