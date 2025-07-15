@@ -33,7 +33,7 @@ import logging
 import re
 import time
 from collections import deque
-from typing import Any, Callable, Deque, Iterable, Optional, TypeVar
+from typing import Any, Callable, Deque, Iterable, Optional, TypeVar, cast
 
 import decorator
 import katcp_codec
@@ -104,9 +104,9 @@ class Connection(asyncio.BufferedProtocol):
     # self: Self to work around https://github.com/python/mypy/issues/17723
     def connection_made(self: Self, transport: asyncio.BaseTransport) -> None:
         # argument is declared as BaseTransport in parent class, but we know it
-        # will be a Transport.
-        assert isinstance(transport, asyncio.Transport)
-        self._transport = transport
+        # will implement the interface of Transport. Note that if the event loop
+        # has been replaced, it won't actually be an instance of Transport.
+        self._transport = cast(asyncio.Transport, transport)
         host, port, *_ = transport.get_extra_info("peername")
         self.address = core.Address(ipaddress.ip_address(host), port)
         self.logger = ConnectionLoggerAdapter(logger, dict(address=self.address))
