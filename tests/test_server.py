@@ -538,6 +538,34 @@ async def test_concurrent_many(
     assert loop.time() == 25.0
 
 
+async def test_concurrent_multi_connection(
+    server: DummyServer,
+    reader_writer_factory: Callable[[], Awaitable[_StreamPair]],
+) -> None:
+    """Fill up concurrent requests using multiple connections."""
+    reader1, writer1 = await reader_writer_factory()
+    reader2, writer2 = await reader_writer_factory()
+    assert await reader1.readline() == b"#client-connected [::1]:2\n"
+    writer1.write(b"?sleep[1] 10\n?sleep[2] 5\n")
+    await asyncio.sleep(1)
+    writer2.write(b"?sleep[1] 6\n")
+    # That should fill up pending, and pause all connections, including
+    # new ones.
+    reader3, writer3 = await reader_writer_factory()
+    assert await reader1.readline() == b"#client-connected [::1]:3\n"
+    assert await reader2.readline() == b"#client-connected [::1]:3\n"
+    assert await reader1.readline() == b"!sleep[2] ok\n"
+    assert await reader2.readline() == b"!sleep[1] ok\n"
+    assert await reader1.readline() == b"!sleep[1] ok\n"
+    # Ensure that all the connections got unpaused
+    writer1.write(b"?echo[3] foo\n")
+    assert await reader1.readline() == b"!echo[3] ok foo\n"
+    writer2.write(b"?echo[2] bar\n")
+    assert await reader2.readline() == b"!echo[2] ok bar\n"
+    writer2.write(b"?echo[1] spam\n")
+    assert await reader2.readline() == b"!echo[1] ok spam\n"
+
+
 async def test_client_connected_inform(
     reader_writer_factory: Callable[[], Awaitable[_StreamPair]],
     reader: asyncio.StreamReader,
