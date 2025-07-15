@@ -325,7 +325,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
         self._service_tasks: List[asyncio.Task] = []
         # Parking area for requests received once max_pending has been reached.
         # This is needed (despite using Connection.pause_reading) because a single
-        # recvmsg could receive several requests at once.
+        # recvmsg could receive several requests at once, or multiple connections
+        # could receive messages in the same event loop iteration.
         self._buffered_requests: Deque[RequestContext] = deque()
         self.sensors = sensor.SensorSet()
         self.sensors.add_remove_callback(
@@ -540,6 +541,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
                 self._connections.discard(conn)
 
     def _connection_made(self, conn: ClientConnection) -> None:
+        if len(self._pending) == self._max_pending:
+            conn.pause_reading()
         # Copy the connection list, to avoid mutation while iterating and to
         # exclude the new connection from it.
         connections = list(self._connections)
@@ -562,6 +565,16 @@ class DeviceServer(metaclass=DeviceServerMeta):
         # been requested.
         return False
 
+    def _pause_reading(self) -> None:
+        """Pause reading requests on all connections."""
+        for conn in self._connections:
+            conn.pause_reading()
+
+    def _resume_reading(self) -> None:
+        """Resume reading requests on all connections."""
+        for conn in self._connections:
+            conn.resume_reading()
+
     def _handle_request_done_callback(self, ctx: RequestContext, task: asyncio.Task) -> None:
         """Completion callback for request handlers.
 
@@ -576,7 +589,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
                 self._start_request(self._buffered_requests.popleft())
             elif len(self._pending) == self._max_pending - 1:
                 # We now have room for more requests
-                ctx.conn.resume_reading()
+                self._resume_reading()
         if task.cancelled():
             if ctx.replied:
                 return  # Cancelled while draining the reply - not critical
@@ -651,7 +664,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
                 return
             self._start_request(ctx)
             if len(self._pending) == self._max_pending:
-                conn.pause_reading()
+                self._pause_reading()
         # TODO: handle other message types
 
     def mass_inform(self, name: str, *args: Any) -> None:
