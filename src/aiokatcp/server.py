@@ -583,7 +583,10 @@ class DeviceServer(metaclass=DeviceServerMeta):
         """
         error_msg = None
         error_type = core.Message.FAIL
-        if task in self._pending:
+        # It *should* always be in _pending, because this is the only place
+        # tasks are removed from pending. The 'if' is just defence against
+        # bugs.
+        if task in self._pending:  # pragma: no branch
             self._pending.discard(task)
             if self._buffered_requests:
                 self._start_request(self._buffered_requests.popleft())
@@ -612,7 +615,10 @@ class DeviceServer(metaclass=DeviceServerMeta):
                 error_msg = output.getvalue()
         if not ctx.replied:
             if error_msg is None:
-                error_msg = "request handler returned without replying"
+                # Should be unreachable since the metaclass wraps handlers to
+                # ensure a reply. This could only be reached if user directly
+                # inserts request handlers into _request_handlers.
+                error_msg = "request handler returned without replying"  # pragma: no cover
             ctx.reply(error_type, error_msg)
         elif error_msg is not None:
             # We somehow replied before failing, so can't put the error
