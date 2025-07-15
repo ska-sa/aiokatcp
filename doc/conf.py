@@ -18,7 +18,7 @@ import aiokatcp
 # -- Project information -----------------------------------------------------
 
 project = "aiokatcp"
-copyright = "2017-2024, National Research Foundation (SARAO)"
+copyright = "2017-2025, National Research Foundation (SARAO)"
 author = "Bruce Merry"
 
 version = aiokatcp.minor_version()
