@@ -1,4 +1,4 @@
-async-solipsism
+async-solipsism>=0.8
 async-timeout
 decorator
 hypothesis
