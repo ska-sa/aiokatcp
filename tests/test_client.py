@@ -126,26 +126,44 @@ class Channel:
 
     On the client end it uses a :class:`.Client`, and on the server end it uses
     a (reader, writer) pair. It contains utility methods for simple
-    interactions between the two.
+    interactions between the two. It also has mocked connection callbacks
+    which can be used to check that callbacks are triggered at the appropriate
+    points.
     """
 
     def __init__(
-        self, client: Client, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+        self,
+        client: Client,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        connected_callback: unittest.mock.MagicMock,
+        disconnected_callback: unittest.mock.MagicMock,
+        failed_connect_callback: unittest.mock.MagicMock,
     ) -> None:
         self.client = client
         self.reader = reader
         self.writer = writer
+        self.connected_callback = connected_callback
+        self.disconnected_callback = disconnected_callback
+        self.failed_connect_callback = failed_connect_callback
 
     async def wait_connected(self) -> None:
         self.writer.write(b"#version-connect katcp-protocol 5.1-IMB\n")
         await self.client.wait_connected()
+        self.connected_callback.assert_called_once_with()
+        self.connected_callback.reset_mock()  # Allows for reconnecting
         # Make sure that wait_connected works when already connected
         await self.client.wait_connected()
 
     async def close(self) -> None:
+        was_connected = self.client.is_connected
+        # If we were disconnected previously, clear that state.
+        self.disconnected_callback.reset_mock()
         self.client.close()
         self.writer.close()
         await self.client.wait_closed()
+        if was_connected:
+            self.disconnected_callback.assert_called_once_with()
         try:
             await self.writer.wait_closed()
         except ConnectionError:
@@ -156,13 +174,26 @@ class Channel:
         cls,
         server: asyncio.base_events.Server,
         client_queue: _ClientQueue,
-        client_cls: Type[Client] = DummyClient,
+        client_cls: Callable[..., Client] = DummyClient,
         auto_reconnect=True,
     ) -> "Channel":
         host, port = server.sockets[0].getsockname()[:2]
         client = client_cls(host, port, auto_reconnect=auto_reconnect)
+        connected_callback = unittest.mock.MagicMock()
+        disconnected_callback = unittest.mock.MagicMock()
+        failed_connect_callback = unittest.mock.MagicMock()
+        client.add_connected_callback(connected_callback)
+        client.add_disconnected_callback(disconnected_callback)
+        client.add_failed_connect_callback(failed_connect_callback)
         (reader, writer) = await client_queue.get()
-        return cls(client, reader, writer)
+        return cls(
+            client,
+            reader,
+            writer,
+            connected_callback,
+            disconnected_callback,
+            failed_connect_callback,
+        )
 
 
 @pytest.fixture
@@ -444,6 +475,8 @@ async def test_unparsable_protocol(channel, caplog) -> None:
         line = await channel.reader.read()
     assert line == b""
     assert re.search("Unparsable katcp-protocol", caplog.text)
+    channel.failed_connect_callback.assert_called_once()
+    assert isinstance(channel.failed_connect_callback.mock_calls[0][1][0], ProtocolError)
 
 
 async def test_bad_protocol(channel, caplog) -> None:
@@ -452,6 +485,8 @@ async def test_bad_protocol(channel, caplog) -> None:
         line = await channel.reader.read()
     assert line == b""
     assert re.search(r"Unknown protocol version 4\.0", caplog.text)
+    channel.failed_connect_callback.assert_called_once()
+    assert isinstance(channel.failed_connect_callback.mock_calls[0][1][0], ProtocolError)
 
 
 async def test_no_connection(channel) -> None:
@@ -465,6 +500,7 @@ async def test_connection_reset(channel) -> None:
     channel.writer.close()
     with pytest.raises(ConnectionResetError):
         await channel.client.request("help")
+    channel.disconnected_callback.assert_called_once_with()
 
 
 async def test_disconnected(channel) -> None:
