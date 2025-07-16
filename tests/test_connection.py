@@ -356,6 +356,10 @@ async def test_drain_error(server_connection, client_reader) -> None:
 
     async def reader():
         await client_reader.readexactly(100000)
+        # Mock both send and sendmsg, because different Python versions
+        # will use different functions (send up to Python 3.11, sendmsg
+        # from 3.12).
+        server_connection._transport._sock.send = mock.MagicMock(side_effect=ConnectionResetError)
         server_connection._transport._sock.sendmsg = mock.MagicMock(
             side_effect=ConnectionResetError
         )
