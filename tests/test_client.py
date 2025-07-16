@@ -1390,6 +1390,8 @@ class TestUnclosedClient:
         server.close()
         await server.wait_closed()
 
+    # Workaround for Python <3.12
+    @pytest.mark.filterwarnings("ignore:unclosed transport:ResourceWarning")
     def test(self) -> None:
         loop = async_solipsism.EventLoop()
         with pytest.warns(ResourceWarning, match="unclosed Client"):
