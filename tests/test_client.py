@@ -41,6 +41,7 @@ from typing import (
     Awaitable,
     Callable,
     List,
+    Optional,
     Sequence,
     Set,
     Tuple,
@@ -54,7 +55,14 @@ from unittest.mock import call
 import async_solipsism
 import hypothesis.strategies as st
 import pytest
-from hypothesis.stateful import Bundle, RuleBasedStateMachine, invariant, precondition, rule
+from hypothesis.stateful import (
+    Bundle,
+    RuleBasedStateMachine,
+    consumes,
+    invariant,
+    precondition,
+    rule,
+)
 from typing_extensions import Concatenate, ParamSpec
 
 from aiokatcp import (
@@ -72,11 +80,12 @@ from aiokatcp import (
     SyncState,
     encode,
 )
-from aiokatcp.client import _MonitoredSensor
+from aiokatcp.client import _ClientState, _MonitoredSensor
 
 _ClientQueue = Union["asyncio.Queue[Tuple[asyncio.StreamReader, asyncio.StreamWriter]]"]
 _P = ParamSpec("_P")
 _T = TypeVar("_T")
+_ASM = TypeVar("_ASM", bound="AsyncStateMachine")
 
 
 @pytest.fixture
@@ -571,6 +580,185 @@ async def test_cancelled_connect_race(monkeypatch, server, client_queue, steps) 
     await asyncio.sleep(1)  # Allow some callbacks to finish
 
 
+def run_in_loop(
+    func: Callable[Concatenate[_ASM, _P], Awaitable[_T]]
+) -> Callable[Concatenate[_ASM, _P], _T]:
+    """Decorator used by hypothesis tests.
+
+    The wrapped coroutine function will be run until completion in the event
+    loop.
+    """
+
+    def wrapper(self: _ASM, *args: _P.args, **kwargs: _P.kwargs) -> _T:
+        return self.loop.run_until_complete(func(self, *args, **kwargs))
+
+    functools.update_wrapper(
+        wrapper, func, assigned=["__module__", "__name__", "__qualname__", "__doc__"]
+    )
+    return wrapper
+
+
+class AsyncStateMachine(RuleBasedStateMachine):
+    """Extension of :class:`hypothesis.RuleBasedStateMachine` to handle asyncio.
+
+    Asynchronous rules must be decorated with ``@run_in_loop``.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.loop = async_solipsism.EventLoop()
+        self._start()
+
+    def teardown(self):
+        self._stop()
+        self.loop.close()
+
+    @run_in_loop
+    async def _start(self) -> None:
+        """Perform asynchronous initialisation."""
+        raise NotImplementedError  # pragma: nocover
+
+    @run_in_loop
+    async def _stop(self) -> None:
+        """Perform asynchronous teardown."""
+        raise NotImplementedError  # pragma: nocover
+
+
+class ClientStateMachine(AsyncStateMachine):
+    """State machine for testing the client.
+
+    This test uses hypothesis to randomly interact with a client's connection
+    status (sending it version informs, breaking the connection, sleeping and
+    so on) and checking the invariants at each step.
+    """
+
+    # Message IDs for which we haven't yet received a reply
+    mids = Bundle("mids")
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.reader: Optional[asyncio.StreamReader] = None
+        self.writer: Optional[asyncio.StreamWriter] = None
+        self.tasks: Set[asyncio.Task] = set()  # tasks for pending requests
+
+    def _client_connected_cb(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        if self.writer is not None:
+            self.writer.close()
+        self.reader = reader
+        self.writer = writer
+
+    @run_in_loop
+    async def _start(self) -> None:
+        self.server = await asyncio.start_server(self._client_connected_cb, "::1", 0)
+        host, port = self.server.sockets[0].getsockname()[:2]
+        self.client = Client(host, port)
+
+    @run_in_loop
+    async def _stop(self) -> None:
+        for task in self.tasks:
+            task.cancel()  # Harmless if it has already completed
+        self.client.close()
+        await self.client.wait_closed()
+        if self.writer is not None:
+            self.writer.close()
+        self.server.close()
+        await self.server.wait_closed()
+
+    @precondition(lambda self: self.writer is not None and not self.writer.is_closing())
+    @rule(
+        data=st.sampled_from(
+            [
+                b"#version-connect katcp-protocol 5.1-IMB\n",  # Valid protocol version
+                b"#version-connect katcp-protocol 4.0-IMB\n",  # Unsupported version
+                b"#version-connect katcp-protocol garbage\n",  # Invalid version
+                b"#disconnect disconnecting\n",
+                b"garbage",
+            ]
+        )
+    )
+    @run_in_loop
+    async def write_data(self, data: bytes) -> None:
+        assert self.writer is not None  # mypy doesn't parse the precondition
+        try:
+            self.writer.write(data)
+            await self.writer.drain()
+        except ConnectionError:
+            pass  # Don't worry if the client has already disconnected
+
+    @precondition(lambda self: self.writer is not None and not self.writer.is_closing())
+    @rule()
+    @run_in_loop
+    async def close_writer(self) -> None:
+        assert self.writer is not None  # mypy doesn't parse the precondition
+        self.writer.close()
+        self.reader = None
+        self.writer = None
+
+    @rule()
+    @run_in_loop
+    async def step(self):
+        """Allow the event loop to progress for one iteration."""
+        await asyncio.sleep(0)
+
+    @rule(duration_ms=st.integers(min_value=1, max_value=2000))
+    @run_in_loop
+    async def sleep(self, duration_ms: int) -> None:
+        await asyncio.sleep(duration_ms / 1000.0)
+
+    @precondition(lambda self: self.client.is_connected)
+    @rule(target=mids)
+    @run_in_loop
+    async def request(self) -> int:
+        mid = self.client._next_mid
+        task = asyncio.create_task(self.client.request("watchdog"))
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
+        return mid
+
+    # Sends a reply, which might be to a legitimate message or just a
+    # made-up message ID.
+    @precondition(lambda self: self.writer is not None and not self.writer.is_closing())
+    @rule(mid=st.one_of(consumes(mids), st.integers(1, 10000000)))
+    @run_in_loop
+    async def reply(self, mid: int) -> None:
+        assert self.writer is not None  # mypy doesn't parse the precondition
+        try:
+            self.writer.write(f"!watchdog[{mid}] ok\n".encode())
+            await self.writer.drain()
+        except ConnectionError:
+            pass
+
+    # @rule()
+    # @run_in_loop
+    # async def wait_connected(self) -> None:
+    #    await self.client.wait_connected()
+
+    @invariant()
+    def check_consistency(self) -> None:
+        client = self.client
+        assert client.is_connected == (client._state == _ClientState.CONNECTED)
+        assert client._closed_event.is_set() == (client._state == _ClientState.CLOSED)
+        assert (client._connection is None) == (
+            client._state in {_ClientState.CONNECTING, _ClientState.SLEEPING, _ClientState.CLOSED}
+        )
+        assert client._disconnected_event.is_set() == (client._connection is None)
+        assert (client._connect_task is not None) == (client._state == _ClientState.CONNECTING)
+        assert (client._sleep_handle is not None) == (client._state == _ClientState.SLEEPING)
+        if client._state == _ClientState.DISCONNECTING:
+            assert client._connection and client._connection.is_closing()
+        if client._state in {
+            _ClientState.DISCONNECTING,
+            _ClientState.CLOSED,
+            _ClientState.SLEEPING,
+        }:
+            assert client.last_exc is not None
+        if client._state == _ClientState.CONNECTED:
+            assert client.last_exc is None
+
+
+TestClientStateMachine = ClientStateMachine.TestCase
+
+
 class SensorWatcherChannel(Channel):
     """Mock out :class:`.AbstractSensorWatcher` and add to the client."""
 
@@ -1062,24 +1250,6 @@ class BasicServer(DeviceServer):
     BUILD_STATE = "dummy-build-1.0.0"
 
 
-def run_in_loop(
-    func: Callable[Concatenate["SensorWatcherStateMachine", _P], Awaitable[_T]]
-) -> Callable[Concatenate["SensorWatcherStateMachine", _P], _T]:
-    """Decorator used by :class:`SensorWatcherStateMachine`.
-
-    The wrapped coroutine function will be run until completion in the event
-    loop.
-    """
-
-    def wrapper(self: "SensorWatcherStateMachine", *args: _P.args, **kwargs: _P.kwargs) -> _T:
-        return self.loop.run_until_complete(func(self, *args, **kwargs))
-
-    functools.update_wrapper(
-        wrapper, func, assigned=["__module__", "__name__", "__qualname__", "__doc__"]
-    )
-    return wrapper
-
-
 class HashFilterSensorWatcher(SensorWatcher):
     """Sensor watcher that filters based on the SHA256 hash of the sensor description.
 
@@ -1136,7 +1306,7 @@ def mod_phases_strategy(draw: st.DrawFn) -> Tuple[int, Set[int]]:
     return mod, phases
 
 
-class SensorWatcherStateMachine(RuleBasedStateMachine):
+class SensorWatcherStateMachine(AsyncStateMachine):
     """State machine for testing sensor watchers.
 
     This state machine creates a number of watchers with different filters,
@@ -1153,7 +1323,6 @@ class SensorWatcherStateMachine(RuleBasedStateMachine):
 
     def __init__(self) -> None:
         super().__init__()
-        self.loop = async_solipsism.EventLoop()
         self.watchers: List[HashFilterSensorWatcher] = []
         # Unique value that is appended to the units of each sensor created.
         # This ensures that any replacement of a sensor with one of the same
@@ -1162,11 +1331,6 @@ class SensorWatcherStateMachine(RuleBasedStateMachine):
         # doing this, but it's a shortcoming of the protocol that this cannot
         # be detected.
         self.counter = itertools.count()
-        self._start()
-
-    def teardown(self):
-        self._stop()
-        self.loop.close()
 
     @run_in_loop
     async def _start(self) -> None:
