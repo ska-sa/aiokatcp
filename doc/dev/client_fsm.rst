@@ -68,7 +68,8 @@ Invariants
 ----------
 The following invariants are maintained at any time the event loop runs or
 when calling user callbacks. Most of the work of ensuring this occurs in
-:meth:`.Client._set_state`.
+:meth:`.Client._set_state`. These invariants are checked by
+:class:`!ClientStateMachine` in :file:`tests/test_client.py`.
 
 - :attr:`.Client.is_connected` is true iff the state is **CONNECTED**.
 - :attr:`.Client._closed_event` is set iff the state is **CLOSED**.
