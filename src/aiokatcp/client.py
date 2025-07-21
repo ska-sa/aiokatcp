@@ -63,6 +63,12 @@ from .connection import FailReply, InvalidReply
 
 logger = logging.getLogger(__name__)
 _T = TypeVar("_T")
+#: Minimum time in seconds to wait between connection attempts. Note
+#: that the backoff value is doubled before first use, and the actual
+#: value used is randomly chosen in [0.5 * backoff, backoff]
+_MIN_BACKOFF = 0.5
+#: Maximum time in seconds to wait between connection attempts.
+_MAX_BACKOFF = 60.0
 
 
 class _Handler(Protocol):
@@ -190,7 +196,7 @@ class Client(metaclass=ClientMeta):
         #: Event that is set iff the state is CLOSED
         self._closed_event = asyncio.Event()
         #: Maximum time to sleep before next connection attempt
-        self._backoff = 0.5  # TODO: unify with other setting of _backoff
+        self._backoff = _MIN_BACKOFF
         self._connected_callbacks: List[Callable[[], None]] = []
         self._disconnected_callbacks: List[Callable[[], None]] = []
         self._failed_connect_callbacks: List[Callable[[Exception], None]] = []
@@ -247,9 +253,8 @@ class Client(metaclass=ClientMeta):
             self.logger = connection.ConnectionLoggerAdapter(logger, dict(address=conn.address))
 
     def _connection_made(self, conn: connection.Connection) -> None:
-        # TODO: should we do things here, or only in the done callback for
-        # create_connection? This happens first, but is it safe to immediately
-        # start using the transport?
+        # Note: the create_connection task is not complete at this point, but
+        # we may immediately start getting message callbacks from the protocol.
         if self._state != _ClientState.CONNECTING:
             # This could happen if the user causes a state change between the
             # connection being established and the _connection_made callback
@@ -312,8 +317,7 @@ class Client(metaclass=ClientMeta):
         self._state = state
         if state == _ClientState.CONNECTED:
             self.last_exc = None
-            # Next transition to SLEEPING will double it to 1.0
-            self._backoff = 0.5
+            self._backoff = _MIN_BACKOFF
 
         if state == _ClientState.CLOSED:
             self._closed_event.set()
@@ -343,7 +347,7 @@ class Client(metaclass=ClientMeta):
         # Start actions specific to the state
         if state == _ClientState.SLEEPING:
             # Exponential backoff if connections are failing
-            self._backoff = min(self._backoff * 2.0, 60.0)
+            self._backoff = min(self._backoff * 2.0, _MAX_BACKOFF)
             # Pick a random value in [0.5 * backoff, backoff]
             wait = (random.random() + 1.0) * 0.5 * self._backoff
             self._sleep_handle = self.loop.call_later(
@@ -547,7 +551,7 @@ class Client(metaclass=ClientMeta):
         Closing completes asynchronously. Use :meth:`wait_closed` to wait
         for it to be fully complete.
         """
-        self._auto_reconnect = False  # Stop actually reconnected when we shut down.
+        self._auto_reconnect = False  # Stop actually reconnecting when we shut down.
         if self._sensor_monitor is not None:
             self._sensor_monitor.close()
             self._sensor_monitor = None
