@@ -154,9 +154,7 @@ class Connection(asyncio.BufferedProtocol):
 
     # self: Self to work around https://github.com/python/mypy/issues/17723
     def buffer_updated(self: Self, nbytes: int) -> None:
-        # TODO: update katcp-codec to accept a memoryview so that this
-        # copy can be avoided
-        msgs = self._parser.append(bytes(self._buffer[:nbytes]))
+        msgs = self._parser.append(self._buffer[:nbytes])
         for raw_msg in msgs:
             if isinstance(raw_msg, ValueError):
                 self.logger.warning("Malformed message received", exc_info=raw_msg)

@@ -2,7 +2,7 @@ async-solipsism>=0.8
 async-timeout
 decorator
 hypothesis
-katcp-codec
+katcp-codec>=0.2.0
 pre-commit
 pytest
 pytest-asyncio
