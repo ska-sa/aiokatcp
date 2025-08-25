@@ -1,16 +1,12 @@
 Changelog
 =========
 
-.. rubric:: Development version
+.. rubric:: Version 2.2.0
 
 The client connection handling has been substantially rewritten. This should
 eliminate some race conditions, but may also cause changes in behaviour in
 corner cases, such as the exact circumstances in which callbacks are made and
 the order in which they occur.
-
-Performance on large messages with many arguments is somewhat reduced
-(10-20%). It is expected that future updates to
-`katcp-codec <https://katcp-codec.readthedocs.io/>`__ can fix this.
 
 - Change :meth:`.Client.wait_connected` so that it will raise an exception if
   the client is closed (with :meth:`.Client.close`), rather than blocking
@@ -23,6 +19,7 @@ Performance on large messages with many arguments is somewhat reduced
 - Add a Developer Manual to the documentation.
 - Fix a race condition in :class:`.SensorWatcher` that could cause an infinite
   loop.
+- Speed up decoding of :class:`bytes` arguments.
 
 .. rubric:: Version 2.1.0
 
