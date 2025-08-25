@@ -41,6 +41,7 @@ from typing import (
     Awaitable,
     Callable,
     List,
+    Optional,
     Sequence,
     Set,
     Tuple,
@@ -52,9 +53,10 @@ from typing import (
 from unittest.mock import call
 
 import async_solipsism
+import hypothesis
 import hypothesis.strategies as st
 import pytest
-from hypothesis.stateful import Bundle, RuleBasedStateMachine, invariant, precondition, rule
+from hypothesis.stateful import Bundle, RuleBasedStateMachine, consumes, invariant, rule
 from typing_extensions import Concatenate, ParamSpec
 
 from aiokatcp import (
@@ -72,11 +74,12 @@ from aiokatcp import (
     SyncState,
     encode,
 )
-from aiokatcp.client import _MonitoredSensor
+from aiokatcp.client import _ClientState, _MonitoredSensor
 
 _ClientQueue = Union["asyncio.Queue[Tuple[asyncio.StreamReader, asyncio.StreamWriter]]"]
 _P = ParamSpec("_P")
 _T = TypeVar("_T")
+_ASM = TypeVar("_ASM", bound="AsyncStateMachine")
 
 
 @pytest.fixture
@@ -126,26 +129,44 @@ class Channel:
 
     On the client end it uses a :class:`.Client`, and on the server end it uses
     a (reader, writer) pair. It contains utility methods for simple
-    interactions between the two.
+    interactions between the two. It also has mocked connection callbacks
+    which can be used to check that callbacks are triggered at the appropriate
+    points.
     """
 
     def __init__(
-        self, client: Client, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+        self,
+        client: Client,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        connected_callback: unittest.mock.MagicMock,
+        disconnected_callback: unittest.mock.MagicMock,
+        failed_connect_callback: unittest.mock.MagicMock,
     ) -> None:
         self.client = client
         self.reader = reader
         self.writer = writer
+        self.connected_callback = connected_callback
+        self.disconnected_callback = disconnected_callback
+        self.failed_connect_callback = failed_connect_callback
 
     async def wait_connected(self) -> None:
         self.writer.write(b"#version-connect katcp-protocol 5.1-IMB\n")
         await self.client.wait_connected()
+        self.connected_callback.assert_called_once_with()
+        self.connected_callback.reset_mock()  # Allows for reconnecting
         # Make sure that wait_connected works when already connected
         await self.client.wait_connected()
 
     async def close(self) -> None:
+        was_connected = self.client.is_connected
+        # If we were disconnected previously, clear that state.
+        self.disconnected_callback.reset_mock()
         self.client.close()
         self.writer.close()
         await self.client.wait_closed()
+        if was_connected:
+            self.disconnected_callback.assert_called_once_with()
         try:
             await self.writer.wait_closed()
         except ConnectionError:
@@ -156,13 +177,26 @@ class Channel:
         cls,
         server: asyncio.base_events.Server,
         client_queue: _ClientQueue,
-        client_cls: Type[Client] = DummyClient,
+        client_cls: Callable[..., Client] = DummyClient,
         auto_reconnect=True,
     ) -> "Channel":
         host, port = server.sockets[0].getsockname()[:2]
         client = client_cls(host, port, auto_reconnect=auto_reconnect)
+        connected_callback = unittest.mock.MagicMock()
+        disconnected_callback = unittest.mock.MagicMock()
+        failed_connect_callback = unittest.mock.MagicMock()
+        client.add_connected_callback(connected_callback)
+        client.add_disconnected_callback(disconnected_callback)
+        client.add_failed_connect_callback(failed_connect_callback)
         (reader, writer) = await client_queue.get()
-        return cls(client, reader, writer)
+        return cls(
+            client,
+            reader,
+            writer,
+            connected_callback,
+            disconnected_callback,
+            failed_connect_callback,
+        )
 
 
 @pytest.fixture
@@ -255,6 +289,29 @@ async def test_request_with_informs(channel) -> None:
             Message.inform("help", b"halt", b"Halt", mid=1),
         ],
     )
+
+
+async def test_cancel_request(channel) -> None:
+    await channel.wait_connected()
+    future1 = asyncio.create_task(channel.client.request("wait"))
+    future2 = asyncio.create_task(channel.client.request("wait"))
+    future3 = asyncio.create_task(channel.client.request("wait"))
+    await asyncio.sleep(1)
+    future2.cancel()  # Cancel the second request
+    await asyncio.sleep(1)
+    # Process all requests
+    assert await channel.reader.readline() == b"?wait[1]\n"
+    channel.writer.write(b"!wait[1] ok\n!wait[2] ok\n!wait[3] ok\n")
+    # Cancel the third request just as the reply arrives. The sleep(0)
+    # is found by trial-and-error to cover the case where the future
+    # is cancelled but still in _pending.
+    await asyncio.sleep(0)
+    future3.cancel()
+    assert (await future1) == ([], [])
+    with pytest.raises(asyncio.CancelledError):
+        await future2
+    with pytest.raises(asyncio.CancelledError):
+        await future3
 
 
 async def test_sensor_reading_explicit_type(channel) -> None:
@@ -421,6 +478,8 @@ async def test_unparsable_protocol(channel, caplog) -> None:
         line = await channel.reader.read()
     assert line == b""
     assert re.search("Unparsable katcp-protocol", caplog.text)
+    channel.failed_connect_callback.assert_called_once()
+    assert isinstance(channel.failed_connect_callback.mock_calls[0][1][0], ProtocolError)
 
 
 async def test_bad_protocol(channel, caplog) -> None:
@@ -429,6 +488,8 @@ async def test_bad_protocol(channel, caplog) -> None:
         line = await channel.reader.read()
     assert line == b""
     assert re.search(r"Unknown protocol version 4\.0", caplog.text)
+    channel.failed_connect_callback.assert_called_once()
+    assert isinstance(channel.failed_connect_callback.mock_calls[0][1][0], ProtocolError)
 
 
 async def test_no_connection(channel) -> None:
@@ -442,6 +503,7 @@ async def test_connection_reset(channel) -> None:
     channel.writer.close()
     with pytest.raises(ConnectionResetError):
         await channel.client.request("help")
+    channel.disconnected_callback.assert_called_once_with()
 
 
 async def test_disconnected(channel) -> None:
@@ -463,6 +525,297 @@ async def test_bad_address(caplog) -> None:
     finally:
         client.close()
         await client.wait_closed()
+
+
+@pytest.mark.parametrize("auto_reconnect", [False, True])
+async def test_cancelled_connect(monkeypatch, auto_reconnect: bool) -> None:
+    """Close the client before the connection can be established."""
+
+    async def slow_create_connection(*args, **kwargs):
+        await asyncio.sleep(1)
+        raise ConnectionRefusedError  # pragma: nocover (won't be reached due to cancellation)
+
+    monkeypatch.setattr(asyncio.get_running_loop(), "create_connection", slow_create_connection)
+    client = Client("::1", 7777, auto_reconnect=auto_reconnect)
+    await asyncio.sleep(0.5)  # Allow sleep to start but not finish
+    if auto_reconnect:
+        client.close()
+    await client.wait_closed()
+    await asyncio.sleep(1)  # Allow some callbacks to finish
+
+
+@pytest.mark.parametrize("steps", range(5))
+async def test_cancelled_connect_race(monkeypatch, server, client_queue, steps) -> None:
+    """Close the client just as the connection is established."""
+
+    async def slow_create_connection(*args, **kwargs):
+        await asyncio.sleep(1)
+        return await orig_create_connection(*args, **kwargs)
+
+    loop = asyncio.get_running_loop()
+    orig_create_connection = loop.create_connection
+    monkeypatch.setattr(loop, "create_connection", slow_create_connection)
+    client = Client("::1", 7777)
+    await asyncio.sleep(1)  # Races with sleep in slow_create_connection
+    # Let the event loop run a few times to tweak the exact order of callbacks
+    for _ in range(steps):
+        await asyncio.sleep(0)
+    client.close()
+    await client.wait_closed()
+
+    # If a connection was created, clean up the server side
+    await asyncio.sleep(1)
+    try:
+        (reader, writer) = client_queue.get_nowait()
+    except asyncio.QueueEmpty:
+        pass
+    else:
+        writer.close()
+    await asyncio.sleep(1)  # Allow some callbacks to finish
+
+
+# The precondition must actually take an instance of the class whose method is
+# being decorated i.e. _ASM. However, mypy can't infer what _ASM is at the
+# point @run_in_loop is called; and the precondition is typically a lambda so
+# lacks its own type annotations.
+def run_in_loop(
+    *, precondition: Optional[Callable[[Any], bool]] = None
+) -> Callable[
+    [Callable[Concatenate[_ASM, _P], Awaitable[_T]]], Callable[Concatenate[_ASM, _P], _T]
+]:
+    """Decorator used by hypothesis tests.
+
+    The wrapped coroutine function will be run until completion in the event
+    loop.
+
+    Note: the code in the function will only run after callbacks already
+    scheduled in the loop. That makes :func:`~hypothesis.stateful.precondition`
+    unreliable. Use the `precondition` parameter instead, which will apply
+    the precondition marker but also re-check the precondition when the
+    function actually starts.
+    """
+
+    def decorator(
+        func: Callable[Concatenate[_ASM, _P], Awaitable[_T]]
+    ) -> Callable[Concatenate[_ASM, _P], _T]:
+        if precondition is not None:
+
+            async def precondition_wrapper(self: _ASM, *args: _P.args, **kwargs: _P.kwargs) -> _T:
+                hypothesis.assume(precondition(self))
+                return await func(self, *args, **kwargs)
+
+            def wrapper(self: _ASM, *args: _P.args, **kwargs: _P.kwargs) -> _T:
+                return self.loop.run_until_complete(precondition_wrapper(self, *args, **kwargs))
+
+        else:
+
+            def wrapper(self: _ASM, *args: _P.args, **kwargs: _P.kwargs) -> _T:
+                return self.loop.run_until_complete(func(self, *args, **kwargs))
+
+        functools.update_wrapper(
+            wrapper, func, assigned=["__module__", "__name__", "__qualname__", "__doc__"]
+        )
+        if precondition is not None:
+            return hypothesis.stateful.precondition(precondition)(wrapper)
+        else:
+            return wrapper
+
+    return decorator
+
+
+class AsyncStateMachine(RuleBasedStateMachine):
+    """Extension of :class:`hypothesis.RuleBasedStateMachine` to handle asyncio.
+
+    Asynchronous rules must be decorated with ``@run_in_loop()``.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.loop = async_solipsism.EventLoop()
+        self._start()
+
+    def teardown(self):
+        self._stop()
+        self.loop.close()
+
+    @run_in_loop()
+    async def _start(self) -> None:
+        """Perform asynchronous initialisation."""
+        raise NotImplementedError  # pragma: nocover
+
+    @run_in_loop()
+    async def _stop(self) -> None:
+        """Perform asynchronous teardown."""
+        raise NotImplementedError  # pragma: nocover
+
+
+class ClientStateMachine(AsyncStateMachine):
+    """State machine for testing the client.
+
+    This test uses hypothesis to randomly interact with a client's connection
+    status (sending it version informs, breaking the connection, sleeping and
+    so on) and checking the invariants at each step.
+    """
+
+    # Message IDs for which we haven't yet received a reply
+    mids = Bundle("mids")
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.reader: Optional[asyncio.StreamReader] = None
+        self.writer: Optional[asyncio.StreamWriter] = None
+        self.tasks: Set[asyncio.Task] = set()  # tasks for pending requests
+        self.auto_protocol = True  # Whether to send #katcp-protocol immediately on connect
+
+    def _client_connected_cb(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        if self.writer is not None:
+            self.writer.close()
+        self.reader = reader
+        self.writer = writer
+        if self.auto_protocol:
+            self.writer.write(b"#version-connect katcp-protocol 5.1-IMB\n")
+
+    @run_in_loop()
+    async def _start(self) -> None:
+        self.server = await asyncio.start_server(self._client_connected_cb, "::1", 0)
+        host, port = self.server.sockets[0].getsockname()[:2]
+        self.client = Client(host, port)
+
+    @run_in_loop()
+    async def _stop(self) -> None:
+        for task in self.tasks:
+            task.cancel()  # Harmless if it has already completed
+        self.client.close()
+        await self.client.wait_closed()
+        if self.writer is not None:
+            self.writer.close()
+        self.server.close()
+        await self.server.wait_closed()
+
+    # We need auto_protocol enabled to get from NEGOTIATING to CONNECTED in the background.
+    @rule()
+    @run_in_loop(precondition=lambda self: self.auto_protocol and self.writer is None)
+    async def wait_connected(self) -> None:
+        await self.client.wait_connected()
+
+    @rule(
+        data=st.sampled_from(
+            [
+                b"#version-connect katcp-protocol 5.1-IMB\n",  # Valid protocol version
+                b"#version-connect katcp-protocol 4.0-IMB\n",  # Unsupported version
+                b"#version-connect katcp-protocol garbage\n",  # Invalid version
+                b"#disconnect disconnecting\n",
+                b"garbage",
+                b"?unexpected-request\n",
+                b"!unexpected-reply\n",
+                b"#unexpected-inform\n",
+            ]
+        )
+    )
+    @run_in_loop(precondition=lambda self: self.writer is not None and not self.writer.is_closing())
+    async def write_data(self, data: bytes) -> None:
+        assert self.writer is not None  # mypy doesn't parse the precondition
+        try:
+            self.writer.write(data)
+            await self.writer.drain()
+        except ConnectionError:
+            pass  # Don't worry if the client has already disconnected
+
+    @rule()
+    @run_in_loop(precondition=lambda self: self.writer is not None and not self.writer.is_closing())
+    async def close_writer(self) -> None:
+        assert self.writer is not None  # mypy doesn't parse the precondition
+        self.writer.close()
+        self.reader = None
+        self.writer = None
+
+    @rule()
+    @run_in_loop()
+    async def step(self):
+        """Allow the event loop to progress for one iteration."""
+        await asyncio.sleep(0)
+
+    @rule(duration_ms=st.integers(min_value=1, max_value=2000))
+    @run_in_loop()
+    async def sleep(self, duration_ms: int) -> None:
+        await asyncio.sleep(duration_ms / 1000.0)
+
+    @rule(target=mids)
+    @run_in_loop(precondition=lambda self: self.client.is_connected)
+    async def request(self) -> int:
+        def done(task):
+            self.tasks.discard(task)
+            try:
+                task.result()
+            except (ConnectionError, FailReply, InvalidReply):
+                pass
+
+        mid = self.client._next_mid
+        task = asyncio.create_task(self.client.request("watchdog"))
+        self.tasks.add(task)
+        task.add_done_callback(done)
+        return mid
+
+    # Send a reply, which might be to a legitimate message or just a
+    # made-up message ID. Possibly send it twice to confuse the client.
+    @rule(
+        mid=st.one_of(consumes(mids), st.integers(1, 10), st.just(None)),
+        count=st.integers(1, 2),
+        response=st.sampled_from(["ok", "fail", "invalid"]),
+    )
+    @run_in_loop(precondition=lambda self: self.writer is not None and not self.writer.is_closing())
+    async def reply(self, mid: Optional[int], count: int, response: str) -> None:
+        assert self.writer is not None  # mypy doesn't parse the precondition
+        try:
+            if mid is not None:
+                self.writer.write(f"!watchdog[{mid}] {response}\n".encode() * count)
+            else:
+                self.writer.write(b"!watchdog ok\n" * count)
+            await self.writer.drain()
+        except ConnectionError:
+            pass
+
+    # Send an inform in response to a message.
+    @rule(mid=mids)
+    @run_in_loop(precondition=lambda self: self.writer is not None and not self.writer.is_closing())
+    async def inform(self, mid: int) -> None:
+        assert self.writer is not None  # mypy doesn't parse the precondition
+        try:
+            self.writer.write(f"#watchdog[{mid}] hello\n".encode())
+            await self.writer.drain()
+        except ConnectionError:
+            pass
+
+    @rule(auto_protocol=st.booleans())
+    def set_auto_protocol(self, auto_protocol: bool) -> None:
+        self.auto_protocol = auto_protocol
+
+    @invariant()
+    def check_consistency(self) -> None:
+        client = self.client
+        assert client.is_connected == (client._state == _ClientState.CONNECTED)
+        assert client._closed_event.is_set() == (client._state == _ClientState.CLOSED)
+        assert (client._connection is None) == (
+            client._state in {_ClientState.CONNECTING, _ClientState.SLEEPING, _ClientState.CLOSED}
+        )
+        assert client._disconnected_event.is_set() == (client._connection is None)
+        assert (client._connect_task is not None) == (client._state == _ClientState.CONNECTING)
+        assert (client._sleep_handle is not None) == (client._state == _ClientState.SLEEPING)
+        if client._state == _ClientState.DISCONNECTING:
+            assert client._connection and client._connection.is_closing()
+        if client._state in {
+            _ClientState.DISCONNECTING,
+            _ClientState.CLOSED,
+            _ClientState.SLEEPING,
+        }:
+            assert client.last_exc is not None
+        if client._state == _ClientState.CONNECTED:
+            assert client.last_exc is None
+
+
+TestClientStateMachine = ClientStateMachine.TestCase
+# Increase number of examples, which seems necessary to get test coverage.
+TestClientStateMachine.settings = hypothesis.settings(max_examples=500)
 
 
 class SensorWatcherChannel(Channel):
@@ -956,24 +1309,6 @@ class BasicServer(DeviceServer):
     BUILD_STATE = "dummy-build-1.0.0"
 
 
-def run_in_loop(
-    func: Callable[Concatenate["SensorWatcherStateMachine", _P], Awaitable[_T]]
-) -> Callable[Concatenate["SensorWatcherStateMachine", _P], _T]:
-    """Decorator used by :class:`SensorWatcherStateMachine`.
-
-    The wrapped coroutine function will be run until completion in the event
-    loop.
-    """
-
-    def wrapper(self: "SensorWatcherStateMachine", *args: _P.args, **kwargs: _P.kwargs) -> _T:
-        return self.loop.run_until_complete(func(self, *args, **kwargs))
-
-    functools.update_wrapper(
-        wrapper, func, assigned=["__module__", "__name__", "__qualname__", "__doc__"]
-    )
-    return wrapper
-
-
 class HashFilterSensorWatcher(SensorWatcher):
     """Sensor watcher that filters based on the SHA256 hash of the sensor description.
 
@@ -1030,7 +1365,7 @@ def mod_phases_strategy(draw: st.DrawFn) -> Tuple[int, Set[int]]:
     return mod, phases
 
 
-class SensorWatcherStateMachine(RuleBasedStateMachine):
+class SensorWatcherStateMachine(AsyncStateMachine):
     """State machine for testing sensor watchers.
 
     This state machine creates a number of watchers with different filters,
@@ -1047,7 +1382,6 @@ class SensorWatcherStateMachine(RuleBasedStateMachine):
 
     def __init__(self) -> None:
         super().__init__()
-        self.loop = async_solipsism.EventLoop()
         self.watchers: List[HashFilterSensorWatcher] = []
         # Unique value that is appended to the units of each sensor created.
         # This ensures that any replacement of a sensor with one of the same
@@ -1056,19 +1390,14 @@ class SensorWatcherStateMachine(RuleBasedStateMachine):
         # doing this, but it's a shortcoming of the protocol that this cannot
         # be detected.
         self.counter = itertools.count()
-        self._start()
 
-    def teardown(self):
-        self._stop()
-        self.loop.close()
-
-    @run_in_loop
+    @run_in_loop()
     async def _start(self) -> None:
         self.server = BasicServer(host="::1", port=1234)
         await self.server.start()
         self.client = await Client.connect("::1", 1234)
 
-    @run_in_loop
+    @run_in_loop()
     async def _stop(self) -> None:
         self.client.close()
         await self.client.wait_closed()
@@ -1093,16 +1422,15 @@ class SensorWatcherStateMachine(RuleBasedStateMachine):
         units=st.text(),
         stype=st.sampled_from([bytes, int, float, bool]),
     )
-    @run_in_loop
+    @run_in_loop()
     async def add_sensor(self, stype: Type, name: str, description: str, units: str) -> None:
         self.server.sensors.add(Sensor(stype, name, description, f"{units} [{next(self.counter)}]"))
         self.server.mass_inform("interface-changed")
 
-    @precondition(lambda self: self.server.sensors)  # Must have a sensor to remove
     @rule(
         name=st.runner().flatmap(lambda self: st.sampled_from(sorted(self.server.sensors.keys())))
     )
-    @run_in_loop
+    @run_in_loop(precondition=lambda self: self.server.sensors)  # Must have a sensor to remove
     async def remove_sensor(self, name: str) -> None:
         del self.server.sensors[name]
         self.server.mass_inform("interface-changed")
@@ -1119,44 +1447,41 @@ class SensorWatcherStateMachine(RuleBasedStateMachine):
             )
         )
 
-    @precondition(lambda self: self.server.sensors)  # Must have a sensor to update
     @rule(
         name_value=st.runner().flatmap(lambda self: self.sensor_update_strategy()),
         status=st.sampled_from(sorted(Sensor.Status)),
     )
-    @run_in_loop
+    @run_in_loop(precondition=lambda self: self.server.sensors)  # Must have a sensor to update
     async def update_value(self, name_value: Tuple[str, Any], status: Sensor.Status) -> None:
         name, value = name_value
         self.server.sensors[name].set_value(value, status=status)
 
     @rule(mod_phases=mod_phases_strategy())
-    @run_in_loop
+    @run_in_loop()
     async def add_watcher(self, mod_phases: Tuple[int, Set[int]]) -> None:
         mod, phases = mod_phases
         watcher = HashFilterSensorWatcher(self.client, mod=mod, phases=phases)
         self.watchers.append(watcher)
         self.client.add_sensor_watcher(watcher)
 
-    @precondition(lambda self: self.watchers)  # Must have a watcher to remove
     @rule(
         idx=st.runner().flatmap(
             lambda self: st.integers(min_value=0, max_value=len(self.watchers) - 1)
         )
     )
-    @run_in_loop
+    @run_in_loop(precondition=lambda self: self.watchers)  # Must have a watcher to remove
     async def remove_watcher(self, idx: int) -> None:
         self.client.remove_sensor_watcher(self.watchers[idx])
         del self.watchers[idx]
 
     @rule()
-    @run_in_loop
+    @run_in_loop()
     async def step(self) -> None:
         """Allow the event loop to progress for one iteration."""
         await asyncio.sleep(0)
 
-    @precondition(lambda self: self.client.is_connected)
     @rule()
-    @run_in_loop
+    @run_in_loop(precondition=lambda self: self.client.is_connected)
     async def disconnect(self) -> None:
         """Disconnect the client.
 
@@ -1198,7 +1523,7 @@ class SensorWatcherStateMachine(RuleBasedStateMachine):
     # This is a @rule rather than @invariant, to allow multiple rules to run
     # in between without the event loop running.
     @rule()
-    @run_in_loop
+    @run_in_loop()
     async def check_consistency(self) -> None:
         """Check that mirrored state converges."""
 
@@ -1272,7 +1597,7 @@ class TestClientNoReconnect:
         await asyncio.sleep(1)
         assert not client_task.done()
         writer.close()
-        with pytest.raises(ConnectionAbortedError):
+        with pytest.raises(ConnectionResetError):
             await client_task
 
 
@@ -1304,8 +1629,6 @@ class TestClientNoMidSupport:
         assert result2 == ([b"2"], [Message.inform("echo", b"value", b"2")])
 
 
-# Workaround for https://github.com/python/cpython/issues/109538
-@pytest.mark.filterwarnings("ignore:.*StreamWriter.__del__:pytest.PytestUnraisableExceptionWarning")
 class TestUnclosedClient:
     async def body(self) -> None:
         # We can't use the existing fixtures, because their cleanup depends
@@ -1322,8 +1645,8 @@ class TestUnclosedClient:
         server.close()
         await server.wait_closed()
 
+    # Workaround for Python <3.12
     @pytest.mark.filterwarnings("ignore:unclosed transport:ResourceWarning")
-    @pytest.mark.filterwarnings("ignore:loop is closed:ResourceWarning")
     def test(self) -> None:
         loop = async_solipsism.EventLoop()
         with pytest.warns(ResourceWarning, match="unclosed Client"):

@@ -1,4 +1,4 @@
-# Copyright 2017, 2019-2020, 2022, 2024 National Research Foundation (SARAO)
+# Copyright 2017, 2019-2020, 2022, 2024-2025 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -58,8 +58,8 @@ class DummyServer(DeviceServer):
     VERSION = "dummy-1.0"
     BUILD_STATE = "dummy-build-1.0.0"
 
-    def __init__(self):
-        super().__init__("::1", 7777)
+    def __init__(self, **kwargs):
+        super().__init__("::1", 7777, **kwargs)
         self.event = asyncio.Event()
         self.wait_reached = asyncio.Event()
         sensor = Sensor(
@@ -110,6 +110,10 @@ class DummyServer(DeviceServer):
         """Wait for an internal event to fire"""
         self.wait_reached.set()
         await self.event.wait()
+
+    async def request_sleep(self, ctx: RequestContext, time: float) -> None:
+        """Sleep for a given amount of time."""
+        await asyncio.sleep(time)
 
     async def request_crash(self, ctx: RequestContext) -> None:
         """Request that always raises an exception"""
@@ -172,7 +176,7 @@ class BadServer(DummyServer):
 async def server(request) -> AsyncGenerator[DummyServer, None]:
     marker = request.node.get_closest_marker("server_cls")
     server_cls = marker.args[0] if marker is not None else DummyServer
-    server = server_cls()
+    server = server_cls(max_pending=3)
     await server.start()
     yield server
     await server.stop()
@@ -272,6 +276,7 @@ async def test_help(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) 
             "bytes-arg",
             "double",
             "wait",
+            "sleep",
             "crash",
             "add-bulk-sensors",
             "remove-bulk-sensors",
@@ -507,6 +512,60 @@ async def test_concurrent(
     assert await reader.readline() == b"!wait[1] ok\n"
 
 
+async def test_concurrent_many(
+    server: DummyServer, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+) -> None:
+    """Use more concurrent requests than the server supports.
+
+    The extra requests should go into :attr:`.Server._buffered_requests`.
+    """
+    # max_pending is set to 3, so the first 3 requests start immediately, and
+    # the last one has to wait.
+    writer.write(b"?sleep[1] 10\n?sleep[2] 5\n?sleep[3] 2\n?sleep[4] 4\n")
+    await asyncio.sleep(1)
+    # Test coverage for pause_reading/resume_reading
+    writer.write(b"?sleep[5] 20\n")
+    loop = asyncio.get_running_loop()
+    assert await reader.readline() == b"!sleep[3] ok\n"
+    assert loop.time() == 2.0
+    assert await reader.readline() == b"!sleep[2] ok\n"
+    assert loop.time() == 5.0
+    assert await reader.readline() == b"!sleep[4] ok\n"
+    assert loop.time() == 6.0
+    assert await reader.readline() == b"!sleep[1] ok\n"
+    assert loop.time() == 10.0
+    assert await reader.readline() == b"!sleep[5] ok\n"
+    assert loop.time() == 25.0
+
+
+async def test_concurrent_multi_connection(
+    server: DummyServer,
+    reader_writer_factory: Callable[[], Awaitable[_StreamPair]],
+) -> None:
+    """Fill up concurrent requests using multiple connections."""
+    reader1, writer1 = await reader_writer_factory()
+    reader2, writer2 = await reader_writer_factory()
+    assert await reader1.readline() == b"#client-connected [::1]:2\n"
+    writer1.write(b"?sleep[1] 10\n?sleep[2] 5\n")
+    await asyncio.sleep(1)
+    writer2.write(b"?sleep[1] 6\n")
+    # That should fill up pending, and pause all connections, including
+    # new ones.
+    reader3, writer3 = await reader_writer_factory()
+    assert await reader1.readline() == b"#client-connected [::1]:3\n"
+    assert await reader2.readline() == b"#client-connected [::1]:3\n"
+    assert await reader1.readline() == b"!sleep[2] ok\n"
+    assert await reader2.readline() == b"!sleep[1] ok\n"
+    assert await reader1.readline() == b"!sleep[1] ok\n"
+    # Ensure that all the connections got unpaused
+    writer1.write(b"?echo[3] foo\n")
+    assert await reader1.readline() == b"!echo[3] ok foo\n"
+    writer2.write(b"?echo[2] bar\n")
+    assert await reader2.readline() == b"!echo[2] ok bar\n"
+    writer2.write(b"?echo[1] spam\n")
+    assert await reader2.readline() == b"!echo[1] ok spam\n"
+
+
 async def test_client_connected_inform(
     reader_writer_factory: Callable[[], Awaitable[_StreamPair]],
     reader: asyncio.StreamReader,
@@ -530,6 +589,7 @@ async def test_message_while_stopping(
     await server.wait_reached.wait()
     # Start stopping the server, but wait for outstanding tasks
     stop_task = asyncio.create_task(server.stop(cancel=False))
+    await asyncio.sleep(1)
     writer.write(b"?watchdog\n")  # Should be ignored, because we're stopping
     # Ensure the ?watchdog makes it through to the message handler
     await asyncio.sleep(1)

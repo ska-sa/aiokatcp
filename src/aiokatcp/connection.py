@@ -1,4 +1,4 @@
-# Copyright 2017, 2022, 2024 National Research Foundation (SARAO)
+# Copyright 2017, 2022, 2024-2025 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -32,9 +32,11 @@ import ipaddress
 import logging
 import re
 import time
-from typing import Any, Callable, Iterable, Optional, TypeVar
+from collections import deque
+from typing import Any, Callable, Deque, Iterable, Optional, TypeVar, cast
 
 import decorator
+import katcp_codec
 from typing_extensions import Protocol, Self
 
 from . import core
@@ -44,64 +46,7 @@ DEFAULT_LIMIT = 16 * 1024**2
 _BLANK_RE = re.compile(rb"^[ \t]*[\r\n]?$")
 # typing.Protocol requires a contravariant typevar
 _C_contra = TypeVar("_C_contra", bound="Connection", contravariant=True)
-
-
-class ConvertCRProtocol(asyncio.StreamReaderProtocol):
-    """Protocol that converts incoming carriage returns to newlines.
-
-    This simplifies extracting the data with :class:`asyncio.StreamReader`,
-    whose :meth:`~asyncio.StreamReader.readuntil` method is limited to a single
-    separator.
-    """
-
-    def data_received(self, data: bytes) -> None:
-        super().data_received(data.replace(b"\r", b"\n"))
-
-
-async def _discard_to_eol(stream: asyncio.StreamReader) -> None:
-    """Discard all data up to and including the next newline, or end of file."""
-    while True:
-        try:
-            await stream.readuntil()
-        except asyncio.IncompleteReadError:
-            break  # EOF reached
-        except asyncio.LimitOverrunError as error:
-            # Extract the data that's already in the buffer
-            consumed = error.consumed
-            await stream.readexactly(consumed)
-        else:
-            break
-
-
-async def read_message(stream: asyncio.StreamReader) -> Optional[core.Message]:
-    """Read a single message from an asynchronous stream.
-
-    If EOF is reached before reading the newline, returns ``None`` if
-    there was no data, otherwise raises
-    :exc:`aiokatcp.core.KatcpSyntaxError`.
-
-    Parameters
-    ----------
-    stream
-        Input stream
-
-    Raises
-    ------
-    aiokatcp.core.KatcpSyntaxError
-        if the line was too long or malformed.
-    """
-    while True:
-        try:
-            raw = await stream.readuntil()
-        except asyncio.IncompleteReadError as error:
-            raw = error.partial
-            if not raw:
-                return None  # End of stream reached
-        except asyncio.LimitOverrunError:
-            await _discard_to_eol(stream)
-            raise core.KatcpSyntaxError("Message exceeded stream buffer size")
-        if not _BLANK_RE.match(raw):
-            return core.Message.parse(raw)
+_BUFFER_SIZE = 256 * 1024
 
 
 class FailReply(Exception):
@@ -118,58 +63,148 @@ class ConnectionLoggerAdapter(logging.LoggerAdapter):
 
 
 class _ConnectionOwner(Protocol[_C_contra]):
-    loop: asyncio.AbstractEventLoop
+    def handle_message(self, conn: _C_contra, msg: core.Message) -> None:
+        ...  # pragma: nocover
 
-    async def handle_message(self, conn: _C_contra, msg: core.Message) -> None:
-        ...
+    def _connection_made(self, conn: _C_contra) -> None:
+        ...  # pragma: nocover
+
+    def _connection_lost(self, conn: _C_contra, exc: Optional[Exception]) -> None:
+        ...  # pragma: nocover
+
+    def _eof_received(self, conn: _C_contra) -> bool:
+        ...  # pragma: nocover
 
 
-class Connection:
+class Connection(asyncio.BufferedProtocol):
+    # These fields are only set by connection_made. That's called before
+    # the connection is generally usable, so we annotate them as if they're
+    # always available, rather than setting them to None in the constructor
+    # (which would then require None checks throughout the code).
+    _transport: asyncio.Transport
+    address: core.Address
+    logger: logging.LoggerAdapter
+
     def __init__(
         self,
         owner: _ConnectionOwner[Self],
-        reader: asyncio.StreamReader,
-        writer: asyncio.StreamWriter,
         is_server: bool,
+        limit: int,
     ) -> None:
         self.owner = owner
-        self.reader = reader
-        self.writer = writer
-        self._writer_closing = False
-        host, port, *_ = writer.get_extra_info("peername")
-        self.address = core.Address(ipaddress.ip_address(host), port)
-        self._drain_lock = asyncio.Lock()
         self.is_server = is_server
-        self.logger = ConnectionLoggerAdapter(logger, dict(address=self.address))
-        self._task = self.owner.loop.create_task(self._run())
-        self._task.add_done_callback(self._done_callback)
-        self._closing = False
         self._closed_event = asyncio.Event()
+        self._buffer = memoryview(bytearray(_BUFFER_SIZE))
+        self._parser = katcp_codec.Parser(limit)
+        self._exc: Optional[Exception] = None
+        self._paused = False
+        self._drain_waiters: Deque[asyncio.Future[None]] = deque()
+        self._warned_on_closed = False
 
-    def _close_writer(self):
-        self.writer.close()
-        self._writer_closing = True
+    # self: Self to work around https://github.com/python/mypy/issues/17723
+    def connection_made(self: Self, transport: asyncio.BaseTransport) -> None:
+        # argument is declared as BaseTransport in parent class, but we know it
+        # will implement the interface of Transport. Note that if the event loop
+        # has been replaced, it won't actually be an instance of Transport.
+        self._transport = cast(asyncio.Transport, transport)
+        host, port, *_ = transport.get_extra_info("peername")
+        self.address = core.Address(ipaddress.ip_address(host), port)
+        self.logger = ConnectionLoggerAdapter(logger, dict(address=self.address))
+        self.owner._connection_made(self)
+
+    def connection_lost(self: Self, exc: Optional[Exception]) -> None:
+        self._exc = exc
+        self._closed_event.set()
+        self._buffer = memoryview(bytearray(0))  # Free up the buffer without changing type
+        for waiter in self._drain_waiters:
+            if not waiter.done():
+                if exc is not None:
+                    waiter.set_exception(exc)
+                else:
+                    waiter.set_result(None)
+        self.owner._connection_lost(self, exc)
+
+    def eof_received(self: Self) -> bool:
+        if self._parser.buffer_size > 0:
+            self.logger.warning("EOF received on connection with partial message")
+        return self.owner._eof_received(self)
+
+    def pause_writing(self) -> None:
+        assert not self._paused
+        self._paused = True
+        self.logger.debug("paused writing")
+
+    def resume_writing(self) -> None:
+        assert self._paused
+        self._paused = False
+        self.logger.debug("resumed writing")
+        for waiter in self._drain_waiters:
+            if not waiter.done():
+                waiter.set_result(None)
+
+    def is_closing(self) -> bool:
+        # _transport is set by connection_made and not cleared, so if
+        # _transport is None then we're initialising, not closing.
+        return self._transport is not None and self._transport.is_closing()
+
+    def get_buffer(self, sizehint: int) -> memoryview:
+        # Python doesn't seem to actually use sizehint, so don't bother
+        # trying to be clever in adjusting the buffer size.
+        return self._buffer
+
+    # self: Self to work around https://github.com/python/mypy/issues/17723
+    def buffer_updated(self: Self, nbytes: int) -> None:
+        msgs = self._parser.append(self._buffer[:nbytes])
+        for raw_msg in msgs:
+            if isinstance(raw_msg, ValueError):
+                self.logger.warning("Malformed message received", exc_info=raw_msg)
+                if self.is_server:
+                    # TODO: #log informs are supposed to go to all clients
+                    self.write_message(
+                        core.Message.inform("log", "error", time.time(), __name__, str(raw_msg))
+                    )
+            else:
+                # Create the message first without arguments, to avoid the argument
+                # encoding and let us store raw bytes.
+                msg = core.Message(raw_msg.mtype, raw_msg.name.decode("ascii"), mid=raw_msg.mid)
+                msg.arguments = raw_msg.arguments
+                if self.logger.isEnabledFor(logging.DEBUG):
+                    # Check isEnabledFor because bytes(msg) can be expensive
+                    self.logger.debug("Received message %r", bytes(msg))
+                try:
+                    self.owner.handle_message(self, msg)
+                except Exception:
+                    self.logger.exception("Exception in message handler")
 
     def write_messages(self, msgs: Iterable[core.Message]) -> None:
-        """Write a stream of messages to the connection.
+        """Write an iterable of messages to the connection.
 
         Connection errors are logged and swallowed.
         """
-        if self._writer_closing:
-            return  # We previously detected that it was closed
+        assert self._transport is not None
+        if self._closed_event.is_set():
+            if not self._warned_on_closed:
+                if self._exc is not None:
+                    self.logger.warning(
+                        "Connection closed before message could be sent: %s", self._exc
+                    )
+                else:
+                    self.logger.warning("Connection closed before message could be sent")
+                self._warned_on_closed = True  # Avoid a string of warnings
+            return
+
+        raw = [bytes(msg) for msg in msgs]
         try:
-            # Normally this would be checked by the internals of
-            # self.writer.drain and bubble out to self.drain, but there is no
-            # guarantee that self.drain will be called in the near future
-            # (see Github issue #11).
-            if self.writer.transport.is_closing():
-                raise ConnectionResetError("Connection lost")
-            raw = b"".join(bytes(msg) for msg in msgs)
-            self.writer.write(raw)
-            self.logger.debug("Sent message %r", raw)
-        except ConnectionError as error:
-            self.logger.warning("Connection closed before message could be sent: %s", error)
-            self._close_writer()
+            # Would be nice to use self._transport.writelines, but it can cause
+            # problems due to https://github.com/python/cpython/issues/136234.
+            self._transport.write(b"".join(raw))
+            for raw_msg in raw:
+                self.logger.debug("Sent message %r", raw_msg)
+        except ConnectionError as error:  # pragma: nocover
+            # This is not reachable, at least in CPython 3.8-3.13: write()
+            # may optimistically try to write synchronously, but if it fails
+            # the error is still reported asynchronously (via `drain`).
+            self.logger.warning("Connection error while writing message: %s", error)
 
     def write_message(self, msg: core.Message) -> None:
         """Write a message to the connection.
@@ -180,62 +215,36 @@ class Connection:
 
     async def drain(self) -> None:
         """Block until the outgoing write buffer is small enough."""
-        # StreamWriter.drain is not reentrant prior to Python 3.10.8, so we use
-        # a lock (https://github.com/python/cpython/issues/74116).
-        async with self._drain_lock:
-            if not self._writer_closing:
-                try:
-                    await self.writer.drain()
-                except ConnectionError as error:
-                    # The writer could have been closed during the await
-                    if not self._writer_closing:
-                        self.logger.warning("Connection closed while draining: %s", error)
-                        self._close_writer()
+        if self._closed_event.is_set() or not self._paused:
+            return
+        waiter = asyncio.get_running_loop().create_future()
+        self._drain_waiters.append(waiter)
+        try:
+            await waiter
+        finally:
+            self._drain_waiters.remove(waiter)
 
-    # The self: Self is needed due to https://github.com/python/mypy/issues/17723
-    async def _run(self: Self) -> None:
-        while True:
-            # If the output buffer gets too full, pause processing requests
-            await self.drain()
-            try:
-                msg = await read_message(self.reader)
-            except core.KatcpSyntaxError as error:
-                self.logger.warning("Malformed message received", exc_info=True)
-                if self.is_server:
-                    # TODO: #log informs are supposed to go to all clients
-                    self.write_message(
-                        core.Message.inform("log", "error", time.time(), __name__, str(error))
-                    )
-            except ConnectionResetError:
-                # Client closed connection without consuming everything we sent it.
-                break
-            else:
-                if msg is None:  # EOF received
-                    break
-                if self.logger.isEnabledFor(logging.DEBUG):
-                    # Check isEnabledFor because bytes(msg) can be expensive
-                    self.logger.debug("Received message %r", bytes(msg))
-                await self.owner.handle_message(self, msg)
+    def pause_reading(self) -> None:
+        self._transport.pause_reading()
 
-    def _done_callback(self, task: asyncio.Future) -> None:
-        self._closed_event.set()
-        if not task.cancelled():
-            try:
-                task.result()
-            except Exception:
-                self.logger.exception("Exception in connection handler")
+    def resume_reading(self) -> None:
+        self._transport.resume_reading()
 
     def close(self) -> None:
         """Start closing the connection.
 
-        Any currently running message handler will be cancelled. The closing
-        process completes asynchronously. Use :meth:`wait_closed` to wait for
-        things to be completely closed off.
+        The closing process completes asynchronously. Use :meth:`wait_closed`
+        to wait for things to be completely closed off.
         """
-        if not self._closing:
-            self._task.cancel()
-            self._close_writer()
-            self._closing = True
+        self._transport.close()
+
+    def abort(self) -> None:
+        """Immediately abort the connection, without sending buffered data."""
+        self._transport.abort()
+
+    def get_write_buffer_size(self) -> int:
+        """Get the size of the transport's write buffer."""
+        return self._transport.get_write_buffer_size()
 
     async def wait_closed(self) -> None:
         """Wait until the connection is closed.
@@ -244,11 +253,6 @@ class Connection:
         to wait for the remote end to close the connection.
         """
         await self._closed_event.wait()
-        self._close_writer()
-        try:
-            await self.writer.wait_closed()
-        except ConnectionError:
-            pass
 
 
 @decorator.decorator

@@ -1,6 +1,29 @@
 Changelog
 =========
 
+.. rubric:: Development version
+
+The client connection handling has been substantially rewritten. This should
+eliminate some race conditions, but may also cause changes in behaviour in
+corner cases, such as the exact circumstances in which callbacks are made and
+the order in which they occur.
+
+Performance on large messages with many arguments is somewhat reduced
+(10-20%). It is expected that future updates to
+`katcp-codec <https://katcp-codec.readthedocs.io/>`__ can fix this.
+
+- Change :meth:`.Client.wait_connected` so that it will raise an exception if
+  the client is closed (with :meth:`.Client.close`), rather than blocking
+  forever.
+- Improve handling of back-pressure in :class:`.DeviceServer`. Previously,
+  once ``max_pending`` requests were active, each connection would continue
+  reading the next request and only block when trying to start it. Now, when
+  ``max_pending`` is reached, all connections immediately stop reading.
+- Stop debug logging incoming informs twice.
+- Add a Developer Manual to the documentation.
+- Fix a race condition in :class:`.SensorWatcher` that could cause an infinite
+  loop.
+
 .. rubric:: Version 2.1.0
 
 - Add :meth:`.AbstractSensorWatcher.filter` to allow only a subset of sensors

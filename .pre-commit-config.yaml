@@ -39,7 +39,7 @@ repos:
         additional_dependencies: [
           'async-timeout==4.0.3',
           'hypothesis==6.113.0',
-          'katcp-codec==0.1.0',
+          'katcp-codec==0.2.0',
           'pytest==8.1.1',
           'types-decorator==5.1.1',
           'typing-extensions==4.11.0',

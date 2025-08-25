@@ -1,4 +1,4 @@
-# Copyright 2017, 2019, 2022, 2024 National Research Foundation (SARAO)
+# Copyright 2017, 2019, 2022, 2024-2025 National Research Foundation (SARAO)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
@@ -34,10 +34,12 @@ import re
 import socket
 import time
 import traceback
+from collections import deque
 from typing import (
     Any,
     Awaitable,
     Callable,
+    Deque,
     Dict,
     Iterable,
     List,
@@ -69,20 +71,19 @@ class ClientConnection(connection.Connection):
     def __init__(
         self,
         owner: "DeviceServer",
-        reader: asyncio.StreamReader,
-        writer: asyncio.StreamWriter,
+        limit: int,
     ) -> None:
-        super().__init__(owner, reader, writer, True)
+        super().__init__(owner, True, limit)
         #: Maps sensors to their samplers, for sensors that are being sampled
         self._samplers: Dict[sensor.Sensor, sensor.SensorSampler] = {}
         #: Protects against concurrent request_sensor_sampling (but not sensor removal)
         self.samplers_lock = asyncio.Lock()
 
-    def close(self) -> None:
+    def connection_lost(self, exc: Optional[Exception]) -> None:
         for sampler in self._samplers.values():
             sampler.close()
         self._samplers = {}
-        super().close()
+        super().connection_lost(exc)
 
     def set_sampler(self, s: sensor.Sensor, sampler: Optional[sensor.SensorSampler]) -> None:
         """Set or clear the sampler for a sensor."""
@@ -308,7 +309,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             raise TypeError(f"{self.__class__.__name__} does not define BUILD_STATE")
         self._connections: Set[ClientConnection] = set()
         self._pending: Set[asyncio.Task] = set()
-        self._pending_space = asyncio.Semaphore(value=max_pending)
+        self._max_pending = max_pending
         if loop is None:
             loop = asyncio.get_event_loop()
         self.loop = loop
@@ -322,6 +323,11 @@ class DeviceServer(metaclass=DeviceServerMeta):
         self._port = port
         self._stop_task: Optional[asyncio.Task] = None
         self._service_tasks: List[asyncio.Task] = []
+        # Parking area for requests received once max_pending has been reached.
+        # This is needed (despite using Connection.pause_reading) because a single
+        # recvmsg could receive several requests at once, or multiple connections
+        # could receive messages in the same event loop iteration.
+        self._buffered_requests: Deque[RequestContext] = deque()
         self.sensors = sensor.SensorSet()
         self.sensors.add_remove_callback(
             functools.partial(self._remove_sensor_callback, self._connections)
@@ -342,10 +348,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         """
 
         def factory():
-            # Based on asyncio.start_server, but using ConvertCRProtocol
-            reader = asyncio.StreamReader(limit=self._limit)
-            protocol = connection.ConvertCRProtocol(reader, self._client_connected_cb)
-            return protocol
+            return ClientConnection(owner=self, limit=self._limit)
 
         async with self._server_lock:
             if self._server is not None:
@@ -460,11 +463,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         """
         if self._server is None:
             return ()
-        sockets = self._server.sockets
-        if isinstance(sockets, tuple):  # Python 3.8+
-            return sockets
-        else:
-            return tuple(sockets)
+        return self._server.sockets
 
     @property
     def service_tasks(self) -> Tuple[asyncio.Task, ...]:
@@ -534,29 +533,20 @@ class DeviceServer(metaclass=DeviceServerMeta):
         # and it's only drained in batches (for efficiency). So we suspend the
         # usual heuristic for detecting too-slow clients while that is in
         # progress.
-        if conn.writer is not None and not conn.samplers_lock.locked():
-            transport = cast(asyncio.WriteTransport, conn.writer.transport)
-            backlog = transport.get_write_buffer_size()
+        if not conn.samplers_lock.locked():
+            backlog = conn.get_write_buffer_size()
             if backlog > self.max_backlog:
                 conn.logger.warning("Disconnecting client because it is too slow")
-                transport.abort()
-                conn.close()
+                conn.abort()
                 self._connections.discard(conn)
 
-    async def _client_connected_cb(
-        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
-        async def cleanup():
-            await conn.wait_closed()
-            conn.close()
-            self._connections.discard(conn)
-
-        conn = ClientConnection(self, reader, writer)
+    def _connection_made(self, conn: ClientConnection) -> None:
+        if len(self._pending) == self._max_pending:
+            conn.pause_reading()
         # Copy the connection list, to avoid mutation while iterating and to
         # exclude the new connection from it.
         connections = list(self._connections)
         self._connections.add(conn)
-        self.loop.create_task(cleanup())
         # Make a fake request context for send_version_info
         request = core.Message.request("version-connect")
         ctx = RequestContext(conn, request)
@@ -564,6 +554,26 @@ class DeviceServer(metaclass=DeviceServerMeta):
         msg = core.Message.inform("client-connected", conn.address)
         for old_conn in connections:
             self._write_async_message(old_conn, msg)
+
+    def _connection_lost(self, conn: ClientConnection, exc: Optional[Exception]) -> None:
+        self._connections.discard(conn)
+
+    def _eof_received(self, conn: ClientConnection) -> bool:
+        # Close the transport. In theory a client could shut down just its
+        # sending side and still want to receive informs. But that can cause
+        # sockets to linger unnecessarily, and is not a use case that's ever
+        # been requested.
+        return False
+
+    def _pause_reading(self) -> None:
+        """Pause reading requests on all connections."""
+        for conn in self._connections:
+            conn.pause_reading()
+
+    def _resume_reading(self) -> None:
+        """Resume reading requests on all connections."""
+        for conn in self._connections:
+            conn.resume_reading()
 
     def _handle_request_done_callback(self, ctx: RequestContext, task: asyncio.Task) -> None:
         """Completion callback for request handlers.
@@ -573,9 +583,16 @@ class DeviceServer(metaclass=DeviceServerMeta):
         """
         error_msg = None
         error_type = core.Message.FAIL
-        if task in self._pending:
+        # It *should* always be in _pending, because this is the only place
+        # tasks are removed from pending. The 'if' is just defence against
+        # bugs.
+        if task in self._pending:  # pragma: no branch
             self._pending.discard(task)
-            self._pending_space.release()
+            if self._buffered_requests:
+                self._start_request(self._buffered_requests.popleft())
+            elif len(self._pending) == self._max_pending - 1:
+                # We now have room for more requests
+                self._resume_reading()
         if task.cancelled():
             if ctx.replied:
                 return  # Cancelled while draining the reply - not critical
@@ -598,7 +615,10 @@ class DeviceServer(metaclass=DeviceServerMeta):
                 error_msg = output.getvalue()
         if not ctx.replied:
             if error_msg is None:
-                error_msg = "request handler returned without replying"
+                # Should be unreachable since the metaclass wraps handlers to
+                # ensure a reply. This could only be reached if user directly
+                # inserts request handlers into _request_handlers.
+                error_msg = "request handler returned without replying"  # pragma: no cover
             ctx.reply(error_type, error_msg)
         elif error_msg is not None:
             # We somehow replied before failing, so can't put the error
@@ -633,19 +653,25 @@ class DeviceServer(metaclass=DeviceServerMeta):
             ctx.reply(core.Message.OK, *ret)
         await ctx.drain()
 
-    async def handle_message(self, conn: ClientConnection, msg: core.Message) -> None:
+    def _start_request(self, ctx: RequestContext) -> None:
+        """Create an asyncio task to handle a request."""
+        task = self.loop.create_task(self._handle_request(ctx))
+        self._pending.add(task)
+        task.add_done_callback(functools.partial(self._handle_request_done_callback, ctx))
+
+    def handle_message(self, conn: ClientConnection, msg: core.Message) -> None:
         """Called by :class:`ClientConnection` for each incoming message."""
         if self._stop_task is not None:
             return
         if msg.mtype == core.Message.Type.REQUEST:
-            await self._pending_space.acquire()
             ctx = RequestContext(conn, msg)
-            task = self.loop.create_task(self._handle_request(ctx))
-            self._pending.add(task)
-            task.add_done_callback(functools.partial(self._handle_request_done_callback, ctx))
-        else:
-            pass
-            # TODO: handle other message types
+            if len(self._pending) >= self._max_pending:
+                self._buffered_requests.append(ctx)
+                return
+            self._start_request(ctx)
+            if len(self._pending) == self._max_pending:
+                self._pause_reading()
+        # TODO: handle other message types
 
     def mass_inform(self, name: str, *args: Any) -> None:
         """Send an asynchronous inform to all clients.
