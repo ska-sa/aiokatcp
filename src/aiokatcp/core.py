@@ -55,6 +55,7 @@ _E = TypeVar("_E", bound=enum.Enum)
 _F = TypeVar("_F", bound=numbers.Real)
 _I = TypeVar("_I", bound=numbers.Integral)
 _S = TypeVar("_S", bound=str)
+_B = TypeVar("_B", bound=bytes)
 _IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
 if sys.version_info >= (3, 10):
     # Union[A, B] and A | B have different classes, even though they behave similarly
@@ -289,6 +290,10 @@ def get_type(type_: Type[_T]) -> TypeInfo[_T]:
     raise TypeError(f"{type_} is not registered")
 
 
+def _identity(x: _T) -> _T:
+    return x
+
+
 def _get_decoder_bool(cls: type) -> Callable[[bytes], bool]:
     def decode(raw: bytes) -> bool:
         if raw == b"1":
@@ -352,6 +357,14 @@ def _get_decoder_str(cls: Type[_S]) -> Callable[[bytes], _S]:
         return bytes.decode  # type: ignore[return-value]
     else:
         return lambda raw: cls(raw, encoding="utf-8")
+
+
+def _get_decoder_bytes(cls: Type[_B]) -> Callable[[bytes], _B]:
+    if cls is bytes:
+        # mypy doesn't resolve _B to bytes in this branch
+        return _identity  # type: ignore[return-value]
+    else:
+        return cls
 
 
 def encode(value: Any) -> bytes:
@@ -640,7 +653,7 @@ register_type(
     _get_decoder_int,
 )
 register_type(bool, "boolean", lambda value: b"1" if value else b"0", _get_decoder_bool)
-register_type(bytes, "string", lambda value: value, lambda cls: cls)
+register_type(bytes, "string", _identity, _get_decoder_bytes)
 register_type(
     str,
     "string",
