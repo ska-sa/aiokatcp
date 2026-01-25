@@ -397,6 +397,7 @@ async def test_inform(channel, caplog) -> None:
         # Put in bad ones before the good one, so that as soon as we've
         # received the good one from the queue we can finish the test.
         channel.writer.write(b"#exception\n#foo bad notinteger\n#foo \xc3\xa9 123\n")
+        await channel.writer.drain()
         inform = await client.foos.get()
     assert caplog.records[0].exc_info[1].args[0] == "I crashed"
     assert re.match("error in inform", caplog.records[1].message)
@@ -406,6 +407,7 @@ async def test_inform(channel, caplog) -> None:
 async def test_unhandled_inform(channel) -> None:
     await channel.wait_connected()
     channel.writer.write(b"#unhandled arg\n")
+    await channel.writer.drain()
     msg = await channel.client.unhandled.get()
     assert msg == Message.inform("unhandled", b"arg")
 
@@ -419,6 +421,7 @@ async def test_inform_callback(channel) -> None:
     client.add_inform_callback("bar", callback)
     await channel.wait_connected()
     channel.writer.write(b"#bar hello 42\n")
+    await channel.writer.drain()
     value = await values.get()
     assert value == ("hello", 42)
     client.remove_inform_callback("bar", callback)
@@ -509,6 +512,7 @@ async def test_connection_reset(channel) -> None:
 async def test_disconnected(channel) -> None:
     await channel.wait_connected()
     channel.writer.write(b"#disconnect Server\\_exiting\n")
+    await channel.writer.drain()
     await channel.client.wait_disconnected()
     with pytest.raises(BrokenPipeError):
         await channel.client.request("help")
@@ -1584,6 +1588,7 @@ class TestClientNoReconnect:
     async def test_disconnected(self, channel) -> None:
         await channel.wait_connected()
         channel.writer.write(b"#disconnect Server\\_exiting\n")
+        await channel.writer.drain()
         await channel.client.wait_disconnected()
         with pytest.raises(BrokenPipeError):
             await channel.client.request("help")

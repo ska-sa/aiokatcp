@@ -249,6 +249,7 @@ async def test_read_overrun(owner, server_connection, client_writer, caplog) -> 
 
 async def test_read_partial(owner, server_connection, client_writer, caplog) -> None:
     client_writer.write(b"?foo nonewline")
+    await client_writer.drain()
     client_writer.write_eof()
     with caplog.at_level(logging.WARNING, "aiokatcp.connection"):
         await asyncio.sleep(10)
