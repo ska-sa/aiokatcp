@@ -44,3 +44,16 @@ repos:
           'types-decorator==5.1.1',
           'typing-extensions==4.11.0',
         ]
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.11.9
+    hooks:
+      - id: pip-compile
+        args: [
+          "--output-file=requirements.txt",
+          "--python-version=3.8",
+          "--universal",
+          "--extra=test",
+          "pyproject.toml",
+          "requirements.in"
+        ]
+        files: '^(pyproject\.toml|requirements\.(in|txt))$'
