@@ -1,11 +1,2 @@
-async-solipsism>=0.8
-async-timeout
-decorator
-hypothesis
-katcp-codec>=0.2.0
 pre-commit
-pytest
-pytest-asyncio
 pytest-cov
-pytest-mock
-typing-extensions
