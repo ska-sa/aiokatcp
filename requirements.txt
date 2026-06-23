@@ -28,7 +28,7 @@ identify==2.6.1
     # via pre-commit
 iniconfig==2.0.0
     # via pytest
-katcp-codec==0.2.0
+katcp-codec==0.2.1
     # via aiokatcp (pyproject.toml)
 nodeenv==1.9.1
     # via pre-commit
