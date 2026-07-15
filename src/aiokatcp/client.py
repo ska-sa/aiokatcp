@@ -947,6 +947,21 @@ class SensorWatcher(AbstractSensorWatcher):
         """
         return name
 
+    def set_sensor_value(
+        self,
+        sensor: sensor.Sensor,
+        value: Any,
+        status: sensor.Sensor.Status,
+        timestamp: float,
+    ) -> None:
+        """Set the value of a mirrored sensor.
+
+        This can be overridden by subclasses to change how sensor updates
+        received via :meth:`sensor_updated` are propagated to sensors. For
+        example, a subclass may alter the value as it passes through.
+        """
+        sensor.set_value(value, status, timestamp)
+
     def _rewritten_names(self, name: str) -> Sequence[str]:
         names = self.rewrite_name(name)
         if isinstance(names, str):
@@ -1009,7 +1024,7 @@ class SensorWatcher(AbstractSensorWatcher):
                 )
                 continue
 
-            s.set_value(decoded, status=status, timestamp=timestamp)
+            self.set_sensor_value(s, decoded, status, timestamp)
 
     def state_updated(self, state: SyncState) -> None:
         if state == SyncState.DISCONNECTED:
