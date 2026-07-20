@@ -22,7 +22,8 @@ This is a low-level base class which should be subclassed to implement callbacks
 callbacks into a stored :class:`~.SensorSet` with the mirrored sensors. It can
 also (via subclassing and overriding :meth:`~.SensorWatcher.rewrite_name`)
 modify the names of the mirrored sensors as they are created, which may be useful
-for proxying.
+for proxying. Similarly, :meth:`~.SensorWatcher.set_sensor_value` can be
+overridden to modify sensor readings as they're mirrored.
 
 Sensor monitoring operates on a state machine, and state changes are reported
 via the :meth:`~.AbstractSensorWatcher.state_updated` callback, which takes a
@@ -37,5 +38,5 @@ only sensors of interest. Doing so can improve efficiency, since the client
 will only subscribe to sensors that are of interest to at least one watcher.
 
 There is an example of using a :class:`~.SensorWatcher` to proxy the sensors of
-one another in :file:`examples/mirror_sensors.py` in the aiokatcp source
-distribution.
+one device server into those of another in :file:`examples/mirror_sensors.py`
+in the aiokatcp source distribution.
