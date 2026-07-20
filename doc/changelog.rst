@@ -1,6 +1,12 @@
 Changelog
 =========
 
+.. rubric:: Version 2.3.0
+
+- Use uv in pre-commit to generate requirements.txt.
+- Update katcp-codec to 0.2.2.
+- Update versions used in Github Actions.
+
 .. rubric:: Version 2.2.0
 
 The client connection handling has been substantially rewritten. This should
