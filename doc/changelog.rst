@@ -3,6 +3,7 @@ Changelog
 
 .. rubric:: Version 2.3.0
 
+- Add :meth:`.SensorWatcher.set_sensor_value`.
 - Use uv in pre-commit to generate requirements.txt.
 - Update katcp-codec to 0.2.2.
 - Update versions used in Github Actions.
