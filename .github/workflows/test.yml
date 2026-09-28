@@ -41,7 +41,7 @@ jobs:
   finish:
     needs: test
     if: ${{ always() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Finalise Coveralls
         uses: coverallsapp/github-action@v2.3.8
