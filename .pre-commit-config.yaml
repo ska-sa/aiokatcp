@@ -46,7 +46,7 @@ repos:
       - id: pip-compile
         args: [
           "--output-file=requirements.txt",
-          "--python-version=3.8",
+          "--python-version=3.10",
           "--universal",
           "--extra=test",
           "pyproject.toml",
