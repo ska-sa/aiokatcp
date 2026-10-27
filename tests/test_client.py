@@ -82,11 +82,6 @@ _T = TypeVar("_T")
 _ASM = TypeVar("_ASM", bound="AsyncStateMachine")
 
 
-@pytest.fixture
-def event_loop_policy():
-    return async_solipsism.EventLoopPolicy()
-
-
 class DummyClient(Client):
     """Client with some informs for testing."""
 

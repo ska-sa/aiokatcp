@@ -32,7 +32,6 @@ import logging
 import re
 from typing import AsyncGenerator, Awaitable, Callable, Iterable, List, Pattern, Tuple, Union
 
-import async_solipsism
 import pytest
 
 import aiokatcp
@@ -42,11 +41,6 @@ from aiokatcp.sensor import Sensor, SensorSampler
 from aiokatcp.server import DeviceServer, RequestContext
 
 _StreamPair = Tuple[asyncio.StreamReader, asyncio.StreamWriter]
-
-
-@pytest.fixture
-def event_loop_policy():
-    return async_solipsism.EventLoopPolicy()
 
 
 class Foo(enum.Enum):

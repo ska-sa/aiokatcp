@@ -30,16 +30,10 @@ import logging
 import re
 from unittest import mock
 
-import async_solipsism
 import pytest
 
 from aiokatcp.connection import Connection
 from aiokatcp.core import Message
-
-
-@pytest.fixture
-def event_loop_policy():
-    return async_solipsism.EventLoopPolicy()
 
 
 @pytest.fixture
