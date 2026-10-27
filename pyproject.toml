@@ -64,6 +64,14 @@ doc = [
 [tool.setuptools_scm]
 version_file = "src/aiokatcp/_version.py"
 
+[tool.pytest]
+markers = [
+    "server_cls: internal use",
+    "channel_cls: internal use",
+    "channel_args: internal use",
+]
+asyncio_mode = "auto"
+
 [tool.ruff]
 line-length = 100
 extend-exclude = ["doc/conf.py"]
