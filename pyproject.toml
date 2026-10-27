@@ -58,12 +58,16 @@ doc = [
 [tool.setuptools_scm]
 version_file = "src/aiokatcp/_version.py"
 
-[tool.isort]
-profile = "black"
-line_length = 100
-
-[tool.black]
+[tool.ruff]
 line-length = 100
+extend-exclude = ["doc/conf.py"]
+[tool.ruff.lint]
+select = [
+    "E", "W",  # pycodestyle
+    "F",  # pyflakes
+    "I",  # isort
+    "RUF100",  # Unnecessary noqa directives
+]
 
 [tool.mypy]
 python_version = "3.8"

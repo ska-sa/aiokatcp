@@ -79,13 +79,11 @@ class _Handler(Protocol):
 
 
 class _InformHandler(_Handler):
-    def __call__(self, _client: "Client", _msg: core.Message) -> None:
-        ...  # pragma: nocover
+    def __call__(self, _client: "Client", _msg: core.Message) -> None: ...  # pragma: nocover
 
 
 class _InformCallback(_Handler):
-    def __call__(self, _msg: core.Message) -> None:
-        ...  # pragma: nocover
+    def __call__(self, _msg: core.Message) -> None: ...  # pragma: nocover
 
 
 class _PendingRequest:
@@ -722,12 +720,14 @@ class Client(metaclass=ClientMeta):
             raise InvalidReply(error.decode("utf-8", errors="replace"))
 
     @overload
-    async def sensor_reading(self, sensor_name: str, sensor_type: None = None) -> sensor.Reading:
-        ...  # pragma: nocover
+    async def sensor_reading(
+        self, sensor_name: str, sensor_type: None = None
+    ) -> sensor.Reading: ...  # pragma: nocover
 
     @overload
-    async def sensor_reading(self, sensor_name: str, sensor_type: Type[_T]) -> sensor.Reading[_T]:
-        ...  # pragma: nocover
+    async def sensor_reading(
+        self, sensor_name: str, sensor_type: Type[_T]
+    ) -> sensor.Reading[_T]: ...  # pragma: nocover
 
     async def sensor_reading(
         self, sensor_name: str, sensor_type: Optional[type] = None
@@ -780,12 +780,14 @@ class Client(metaclass=ClientMeta):
         return sensor.Reading(value=value, status=status, timestamp=timestamp)
 
     @overload
-    async def sensor_value(self, sensor_name: str, sensor_type: None = None) -> Any:
-        ...  # pragma: nocover
+    async def sensor_value(
+        self, sensor_name: str, sensor_type: None = None
+    ) -> Any: ...  # pragma: nocover
 
     @overload
-    async def sensor_value(self, sensor_name: str, sensor_type: Type[_T]) -> _T:
-        ...  # pragma: nocover
+    async def sensor_value(
+        self, sensor_name: str, sensor_type: Type[_T]
+    ) -> _T: ...  # pragma: nocover
 
     async def sensor_value(self, sensor_name: str, sensor_type: Optional[type] = None) -> Any:
         """Request the value of a single sensor from the server.

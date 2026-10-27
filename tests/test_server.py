@@ -1019,7 +1019,7 @@ async def test_sensor_sampling_none(
 async def test_sensor_sampling_query(
     mock_time, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
 ) -> None:
-    writer.write(b"?sensor-sampling float-sensor event\n" b"?sensor-sampling float-sensor\n")
+    writer.write(b"?sensor-sampling float-sensor event\n?sensor-sampling float-sensor\n")
     await check_reply(
         reader,
         [

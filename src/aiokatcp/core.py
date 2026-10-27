@@ -101,8 +101,7 @@ class Address:
         else:
             prefix = "[" + str(self._host) + "]"
         if self._port is not None:
-            # noqa is to work around https://github.com/PyCQA/pycodestyle/issues/1178
-            return f"{prefix}:{self._port}"  # noqa: E231
+            return f"{prefix}:{self._port}"
         else:
             return prefix
 
@@ -409,7 +408,7 @@ def get_decoder(cls: Type[_T]) -> Callable[[bytes], _T]:
     # indicates that the argument was not passed at all. More generally, this
     # allows Union[A, B, None] to behave like Union[A, B].
     if union_args is not None:
-        union_args = tuple(arg for arg in union_args if arg is not type(None))  # noqa: E721
+        union_args = tuple(arg for arg in union_args if arg is not type(None))
         if len(union_args) == 1:  # Flatten Optional[T] to T
             cls = union_args[0]
             union_args = None

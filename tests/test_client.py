@@ -252,7 +252,7 @@ async def test_request_fail_msg_bad_encoding(channel) -> None:
     future = asyncio.create_task(channel.client.request("failme"))
     assert await channel.reader.readline() == b"?failme[1]\n"
     channel.writer.write(b"!failme[1] fail \xaf\n")
-    with pytest.raises(FailReply, match="^\uFFFD$"):
+    with pytest.raises(FailReply, match="^\ufffd$"):
         await future
 
 
@@ -596,7 +596,7 @@ def run_in_loop(
     """
 
     def decorator(
-        func: Callable[Concatenate[_ASM, _P], Awaitable[_T]]
+        func: Callable[Concatenate[_ASM, _P], Awaitable[_T]],
     ) -> Callable[Concatenate[_ASM, _P], _T]:
         if precondition is not None:
 
@@ -959,7 +959,7 @@ class TestSensorMonitor:
         channel.writer.write(rb"!sensor-sampling[5] fail Unknown\_sensor\_'pressure'" + b"\n")
         assert await channel.reader.readline() == b"?sensor-sampling[6] temp auto\n"
         channel.writer.write(
-            b"#sensor-status 123456790.0 1 temp warn 451.0\n" b"!sensor-sampling[6] ok temp auto\n"
+            b"#sensor-status 123456790.0 1 temp warn 451.0\n!sensor-sampling[6] ok temp auto\n"
         )
         await asyncio.sleep(1)
 
@@ -982,8 +982,7 @@ class TestSensorMonitor:
         await channel.init()
         await channel.interface_changed()
         channel.writer.write(
-            b"#sensor-list[3] device-status A\\_different\\_status \\@ int\n"
-            b"!sensor-list[3] ok 1\n"
+            b"#sensor-list[3] device-status A\\_different\\_status \\@ int\n!sensor-list[3] ok 1\n"
         )
         assert await channel.reader.readline() == b"?sensor-sampling[4] device-status auto\n"
         assert channel.watcher.mock_calls == [
@@ -1125,7 +1124,7 @@ class TestSensorMonitor:
             b"#sensor-status 123456789.0 hello\n",  # Count is not integer
             b"#sensor-status 123456789.0 -1\n",  # Count is negative
             b"#sensor-status 123456789.0 2 device-status nominal ok\n",  # Count is wrong
-            b"#sensor-status 123456789.0 1 device-status\xFF nominal ok\n",  # Non-UTF-8 name
+            b"#sensor-status 123456789.0 1 device-status\xff nominal ok\n",  # Non-UTF-8 name
             b"#sensor-status 123456789.0 1 device-status spam ok\n",  # Invalid status
             b"#sensor-status 123456789.0 1 unknown nominal ok\n",  # Unknown sensor
         ],
@@ -1212,9 +1211,9 @@ class TestSensorWatcher:
         assert sensor.status == Sensor.Status.UNKNOWN
         members = [encode(member) for member in sensor.stype.__members__.values()]
         assert members == [b"abc", b"def-xyz"]
-        assert (
-            watcher.sensors["test_disc"].stype is watcher.sensors["test_disc2"].stype
-        ), "Enum cache did not work"
+        assert watcher.sensors["test_disc"].stype is watcher.sensors["test_disc2"].stype, (
+            "Enum cache did not work"
+        )
 
     def test_sensor_added_known_discrete(self, watcher: DummySensorWatcher) -> None:
         watcher.batch_start()

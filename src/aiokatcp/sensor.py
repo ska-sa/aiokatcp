@@ -69,13 +69,11 @@ _U = TypeVar("_U")
 class DeltaObserver(Protocol[_T]):
     def __call__(
         self, __sensor: "Sensor[_T]", __reading: "Reading[_T]", *, old_reading: "Reading[_T]"
-    ) -> None:
-        ...
+    ) -> None: ...
 
 
 class ClassicObserver(Protocol[_T]):
-    def __call__(self, __sensor: "Sensor[_T]", __reading: "Reading[_T]") -> None:
-        ...
+    def __call__(self, __sensor: "Sensor[_T]", __reading: "Reading[_T]") -> None: ...
 
 
 Observer = Union[ClassicObserver[_T], DeltaObserver[_T]]
@@ -743,14 +741,12 @@ class SensorSet(Mapping[str, Sensor]):
         return self._sensors[name]
 
     @overload
-    def get(self, name: str) -> Optional[Sensor]:
-        ...
+    def get(self, name: str) -> Optional[Sensor]: ...
 
-    @overload  # noqa: F811
-    def get(self, name: str, default: Union[Sensor, _T]) -> Union[Sensor, _T]:
-        ...
+    @overload
+    def get(self, name: str, default: Union[Sensor, _T]) -> Union[Sensor, _T]: ...
 
-    def get(self, name: str, default: Optional[object] = None) -> object:  # noqa: F811
+    def get(self, name: str, default: Optional[object] = None) -> object:
         return self._sensors.get(name, default)
 
     def __contains__(self, s: object) -> bool:
