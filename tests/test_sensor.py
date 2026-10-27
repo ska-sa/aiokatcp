@@ -36,7 +36,7 @@ import unittest
 import weakref
 from fractions import Fraction
 from ipaddress import IPv4Address
-from typing import Any, List, Optional, Type, TypeVar
+from typing import Any, TypeVar
 from unittest import mock
 from unittest.mock import create_autospec
 
@@ -113,7 +113,7 @@ class OtherEnum(enum.Enum):
 )
 @pytest.mark.parametrize("initialise_sensor", [True, False])
 def test_sensor_value_setter_success(
-    sensor_type: Type,
+    sensor_type: type,
     compatible_value: Any,
     initialise_sensor: bool,
 ) -> None:
@@ -149,7 +149,7 @@ def test_sensor_value_setter_success(
     ],
 )
 def test_sensor_value_setter_failure(
-    sensor_type: Type[_T],
+    sensor_type: type[_T],
     bad_value: Any,
 ) -> None:
     """Check an incompatible value for a sensor.
@@ -416,10 +416,10 @@ class MyAgg(AggregateSensor):
 
     def update_aggregate(
         self,
-        updated_sensor: Optional[Sensor],
-        reading: Optional[Reading],
-        old_reading: Optional[Reading],
-    ) -> Optional[Reading]:
+        updated_sensor: Sensor | None,
+        reading: Reading | None,
+        old_reading: Reading | None,
+    ) -> Reading | None:
         """Return a known Reading."""
         return None
 
@@ -564,14 +564,14 @@ class TestSimpleAggregateSensor:
         return mocker.patch("time.time", return_value=1234567890.0)
 
     @pytest.fixture
-    def agg(self, mock_time, sensors: List[Sensor], ss: SensorSet) -> MySimpleAgg:
+    def agg(self, mock_time, sensors: list[Sensor], ss: SensorSet) -> MySimpleAgg:
         sensors[0].set_value(3, timestamp=1234512345.0)
         return MySimpleAgg(ss, int, "simple-agg", "Test sensor")
 
     def test_initial_state(self, agg: MySimpleAgg, mock_time: mock.Mock) -> None:
         assert agg.reading == Reading(mock_time.return_value, Sensor.Status.NOMINAL, 3)
 
-    def test_update_sensor(self, agg: MySimpleAgg, sensors: List[Sensor]) -> None:
+    def test_update_sensor(self, agg: MySimpleAgg, sensors: list[Sensor]) -> None:
         sensors[0].set_value(11, timestamp=1234512346.0)
         # Time must not go backwards
         assert agg.reading == Reading(1234567890.0, Sensor.Status.WARN, 11)
@@ -583,7 +583,7 @@ class TestSimpleAggregateSensor:
         assert agg.reading == Reading(1400567892.0, Sensor.Status.NOMINAL, 5)
 
     def test_add_remove_sensor(
-        self, agg: MySimpleAgg, sensors: List[Sensor], ss: SensorSet, mock_time: mock.Mock
+        self, agg: MySimpleAgg, sensors: list[Sensor], ss: SensorSet, mock_time: mock.Mock
     ) -> None:
         mock_time.return_value = 1234567891.5
         sensors[1].set_value(8, timestamp=1400567890.0)
@@ -594,7 +594,7 @@ class TestSimpleAggregateSensor:
         ss.remove(sensors[0])
         assert agg.reading == Reading(mock_time.return_value, Sensor.Status.NOMINAL, 8)
 
-    def test_filter_updates(self, agg: MySimpleAgg, sensors: List[Sensor]) -> None:
+    def test_filter_updates(self, agg: MySimpleAgg, sensors: list[Sensor]) -> None:
         sensors[0].set_value(5, timestamp=1400567890.0, status=Sensor.Status.UNKNOWN)
         assert agg.reading == Reading(1400567890.0, Sensor.Status.NOMINAL, 0)
         # Make an update that doesn't change anything

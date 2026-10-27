@@ -34,8 +34,8 @@ time is being kept synchronised, and (at least on Linux) is accessible from
 inside a container with no privileges required.
 """
 
+from collections.abc import Callable, Mapping
 from enum import Enum
-from typing import Callable, Mapping
 
 from . import adjtimex
 from .sensor import Sensor

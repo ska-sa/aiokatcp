@@ -30,7 +30,8 @@ import enum
 import ipaddress
 import logging
 import re
-from typing import AsyncGenerator, Awaitable, Callable, Iterable, List, Pattern, Tuple, Union
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
+from re import Pattern
 
 import pytest
 
@@ -40,7 +41,7 @@ from aiokatcp.core import Address
 from aiokatcp.sensor import Sensor, SensorSampler
 from aiokatcp.server import DeviceServer, RequestContext
 
-_StreamPair = Tuple[asyncio.StreamReader, asyncio.StreamWriter]
+_StreamPair = tuple[asyncio.StreamReader, asyncio.StreamWriter]
 
 
 class Foo(enum.Enum):
@@ -86,7 +87,7 @@ class DummyServer(DeviceServer):
         """Increment a counter"""
         self._counter.value += 1
 
-    async def request_echo(self, ctx: RequestContext, *args: str) -> Tuple:
+    async def request_echo(self, ctx: RequestContext, *args: str) -> tuple:
         """Return the arguments to the caller"""
         return tuple(args)
 
@@ -214,7 +215,7 @@ def writer(reader_writer: _StreamPair) -> asyncio.StreamWriter:
     return reader_writer[1]
 
 
-async def check_reply(reader, lines: Iterable[Union[bytes, Pattern[bytes]]]) -> None:
+async def check_reply(reader, lines: Iterable[bytes | Pattern[bytes]]) -> None:
     for expected in lines:
         actual = await reader.readline()
         if isinstance(expected, bytes):
@@ -226,14 +227,14 @@ async def check_reply(reader, lines: Iterable[Union[bytes, Pattern[bytes]]]) -> 
 async def get_version_info(
     reader: asyncio.StreamReader, prefix: bytes = b"#version-connect"
 ) -> None:
+    version_info = (
+        f" katcp-library aiokatcp-{aiokatcp.minor_version()} aiokatcp-{aiokatcp.__version__}\n"
+    ).encode("ascii")
     await check_reply(
         reader,
         [
             prefix + b" katcp-protocol 5.1-MIB\n",
-            prefix
-            + " katcp-library aiokatcp-{} aiokatcp-{}\n".format(
-                aiokatcp.minor_version(), aiokatcp.__version__
-            ).encode("ascii"),
+            prefix + version_info,
             prefix + b" katcp-device dummy-1.0 dummy-build-1.0.0\n",
         ],
     )
@@ -286,7 +287,7 @@ async def test_help(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) 
             "version-list",
         ]
     )
-    expected: List[Union[bytes, Pattern[bytes]]] = [
+    expected: list[bytes | Pattern[bytes]] = [
         re.compile(rb"^#help\[1\] " + cmd.encode("ascii") + b" [^ ]+$\n") for cmd in commands
     ]
     expected.append(b"!help[1] ok %d\n" % (len(commands),))

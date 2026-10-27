@@ -35,17 +35,10 @@ import logging
 import re
 import unittest
 import unittest.mock
+from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from typing import (
     Any,
-    AsyncGenerator,
-    Awaitable,
-    Callable,
-    List,
-    Optional,
-    Sequence,
-    Set,
-    Tuple,
-    Type,
+    Concatenate,
     TypeVar,
     Union,
     cast,
@@ -57,7 +50,7 @@ import hypothesis
 import hypothesis.strategies as st
 import pytest
 from hypothesis.stateful import Bundle, RuleBasedStateMachine, consumes, invariant, rule
-from typing_extensions import Concatenate, ParamSpec
+from typing_extensions import ParamSpec
 
 from aiokatcp import (
     AbstractSensorWatcher,
@@ -76,7 +69,7 @@ from aiokatcp import (
 )
 from aiokatcp.client import _ClientState, _MonitoredSensor
 
-_ClientQueue = Union["asyncio.Queue[Tuple[asyncio.StreamReader, asyncio.StreamWriter]]"]
+_ClientQueue = Union["asyncio.Queue[tuple[asyncio.StreamReader, asyncio.StreamWriter]]"]
 _P = ParamSpec("_P")
 _T = TypeVar("_T")
 _ASM = TypeVar("_ASM", bound="AsyncStateMachine")
@@ -409,7 +402,7 @@ async def test_inform_callback(channel) -> None:
     def callback(string: str, integer: int) -> None:
         values.put_nowait((string, integer))
 
-    values = asyncio.Queue()  # type: asyncio.Queue[Tuple[str, int]]
+    values = asyncio.Queue()  # type: asyncio.Queue[tuple[str, int]]
     client = cast(DummyClient, channel.client)
     client.add_inform_callback("bar", callback)
     await channel.wait_connected()
@@ -574,7 +567,7 @@ async def test_cancelled_connect_race(monkeypatch, server, client_queue, steps) 
 # point @run_in_loop is called; and the precondition is typically a lambda so
 # lacks its own type annotations.
 def run_in_loop(
-    *, precondition: Optional[Callable[[Any], bool]] = None
+    *, precondition: Callable[[Any], bool] | None = None
 ) -> Callable[
     [Callable[Concatenate[_ASM, _P], Awaitable[_T]]], Callable[Concatenate[_ASM, _P], _T]
 ]:
@@ -657,9 +650,9 @@ class ClientStateMachine(AsyncStateMachine):
 
     def __init__(self) -> None:
         super().__init__()
-        self.reader: Optional[asyncio.StreamReader] = None
-        self.writer: Optional[asyncio.StreamWriter] = None
-        self.tasks: Set[asyncio.Task] = set()  # tasks for pending requests
+        self.reader: asyncio.StreamReader | None = None
+        self.writer: asyncio.StreamWriter | None = None
+        self.tasks: set[asyncio.Task] = set()  # tasks for pending requests
         self.auto_protocol = True  # Whether to send #katcp-protocol immediately on connect
 
     def _client_connected_cb(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
@@ -759,7 +752,7 @@ class ClientStateMachine(AsyncStateMachine):
         response=st.sampled_from(["ok", "fail", "invalid"]),
     )
     @run_in_loop(precondition=lambda self: self.writer is not None and not self.writer.is_closing())
-    async def reply(self, mid: Optional[int], count: int, response: str) -> None:
+    async def reply(self, mid: int | None, count: int, response: str) -> None:
         assert self.writer is not None  # mypy doesn't parse the precondition
         try:
             if mid is not None:
@@ -1144,7 +1137,7 @@ class TestSensorMonitor:
 
 
 class DummySensorWatcher(SensorWatcher):
-    def rewrite_name(self, name: str) -> Union[str, Sequence[str]]:
+    def rewrite_name(self, name: str) -> str | Sequence[str]:
         if name == "bar":
             return ["test_bar1", "test_bar2"]
         return "test_" + name
@@ -1314,10 +1307,10 @@ class HashFilterSensorWatcher(SensorWatcher):
     def __init__(
         self,
         client: Client,
-        enum_types: Sequence[Type[enum.Enum]] = (),
+        enum_types: Sequence[type[enum.Enum]] = (),
         *,
         mod: int,
-        phases: Set[int],
+        phases: set[int],
     ) -> None:
         super().__init__(client, enum_types)
         self._mod = mod
@@ -1345,7 +1338,7 @@ def sensor_value_strategy(sensor: Sensor) -> st.SearchStrategy:
 
 
 @st.composite
-def mod_phases_strategy(draw: st.DrawFn) -> Tuple[int, Set[int]]:
+def mod_phases_strategy(draw: st.DrawFn) -> tuple[int, set[int]]:
     """Strategy used to generate :class:`HashFilterSensorWatcher` parameters.
 
     It generates a modulus and a set of values modulo that modulus.
@@ -1376,7 +1369,7 @@ class SensorWatcherStateMachine(AsyncStateMachine):
 
     def __init__(self) -> None:
         super().__init__()
-        self.watchers: List[HashFilterSensorWatcher] = []
+        self.watchers: list[HashFilterSensorWatcher] = []
         # Unique value that is appended to the units of each sensor created.
         # This ensures that any replacement of a sensor with one of the same
         # name (but different properties) can be detected by the client so
@@ -1422,7 +1415,7 @@ class SensorWatcherStateMachine(AsyncStateMachine):
         stype=st.sampled_from([bytes, int, float, bool]),
     )
     @run_in_loop()
-    async def add_sensor(self, stype: Type, name: str, description: str, units: str) -> None:
+    async def add_sensor(self, stype: type, name: str, description: str, units: str) -> None:
         self.server.sensors.add(Sensor(stype, name, description, f"{units} [{next(self.counter)}]"))
         self.server.mass_inform("interface-changed")
 
@@ -1434,7 +1427,7 @@ class SensorWatcherStateMachine(AsyncStateMachine):
         del self.server.sensors[name]
         self.server.mass_inform("interface-changed")
 
-    def sensor_update_strategy(self) -> st.SearchStrategy[Tuple[str, Any]]:
+    def sensor_update_strategy(self) -> st.SearchStrategy[tuple[str, Any]]:
         """Generate a strategy that will return a sensor name and a value for that sensor.
 
         The sensor value will be suitable to the type of the sensor.
@@ -1451,13 +1444,13 @@ class SensorWatcherStateMachine(AsyncStateMachine):
         status=st.sampled_from(sorted(Sensor.Status)),
     )
     @run_in_loop(precondition=lambda self: self.server.sensors)  # Must have a sensor to update
-    async def update_value(self, name_value: Tuple[str, Any], status: Sensor.Status) -> None:
+    async def update_value(self, name_value: tuple[str, Any], status: Sensor.Status) -> None:
         name, value = name_value
         self.server.sensors[name].set_value(value, status=status)
 
     @rule(mod_phases=mod_phases_strategy())
     @run_in_loop()
-    async def add_watcher(self, mod_phases: Tuple[int, Set[int]]) -> None:
+    async def add_watcher(self, mod_phases: tuple[int, set[int]]) -> None:
         mod, phases = mod_phases
         watcher = HashFilterSensorWatcher(self.client, mod=mod, phases=phases)
         self.watchers.append(watcher)
@@ -1526,7 +1519,7 @@ class SensorWatcherStateMachine(AsyncStateMachine):
     async def check_consistency(self) -> None:
         """Check that mirrored state converges."""
 
-        def sensor_key(sensor: Sensor) -> Tuple[type, str, str, str, float, Sensor.Status, Any]:
+        def sensor_key(sensor: Sensor) -> tuple[type, str, str, str, float, Sensor.Status, Any]:
             """Map a sensor to something that can be checked for equality."""
             return (
                 sensor.stype,

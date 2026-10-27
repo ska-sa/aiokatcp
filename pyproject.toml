@@ -72,6 +72,7 @@ select = [
     "E", "W",  # pycodestyle
     "F",  # pyflakes
     "I",  # isort
+    "UP", # pyupgrade
     "RUF100",  # Unnecessary noqa directives
 ]
 

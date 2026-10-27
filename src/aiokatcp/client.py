@@ -35,23 +35,11 @@ import re
 import time
 import warnings
 from collections import deque
+from collections.abc import Callable, Generator, Iterable, Sequence
 from dataclasses import dataclass
 from typing import (
     Any,
-    Callable,
-    Deque,
-    Dict,
-    FrozenSet,
-    Generator,
-    Iterable,
-    List,
-    Optional,
-    Sequence,
-    Set,
-    Tuple,
-    Type,
     TypeVar,
-    Union,
     cast,
     overload,
 )
@@ -87,10 +75,10 @@ class _InformCallback(_Handler):
 
 
 class _PendingRequest:
-    def __init__(self, name: str, mid: Optional[int], loop: asyncio.AbstractEventLoop) -> None:
+    def __init__(self, name: str, mid: int | None, loop: asyncio.AbstractEventLoop) -> None:
         self.name = name
         self.mid = mid
-        self.informs: List[core.Message] = []
+        self.informs: list[core.Message] = []
         self.reply = loop.create_future()
 
 
@@ -166,7 +154,7 @@ class Client(metaclass=ClientMeta):
         always ``None`` if :attr:`is_connected` is True.
     """
 
-    _inform_handlers: Dict[str, _InformHandler]  # Initialised by metaclass
+    _inform_handlers: dict[str, _InformHandler]  # Initialised by metaclass
 
     def __init__(
         self,
@@ -175,52 +163,52 @@ class Client(metaclass=ClientMeta):
         *,
         auto_reconnect: bool = True,
         limit: int = connection.DEFAULT_LIMIT,
-        loop: Optional[asyncio.AbstractEventLoop] = None,
+        loop: asyncio.AbstractEventLoop | None = None,
     ) -> None:
         if loop is None:
             loop = asyncio.get_event_loop()
-        self._connection: Optional[connection.Connection] = None
+        self._connection: connection.Connection | None = None
         self.host = host
         self.port = port
         self.loop = loop
-        self.logger: Union[logging.Logger, connection.ConnectionLoggerAdapter] = logger
+        self.logger: logging.Logger | connection.ConnectionLoggerAdapter = logger
         self._limit = limit
         #: Requests that have been sent but for which we have not received a reply.
-        self._pending: Dict[Optional[int], _PendingRequest] = {}
+        self._pending: dict[int | None, _PendingRequest] = {}
         #: Message ID to use for the next request
         self._next_mid = 1
         #: Waiters for wait_connected. May have incomplete futures only in states
         #: other than CONNECTED or CLOSED.
-        self._connected_waiters: Deque[asyncio.Future[None]] = deque()
+        self._connected_waiters: deque[asyncio.Future[None]] = deque()
         #: Event that is set iff the state is SLEEPING, CONNECTING or CLOSED
         self._disconnected_event = asyncio.Event()
         #: Event that is set iff the state is CLOSED
         self._closed_event = asyncio.Event()
         #: Maximum time to sleep before next connection attempt
         self._backoff = _MIN_BACKOFF
-        self._connected_callbacks: List[Callable[[], None]] = []
-        self._disconnected_callbacks: List[Callable[[], None]] = []
-        self._failed_connect_callbacks: List[Callable[[Exception], None]] = []
-        self._inform_callbacks: Dict[str, List[_InformCallback]] = {}
+        self._connected_callbacks: list[Callable[[], None]] = []
+        self._disconnected_callbacks: list[Callable[[], None]] = []
+        self._failed_connect_callbacks: list[Callable[[Exception], None]] = []
+        self._inform_callbacks: dict[str, list[_InformCallback]] = {}
         # This is added the first time we add a watcher. Note that removing all
         # watchers does not clear it: it needs to remain to ensure that we are
         # properly unsubscribed from everything we subscribed to.
-        self._sensor_monitor: Optional[_SensorMonitor] = None
+        self._sensor_monitor: _SensorMonitor | None = None
         # Updated once we get the protocol version from the server
         self._mid_support = False
         # Updated once we get the protocol version from the server
-        self.protocol_flags: FrozenSet[str] = frozenset()
+        self.protocol_flags: frozenset[str] = frozenset()
         # Used to serialize requests if the server does not support message IDs
         self._request_lock = asyncio.Lock()
         self.auto_reconnect = auto_reconnect
         #: Whether auto-reconnect is current active (cleared by :meth:`close`)
         self._auto_reconnect = auto_reconnect
-        self.last_exc: Optional[Exception] = None
+        self.last_exc: Exception | None = None
         #: Timer handle for backoff (set only in SLEEPING)
-        self._sleep_handle: Optional[asyncio.TimerHandle] = None
+        self._sleep_handle: asyncio.TimerHandle | None = None
         #: Task that makes the TCP connection (set only in CONNECTING, although
         #: the task itself may linger for further event loop cycles).
-        self._connect_task: Optional[asyncio.Task] = None
+        self._connect_task: asyncio.Task | None = None
         self._state = _ClientState.SLEEPING
         self._set_state(_ClientState.CONNECTING)
 
@@ -244,7 +232,7 @@ class Client(metaclass=ClientMeta):
     def is_connected(self) -> bool:
         return self._state == _ClientState.CONNECTED
 
-    def _set_connection(self, conn: Optional[connection.Connection]) -> None:
+    def _set_connection(self, conn: connection.Connection | None) -> None:
         if self._connection is conn:
             return  # Avoid creating a new adapter if not needed
         self._connection = conn
@@ -267,7 +255,7 @@ class Client(metaclass=ClientMeta):
         self._set_connection(conn)
         self._set_state(_ClientState.NEGOTIATING)
 
-    def _connection_lost(self, conn: connection.Connection, exc: Optional[Exception]) -> None:
+    def _connection_lost(self, conn: connection.Connection, exc: Exception | None) -> None:
         if conn is not self._connection:
             self.logger.debug("Ignoring _connection_lost on non-current connection")
             return
@@ -449,7 +437,7 @@ class Client(metaclass=ClientMeta):
             self.logger.debug("unknown inform %s", msg.name)
 
     def inform_version_connect(
-        self, api: str, version: str, build_state: Optional[str] = None
+        self, api: str, version: str, build_state: str | None = None
     ) -> None:
         if api == "katcp-protocol" and self._state == _ClientState.NEGOTIATING:
             match = re.match(r"^(\d+)\.(\d+)(?:-(.+))?$", version)
@@ -615,7 +603,7 @@ class Client(metaclass=ClientMeta):
         *,
         auto_reconnect: bool = True,
         limit: int = connection.DEFAULT_LIMIT,
-        loop: Optional[asyncio.AbstractEventLoop] = None,
+        loop: asyncio.AbstractEventLoop | None = None,
     ) -> "Client":
         """Factory function that creates a client and waits until it is connected.
 
@@ -629,7 +617,7 @@ class Client(metaclass=ClientMeta):
             client.close()
             raise error
 
-    async def request_raw(self, name: str, *args: Any) -> Tuple[core.Message, List[core.Message]]:
+    async def request_raw(self, name: str, *args: Any) -> tuple[core.Message, list[core.Message]]:
         """Make a request to the server and await the reply, without decoding it.
 
         Parameters
@@ -664,8 +652,8 @@ class Client(metaclass=ClientMeta):
                 return await self._request_raw_impl(None, name, *args)
 
     async def _request_raw_impl(
-        self, mid: Optional[int], name: str, *args: Any
-    ) -> Tuple[core.Message, List[core.Message]]:
+        self, mid: int | None, name: str, *args: Any
+    ) -> tuple[core.Message, list[core.Message]]:
         req = _PendingRequest(name, mid, self.loop)
         self._pending[mid] = req
         try:
@@ -677,7 +665,7 @@ class Client(metaclass=ClientMeta):
         finally:
             self._pending.pop(mid, None)
 
-    async def request(self, name: str, *args: Any) -> Tuple[List[bytes], List[core.Message]]:
+    async def request(self, name: str, *args: Any) -> tuple[list[bytes], list[core.Message]]:
         """Make a request to the server and await the reply.
 
         It expects the first argument of the reply to be ``ok``, ``fail`` or
@@ -726,11 +714,11 @@ class Client(metaclass=ClientMeta):
 
     @overload
     async def sensor_reading(
-        self, sensor_name: str, sensor_type: Type[_T]
+        self, sensor_name: str, sensor_type: type[_T]
     ) -> sensor.Reading[_T]: ...  # pragma: nocover
 
     async def sensor_reading(
-        self, sensor_name: str, sensor_type: Optional[type] = None
+        self, sensor_name: str, sensor_type: type | None = None
     ) -> sensor.Reading:
         """Request the reading of a single sensor from the server.
 
@@ -786,10 +774,10 @@ class Client(metaclass=ClientMeta):
 
     @overload
     async def sensor_value(
-        self, sensor_name: str, sensor_type: Type[_T]
+        self, sensor_name: str, sensor_type: type[_T]
     ) -> _T: ...  # pragma: nocover
 
-    async def sensor_value(self, sensor_name: str, sensor_type: Optional[type] = None) -> Any:
+    async def sensor_value(self, sensor_name: str, sensor_type: type | None = None) -> Any:
         """Request the value of a single sensor from the server.
 
         See :meth:`sensor_reading` for more information. This is a thin
@@ -933,17 +921,17 @@ class SensorWatcher(AbstractSensorWatcher):
         "string": bytes,  # Allows passing through arbitrary values even if not UTF-8
     }
 
-    def __init__(self, client: Client, enum_types: Sequence[Type[enum.Enum]] = ()) -> None:
+    def __init__(self, client: Client, enum_types: Sequence[type[enum.Enum]] = ()) -> None:
         self.synced = asyncio.Event()
         self.logger = client.logger
         self.sensors = sensor.SensorSet()
         # Synthesized enum types for discrete sensors
-        self._enum_cache: Dict[Tuple[bytes, ...], Type[enum.Enum]] = {}
+        self._enum_cache: dict[tuple[bytes, ...], type[enum.Enum]] = {}
         for enum_type in enum_types:
             key = tuple(core.encode(value) for value in enum_type.__members__.values())
             self._enum_cache[key] = enum_type
 
-    def rewrite_name(self, name: str) -> Union[str, Sequence[str]]:
+    def rewrite_name(self, name: str) -> str | Sequence[str]:
         """Convert name of incoming sensor to name to use in the sensor set.
 
         This defaults to the identity, but can be overridden to provide name
@@ -1051,7 +1039,7 @@ class _SensorInfo:
     description: str
     units: str
     type_name: str
-    args: Tuple[bytes, ...]
+    args: tuple[bytes, ...]
 
 
 class _MonitoredSensor:
@@ -1077,11 +1065,11 @@ class _MonitoredSensor:
         # Actually an ordered set, but Python has no such type. Keeping the
         # watchers ordered is not an API guarantee, but makes behaviour more
         # predictable and reproducible.
-        self.watchers: Dict[AbstractSensorWatcher, None] = {}
+        self.watchers: dict[AbstractSensorWatcher, None] = {}
         self.subscribed = _MonitoredSensor.Subscribed.NO
         # May be non-None only if subscribed is YES (but may also be None in
         # that case if we haven't yet seen the initial value).
-        self.reading: Optional[sensor.Reading[bytes]] = None
+        self.reading: sensor.Reading[bytes] | None = None
 
 
 class _SensorMonitor:
@@ -1107,13 +1095,13 @@ class _SensorMonitor:
         # always be consistent with _state (set iff _State is SYNCING)
         self._update_event = asyncio.Event()
         # Sensors we have seen, indexed by name
-        self._sensors: Dict[str, _MonitoredSensor] = {}
+        self._sensors: dict[str, _MonitoredSensor] = {}
         self._in_batch = False
         # Really an OrderedSet, but no such type exists. The API doesn't
         # guarantee ordering, but maintaining it keeps callbacks in the same
         # order that watchers are registered, making behaviour more predictable
         # and reproducible.
-        self._watchers: Dict[AbstractSensorWatcher, None] = {}
+        self._watchers: dict[AbstractSensorWatcher, None] = {}
         # If the list of sensors is considered stale. Note: when
         # setting this to true, one must immediately (without awaiting)
         # call _trigger_update().
@@ -1123,7 +1111,7 @@ class _SensorMonitor:
         # - s.subscribed is UNKNOWN
         # - s.subscribed is YES and s.watchers is empty
         # - s.subscribed is NO and s.watchers is not empty
-        self._need_subscribe: Set[_MonitoredSensor] = set()
+        self._need_subscribe: set[_MonitoredSensor] = set()
         if client.is_connected:
             self._connected()
 
@@ -1183,9 +1171,7 @@ class _SensorMonitor:
                 watcher.state_updated(state)
 
     @contextlib.contextmanager
-    def _batch(
-        self, watcher: Optional[AbstractSensorWatcher] = None
-    ) -> Generator[None, None, None]:
+    def _batch(self, watcher: AbstractSensorWatcher | None = None) -> Generator[None, None, None]:
         """Context manager for a batched update.
 
         If `watcher` is provided, only that watcher is notified of the
@@ -1331,7 +1317,7 @@ class _SensorMonitor:
         self._need_sensor_list = False
         try:
             reply, informs = await self.client.request("sensor-list")
-            seen: Set[str] = set()
+            seen: set[str] = set()
             with self._batch():
                 # Enumerate all sensors and add new or changed ones
                 for inform in informs:

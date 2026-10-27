@@ -35,18 +35,9 @@ import socket
 import time
 import traceback
 from collections import deque
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from typing import (
     Any,
-    Awaitable,
-    Callable,
-    Deque,
-    Dict,
-    Iterable,
-    List,
-    Optional,
-    Sequence,
-    Set,
-    Tuple,
     TypeVar,
     cast,
 )
@@ -58,7 +49,7 @@ from .connection import FailReply, InvalidReply
 
 logger = logging.getLogger(__name__)
 _BULK_SENSOR_BATCH = 50
-_RequestReply = Awaitable[Optional[Sequence]]
+_RequestReply = Awaitable[Sequence | None]
 _RequestHandler = Callable[["DeviceServer", "RequestContext", core.Message], _RequestReply]
 _T = TypeVar("_T")
 
@@ -75,17 +66,17 @@ class ClientConnection(connection.Connection):
     ) -> None:
         super().__init__(owner, True, limit)
         #: Maps sensors to their samplers, for sensors that are being sampled
-        self._samplers: Dict[sensor.Sensor, sensor.SensorSampler] = {}
+        self._samplers: dict[sensor.Sensor, sensor.SensorSampler] = {}
         #: Protects against concurrent request_sensor_sampling (but not sensor removal)
         self.samplers_lock = asyncio.Lock()
 
-    def connection_lost(self, exc: Optional[Exception]) -> None:
+    def connection_lost(self, exc: Exception | None) -> None:
         for sampler in self._samplers.values():
             sampler.close()
         self._samplers = {}
         super().connection_lost(exc)
 
-    def set_sampler(self, s: sensor.Sensor, sampler: Optional[sensor.SensorSampler]) -> None:
+    def set_sampler(self, s: sensor.Sensor, sampler: sensor.SensorSampler | None) -> None:
         """Set or clear the sampler for a sensor."""
         if s in self._samplers:
             self._samplers[s].close()
@@ -93,7 +84,7 @@ class ClientConnection(connection.Connection):
         if sampler is not None:
             self._samplers[s] = sampler
 
-    def get_sampler(self, s: sensor.Sensor) -> Optional[sensor.SensorSampler]:
+    def get_sampler(self, s: sensor.Sensor) -> sensor.SensorSampler | None:
         """Retrieve the sampler for a sensor"""
         return self._samplers.get(s)
 
@@ -242,7 +233,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         If not specified it defaults to twice `limit`.
     """
 
-    _request_handlers: Dict[str, _RequestHandler] = {}
+    _request_handlers: dict[str, _RequestHandler] = {}
 
     VERSION = None  # type: str | None
     BUILD_STATE = None  # type: str | None
@@ -299,16 +290,16 @@ class DeviceServer(metaclass=DeviceServerMeta):
         *,
         limit: int = connection.DEFAULT_LIMIT,
         max_pending: int = 100,
-        max_backlog: Optional[int] = None,
-        loop: Optional[asyncio.AbstractEventLoop] = None,
+        max_backlog: int | None = None,
+        loop: asyncio.AbstractEventLoop | None = None,
     ) -> None:
         super().__init__()
         if not self.VERSION:
             raise TypeError(f"{self.__class__.__name__} does not define VERSION")
         if not self.BUILD_STATE:
             raise TypeError(f"{self.__class__.__name__} does not define BUILD_STATE")
-        self._connections: Set[ClientConnection] = set()
-        self._pending: Set[asyncio.Task] = set()
+        self._connections: set[ClientConnection] = set()
+        self._pending: set[asyncio.Task] = set()
         self._max_pending = max_pending
         if loop is None:
             loop = asyncio.get_event_loop()
@@ -316,25 +307,25 @@ class DeviceServer(metaclass=DeviceServerMeta):
         self._limit = limit
         self.max_backlog = 2 * limit if max_backlog is None else max_backlog
         self._log_level = core.LogLevel.WARN
-        self._server: Optional[asyncio.base_events.Server] = None
+        self._server: asyncio.base_events.Server | None = None
         self._server_lock = asyncio.Lock()
         self._stopped = asyncio.Event()
         self._host = host
         self._port = port
-        self._stop_task: Optional[asyncio.Task] = None
-        self._service_tasks: List[asyncio.Task] = []
+        self._stop_task: asyncio.Task | None = None
+        self._service_tasks: list[asyncio.Task] = []
         # Parking area for requests received once max_pending has been reached.
         # This is needed (despite using Connection.pause_reading) because a single
         # recvmsg could receive several requests at once, or multiple connections
         # could receive messages in the same event loop iteration.
-        self._buffered_requests: Deque[RequestContext] = deque()
+        self._buffered_requests: deque[RequestContext] = deque()
         self.sensors = sensor.SensorSet()
         self.sensors.add_remove_callback(
             functools.partial(self._remove_sensor_callback, self._connections)
         )
 
     @staticmethod
-    def _remove_sensor_callback(connections: Set[ClientConnection], sensor: sensor.Sensor):
+    def _remove_sensor_callback(connections: set[ClientConnection], sensor: sensor.Sensor):
         for conn in connections:
             conn.set_sampler(sensor, None)
 
@@ -451,12 +442,12 @@ class DeviceServer(metaclass=DeviceServerMeta):
             await self._stop_task
 
     @property
-    def server(self) -> Optional[asyncio.base_events.Server]:
+    def server(self) -> asyncio.base_events.Server | None:
         """Return the underlying TCP server"""
         return self._server
 
     @property
-    def sockets(self) -> Tuple[socket.socket, ...]:
+    def sockets(self) -> tuple[socket.socket, ...]:
         """Sockets associated with the underlying server.
 
         If :meth:`start` has not yet been called, this will be empty.
@@ -466,7 +457,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         return self._server.sockets
 
     @property
-    def service_tasks(self) -> Tuple[asyncio.Task, ...]:
+    def service_tasks(self) -> tuple[asyncio.Task, ...]:
         return tuple(self._service_tasks)
 
     def _service_task_done(self, task: asyncio.Task) -> None:
@@ -555,7 +546,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         for old_conn in connections:
             self._write_async_message(old_conn, msg)
 
-    def _connection_lost(self, conn: ClientConnection, exc: Optional[Exception]) -> None:
+    def _connection_lost(self, conn: ClientConnection, exc: Exception | None) -> None:
         self._connections.discard(conn)
 
     def _eof_received(self, conn: ClientConnection) -> bool:
@@ -688,7 +679,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         for conn in list(self._connections):
             self._write_async_message(conn, msg)
 
-    async def request_help(self, ctx: RequestContext, name: Optional[str] = None) -> None:
+    async def request_help(self, ctx: RequestContext, name: str | None = None) -> None:
         """Return help on the available requests.
 
         Return a description of the available requests using a sequence of
@@ -814,7 +805,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         """
         self.send_version_info(ctx)
 
-    def _get_sensors(self, name: Optional[str]) -> List[sensor.Sensor]:
+    def _get_sensors(self, name: str | None) -> list[sensor.Sensor]:
         """Retrieve the list of sensors, optionally filtered by a name or regex.
 
         Parameters
@@ -845,7 +836,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             matched = [self.sensors[name]]
         return sorted(matched, key=lambda sensor: sensor.name)
 
-    async def request_sensor_list(self, ctx: RequestContext, name: Optional[str] = None) -> int:
+    async def request_sensor_list(self, ctx: RequestContext, name: str | None = None) -> int:
         r"""Request the list of sensors.
 
         The list of sensors is sent as a sequence of #sensor-list informs.
@@ -905,7 +896,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
             ctx.inform(s.name, s.description, s.units, s.type_name, *s.params)
         return len(sensors)
 
-    async def request_sensor_value(self, ctx: RequestContext, name: Optional[str] = None) -> None:
+    async def request_sensor_value(self, ctx: RequestContext, name: str | None = None) -> None:
         """Request the value of a sensor or sensors.
 
         A list of sensor values as a sequence of #sensor-value informs.
@@ -963,7 +954,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         self,
         ctx: RequestContext,
         name: str,
-        strategy: Optional[sensor.SensorSampler.Strategy] = None,
+        strategy: sensor.SensorSampler.Strategy | None = None,
         *args: bytes,
     ) -> tuple:
         """Configure or query the way a sensor is sampled.
@@ -1050,7 +1041,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
                 # is later removed, we still send a value for it once.
 
                 observer = ctx.conn.sensor_update
-                removed_sensors: Set[sensor.Sensor] = set()
+                removed_sensors: set[sensor.Sensor] = set()
                 removed_sensor_callback = removed_sensors.add
                 self.sensors.add_remove_callback(removed_sensor_callback)
                 samplers = []
@@ -1128,7 +1119,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         ctx.informs((conn.address,) for conn in self._connections)
 
     async def request_log_level(
-        self, ctx: RequestContext, level: Optional[core.LogLevel] = None
+        self, ctx: RequestContext, level: core.LogLevel | None = None
     ) -> core.LogLevel:
         """Query or set the current logging level.
 

@@ -31,7 +31,6 @@ import asyncio
 import enum
 import logging
 import signal
-from typing import Tuple
 
 import aiokatcp
 
@@ -84,7 +83,7 @@ class Server(aiokatcp.DeviceServer):
         self.sensors.add(total_sensor)
         self.add_service_task(asyncio.create_task(self._alter_sensors()))
 
-    async def request_echo(self, ctx, *args: str) -> Tuple:
+    async def request_echo(self, ctx, *args: str) -> tuple:
         """Return the arguments to the caller"""
         return tuple(args)
 
