@@ -46,7 +46,7 @@ DEFAULT_LIMIT = 16 * 1024**2
 _BLANK_RE = re.compile(rb"^[ \t]*[\r\n]?$")
 # typing.Protocol requires a contravariant typevar
 _C_contra = TypeVar("_C_contra", bound="Connection", contravariant=True)
-_BUFFER_SIZE = 256 * 1024
+_BUFFER_SIZE = 64 * 1024
 
 
 class FailReply(Exception):
