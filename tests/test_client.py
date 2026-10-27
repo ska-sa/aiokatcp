@@ -1396,9 +1396,14 @@ class SensorWatcherStateMachine(AsyncStateMachine):
         self.server = BasicServer(host="::1", port=1234)
         await self.server.start()
         self.client = await Client.connect("::1", 1234)
+        # Ensure that we're actually testing splitting subscription
+        # into batches.
+        self._patch_bulk = unittest.mock.patch("aiokatcp.client._MAX_BULK_SUBSCRIBE", 2)
+        self._patch_bulk.start()
 
     @run_in_loop()
     async def _stop(self) -> None:
+        self._patch_bulk.stop()
         self.client.close()
         await self.client.wait_closed()
         await self.server.stop()

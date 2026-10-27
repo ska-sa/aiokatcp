@@ -69,6 +69,9 @@ _T = TypeVar("_T")
 _MIN_BACKOFF = 0.5
 #: Maximum time in seconds to wait between connection attempts.
 _MAX_BACKOFF = 60.0
+#: Maximum number of sensors to subscribe to or unsubscribe from in a
+#: single bulk request.
+_MAX_BULK_SUBSCRIBE = 250
 
 
 class _Handler(Protocol):
@@ -1230,7 +1233,7 @@ class _SensorMonitor:
         else:
             self._need_subscribe.discard(s)
 
-    async def _set_sampling(self, sensors: List[_MonitoredSensor], strategy: str) -> None:
+    async def _set_sampling(self, sensors: Sequence[_MonitoredSensor], strategy: str) -> None:
         """Register sampling strategy with sensors in `names`.
 
         If the strategy is "none", the sensors are marked as not subscribed on
@@ -1278,6 +1281,20 @@ class _SensorMonitor:
                     )
             s.subscribed = state
             self._update_sensor_state(s)
+
+    async def _set_sampling_batched(
+        self, sensors: Sequence[_MonitoredSensor], strategy: str
+    ) -> None:
+        """Register sampling strategy with sensors in `names`.
+
+        This wraps :meth:`_set_sampling` to limit the number of sensors to
+        which we (un)subscribe at a time.
+        """
+        # TODO: replace with itertools.batched once Python 3.12 can be assumed:
+        # for batch in itertools.batched(sensors, _MAX_BULK_SUBSCRIBE):
+        #     await self._set_sampling(batch, strategy)
+        for i in range(0, len(sensors), _MAX_BULK_SUBSCRIBE):
+            await self._set_sampling(sensors[i : i + _MAX_BULK_SUBSCRIBE], strategy)
 
     async def _update(self) -> None:
         """Keep the sensor list and subscriptions refreshed.
@@ -1373,12 +1390,12 @@ class _SensorMonitor:
         # predictable and easier to test.
         if add:
             add.sort(key=lambda s: s.info.name)
-            await self._set_sampling(add, "auto")
+            await self._set_sampling_batched(add, "auto")
         # Check _need_sensor_list again: if there are changes during adding we
         # first re-read the sensor list rather than doing more work.
         if not self._need_sensor_list and remove:
             remove.sort(key=lambda s: s.info.name)
-            await self._set_sampling(remove, "none")
+            await self._set_sampling_batched(remove, "none")
 
     def _connected(self) -> None:
         for s in self._sensors.values():
