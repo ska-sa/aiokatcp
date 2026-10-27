@@ -78,6 +78,7 @@ select = [
 [tool.mypy]
 python_version = "3.10"
 files = ["src/aiokatcp", "examples", "tests"]
+warn_unused_ignores = true
 [[tool.mypy.overrides]]
 module = "async_solipsism.*"
 ignore_missing_imports = true

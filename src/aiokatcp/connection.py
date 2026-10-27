@@ -342,8 +342,8 @@ def wrap_handler(name: str, handler: Callable, fixed: int) -> Callable:
             return await handler(*args)
 
     else:
-
-        def wrapper(*args):
+        # mypy doesn't like having alternative definitions of functions with different signatures
+        def wrapper(*args):  # type: ignore
             args = transform_args(args)
             return handler(*args)
 

@@ -308,8 +308,8 @@ class Sensor(Generic[_T]):
 
     def detach(self, observer: Observer[_T]) -> None:
         # It's simpler to just discard from both sets (and ignore the type) than to do inspection.
-        self._delta_observers.discard(observer)  # type: ignore
-        self._classic_observers.discard(observer)  # type: ignore
+        self._delta_observers.discard(observer)
+        self._classic_observers.discard(observer)
 
 
 class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):

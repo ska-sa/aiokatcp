@@ -244,8 +244,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
 
     _request_handlers: Dict[str, _RequestHandler] = {}
 
-    VERSION = None  # type: str
-    BUILD_STATE = None  # type: str
+    VERSION = None  # type: str | None
+    BUILD_STATE = None  # type: str | None
 
     class LogHandler(logging.Handler):
         """Log handler that issues log messages as ``#log`` informs.
@@ -640,7 +640,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         If the server is halted while the request is being handled, this task
         gets cancelled.
         """
-        default = self.__class__.unhandled_request  # type: ignore
+        default = self.__class__.unhandled_request
         handler = self._request_handlers.get(ctx.req.name, default)
         ret = await handler(self, ctx, ctx.req)
         if ctx.replied and ret is not None:
