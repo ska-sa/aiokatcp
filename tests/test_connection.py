@@ -28,7 +28,6 @@
 import asyncio
 import logging
 import re
-from typing import Optional, Tuple  # noqa: F401
 from unittest import mock
 
 import async_solipsism
@@ -44,9 +43,9 @@ def event_loop_policy():
 
 
 @pytest.fixture
-def owner(event_loop):
+async def owner():
     owner = mock.MagicMock()
-    owner.loop = event_loop
+    owner.loop = asyncio.get_running_loop()
     owner.handle_message = mock.MagicMock(side_effect=_ok_handler)
     # Close the transport on EOF
     owner._eof_received = mock.MagicMock(return_value=False)

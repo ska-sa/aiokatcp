@@ -42,7 +42,7 @@ Changelog = "https://aiokatcp.readthedocs.io/en/latest/changelog.html"
 [project.scripts]
 katcpcmd = "aiokatcp.tools.katcpcmd:main"
 
-[project.optional-dependencies]
+[dependency-groups]
 test = [
     "async-solipsism>=0.8",
     "hypothesis",
@@ -50,9 +50,15 @@ test = [
     "pytest-asyncio>=0.23",
     "pytest-mock",
 ]
+ci = [
+    {include-group = "test"},
+    "pre-commit",
+    "pytest-cov",
+]
 doc = [
     "sphinx",
     "sphinx-rtd-theme",
+    "sphinxcontrib-tikz",
 ]
 
 [tool.setuptools_scm]

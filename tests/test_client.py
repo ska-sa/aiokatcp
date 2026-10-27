@@ -1164,9 +1164,9 @@ class TestSensorWatcher:
     """Test :class:`~.SensorWatcher`."""
 
     @pytest.fixture
-    def client(self, event_loop) -> unittest.mock.MagicMock:
+    async def client(self) -> unittest.mock.MagicMock:
         client = unittest.mock.MagicMock()
-        client.loop = event_loop
+        client.loop = asyncio.get_running_loop()
         return client
 
     @pytest.fixture

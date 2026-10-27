@@ -246,9 +246,10 @@ async def get_version_info(
 
 
 @pytest.fixture
-def mock_time(mocker, event_loop) -> None:
-    mocker.patch("time.time", lambda: event_loop.time() + 123456789.0)
-    mocker.patch("time.time_ns", lambda: event_loop.time() * 1e9 + 123456789e9)
+async def mock_time(mocker) -> None:
+    loop = asyncio.get_running_loop()
+    mocker.patch("time.time", lambda: loop.time() + 123456789.0)
+    mocker.patch("time.time_ns", lambda: loop.time() * 1e9 + 123456789e9)
 
 
 async def test_start_twice(server: DummyServer) -> None:
