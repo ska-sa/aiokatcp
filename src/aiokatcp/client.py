@@ -39,12 +39,13 @@ from collections.abc import Callable, Generator, Iterable, Sequence
 from dataclasses import dataclass
 from typing import (
     Any,
+    Final,
     TypeVar,
     cast,
     overload,
 )
 
-from typing_extensions import Protocol
+from typing_extensions import Protocol, Self
 
 from . import connection, core, sensor
 from .connection import FailReply, InvalidReply
@@ -92,7 +93,7 @@ class ClientMeta(type):
         for base in bases:
             namespace["_inform_handlers"].update(getattr(base, "_inform_handlers", {}))
         result = type.__new__(mcs, name, bases, namespace)
-        inform_handlers = getattr(result, "_inform_handlers")
+        inform_handlers = result._inform_handlers
         for key, value in namespace.items():
             if key.startswith("inform_") and inspect.isfunction(value):
                 request_name = key[7:].replace("_", "-")
@@ -423,7 +424,7 @@ class Client(metaclass=ClientMeta):
         except FailReply as error:
             self.logger.warning("error in inform %s: %s", msg.name, error)
         except Exception:
-            self.logger.exception("unhandled exception in inform %s", msg.name, exc_info=True)
+            self.logger.exception("unhandled exception in inform %s", msg.name)
         self._run_callbacks(self._inform_callbacks.get(msg.name, {}), msg)
 
     def unhandled_inform(self, msg: core.Message) -> None:
@@ -560,7 +561,7 @@ class Client(metaclass=ClientMeta):
         await self._closed_event.wait()
 
     # Make client a context manager that self-closes
-    async def __aenter__(self) -> "Client":
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
@@ -604,7 +605,7 @@ class Client(metaclass=ClientMeta):
         auto_reconnect: bool = True,
         limit: int = connection.DEFAULT_LIMIT,
         loop: asyncio.AbstractEventLoop | None = None,
-    ) -> "Client":
+    ) -> Self:
         """Factory function that creates a client and waits until it is connected.
 
         Refer to the constructor documentation for details of the parameters.
@@ -613,9 +614,9 @@ class Client(metaclass=ClientMeta):
         try:
             await client.wait_connected()
             return client
-        except Exception as error:
+        except Exception:
             client.close()
-            raise error
+            raise
 
     async def request_raw(self, name: str, *args: Any) -> tuple[core.Message, list[core.Message]]:
         """Make a request to the server and await the reply, without decoding it.
@@ -846,7 +847,6 @@ class AbstractSensorWatcher:
         there is *no* call to :meth:`sensor_removed`, unless the :meth:`filter`
         returned ``False`` for the new version.
         """
-        pass  # pragma: nocover
 
     def sensor_removed(self, name: str) -> None:
         """A sensor disappeared from the remote server.
@@ -854,13 +854,11 @@ class AbstractSensorWatcher:
         This will also be called if the sensor changed properties and
         :meth:`filter` returned ``False`` for the new version.
         """
-        pass  # pragma: nocover
 
     def sensor_updated(
         self, name: str, value: bytes, status: sensor.Sensor.Status, timestamp: float
     ) -> None:
         """The value of a sensor changed on the remote server."""
-        pass  # pragma: nocover
 
     def batch_start(self) -> None:
         """Called at the start of a batch of back-to-back updates.
@@ -868,11 +866,9 @@ class AbstractSensorWatcher:
         Calls to :meth:`sensor_added`, :meth:`sensor_removed` and :meth:`sensor_updated`
         will always be bracketed by :meth:`batch_start` and :meth:`batch_stop`. This
         does not apply to :meth:`state_updated`."""
-        pass  # pragma: nocover
 
     def batch_stop(self) -> None:
         """Called at the end of a batch of back-to-back updates."""
-        pass  # pragma: nocover
 
     def state_updated(self, state: SyncState) -> None:
         """Indicates the state of the synchronisation state machine.
@@ -880,7 +876,6 @@ class AbstractSensorWatcher:
         Implementations should assume the initial state is
         :const:`SyncState.DISCONNECTED`.
         """
-        pass  # pragma: nocover
 
 
 class DiscreteMixin:
@@ -911,7 +906,7 @@ class SensorWatcher(AbstractSensorWatcher):
         Event that is set whenever the state is :const:`SyncState.SYNCED`
     """
 
-    SENSOR_TYPES = {
+    SENSOR_TYPES: Final = {
         "integer": int,
         "float": float,
         "boolean": bool,

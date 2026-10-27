@@ -56,18 +56,18 @@ _U = TypeVar("_U")
 
 class DeltaObserver(Protocol[_T]):
     def __call__(
-        self, __sensor: "Sensor[_T]", __reading: "Reading[_T]", *, old_reading: "Reading[_T]"
+        self, sensor: "Sensor[_T]", reading: "Reading[_T]", /, *, old_reading: "Reading[_T]"
     ) -> None: ...
 
 
 class ClassicObserver(Protocol[_T]):
-    def __call__(self, __sensor: "Sensor[_T]", __reading: "Reading[_T]") -> None: ...
+    def __call__(self, sensor: "Sensor[_T]", reading: "Reading[_T]", /) -> None: ...
 
 
 Observer: TypeAlias = ClassicObserver[_T] | DeltaObserver[_T]
 
 
-@dataclass
+@dataclass(slots=True)
 class Reading(Generic[_T]):
     """Sensor reading
 
@@ -81,8 +81,6 @@ class Reading(Generic[_T]):
         Sensor value at `timestamp`
     """
 
-    # Once Python 3.10 is the minimum, pass 'slots' parameter to dataclass instead
-    __slots__ = ("timestamp", "status", "value")
     timestamp: float
     status: "Sensor.Status"
     value: _T
@@ -917,7 +915,6 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
             `AggregatedSensor` as a result of the change. If None is returned,
             the sensor's reading is not modified.
         """
-        pass  # pragma: nocover
 
     def filter_aggregate(self, sensor: Sensor) -> bool:
         """Decide whether another sensor is part of the aggregation.

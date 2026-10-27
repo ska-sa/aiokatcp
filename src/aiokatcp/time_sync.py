@@ -78,7 +78,7 @@ class TimeSyncUpdater:
 
     def __init__(self, sensor_map: Mapping[str, Sensor]) -> None:
         self.sensor_map = dict(sensor_map)
-        for key in self.sensor_map.keys():
+        for key in self.sensor_map:
             if key not in _TRANSFORMS:
                 raise KeyError(f"Key {key!r} is not valid")
 

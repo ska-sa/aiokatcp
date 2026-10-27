@@ -37,6 +37,7 @@ from re import Match
 from typing import (
     TYPE_CHECKING,
     Any,
+    Final,
     Generic,
     TypeAlias,
     TypeVar,
@@ -44,11 +45,11 @@ from typing import (
 )
 
 import katcp_codec
+from typing_extensions import Self
 
 _T = TypeVar("_T")
 _E = TypeVar("_E", bound=enum.Enum)
 _F = TypeVar("_F", bound=numbers.Real)
-_I = TypeVar("_I", bound=numbers.Integral)
 _S = TypeVar("_S", bound=str)
 _B = TypeVar("_B", bound=bytes)
 _IPAddress: TypeAlias = ipaddress.IPv4Address | ipaddress.IPv6Address
@@ -108,7 +109,7 @@ class Address:
             return f"Address({self._host!r}, {self._port!r})"
 
     @classmethod
-    def parse(cls, raw: bytes) -> "Address":
+    def parse(cls, raw: bytes) -> Self:
         """Construct an :class:`Address` from a katcp message argument
 
         Parameters
@@ -156,8 +157,6 @@ class Timestamp(float):
     distinguished. It represents time in seconds as a UNIX timestamp.
     """
 
-    pass
-
 
 class Now(enum.Enum):
     """Singleton for representing a timestamp specified as ``now`` in the protocol."""
@@ -181,7 +180,7 @@ class LogLevel(enum.IntEnum):
     OFF = logging.CRITICAL + 10  # Higher than any level in logging module
 
     @classmethod
-    def from_python(cls, level: int) -> "LogLevel":
+    def from_python(cls, level: int) -> Self:
         """Map Python log level to katcp log level"""
         try:
             # Common case: value matches exactly
@@ -299,7 +298,7 @@ def _get_decoder_bool(cls: type) -> Callable[[bytes], bool]:
 
 def _encode_enum(value: enum.Enum) -> bytes:
     if hasattr(value, "katcp_value"):
-        return getattr(value, "katcp_value")
+        return value.katcp_value
     else:
         return value.name.encode("ascii").lower().replace(b"_", b"-")
 
@@ -483,7 +482,7 @@ class Message:
     _ESCAPE_RE = re.compile(rb"[\\ \0\n\r\x1b\t]")
     _UNESCAPE_RE = re.compile(rb"\\(.)?")  # ? so that it also matches trailing backslash
 
-    _ESCAPE_LOOKUP = {
+    _ESCAPE_LOOKUP: Final = {
         b"\\": b"\\",
         b"_": b" ",
         b"0": b"\0",
@@ -493,7 +492,7 @@ class Message:
         b"t": b"\t",
         b"@": b"",
     }
-    _REVERSE_ESCAPE_LOOKUP = {value: key for (key, value) in _ESCAPE_LOOKUP.items()}
+    _REVERSE_ESCAPE_LOOKUP: Final = {value: key for (key, value) in _ESCAPE_LOOKUP.items()}
 
     OK = b"ok"
     FAIL = b"fail"
@@ -505,29 +504,28 @@ class Message:
             raise ValueError(f"name {name} is invalid")
         self.name = name
         self.arguments = [encode(arg) for arg in arguments]
-        if mid is not None:
-            if not 1 <= mid <= 2**31 - 1:
-                raise ValueError(f"message ID {mid} is outside of range 1 to 2**31-1")
+        if mid is not None and not 1 <= mid <= 2**31 - 1:
+            raise ValueError(f"message ID {mid} is outside of range 1 to 2**31-1")
         self.mid = mid
 
     @classmethod
-    def request(cls, name: str, *arguments: Any, mid: int | None = None) -> "Message":
+    def request(cls, name: str, *arguments: Any, mid: int | None = None) -> Self:
         return cls(cls.Type.REQUEST, name, *arguments, mid=mid)
 
     @classmethod
-    def reply(cls, name: str, *arguments: Any, mid: int | None = None) -> "Message":
+    def reply(cls, name: str, *arguments: Any, mid: int | None = None) -> Self:
         return cls(cls.Type.REPLY, name, *arguments, mid=mid)
 
     @classmethod
-    def inform(cls, name: str, *arguments: Any, mid: int | None = None) -> "Message":
+    def inform(cls, name: str, *arguments: Any, mid: int | None = None) -> Self:
         return cls(cls.Type.INFORM, name, *arguments, mid=mid)
 
     @classmethod
-    def reply_to_request(cls, msg: "Message", *arguments: Any) -> "Message":
+    def reply_to_request(cls, msg: "Message", *arguments: Any) -> Self:
         return cls(cls.Type.REPLY, msg.name, *arguments, mid=msg.mid)
 
     @classmethod
-    def inform_reply(cls, msg: "Message", *arguments: Any) -> "Message":
+    def inform_reply(cls, msg: "Message", *arguments: Any) -> Self:
         return cls(cls.Type.INFORM, msg.name, *arguments, mid=msg.mid)
 
     @classmethod
@@ -562,7 +560,7 @@ class Message:
         return cls._UNESCAPE_RE.sub(cls._unescape_match, arg)
 
     @classmethod
-    def parse(cls, raw) -> "Message":
+    def parse(cls, raw) -> Self:
         """Create a :class:`Message` from encoded representation.
 
         Parameters

@@ -38,8 +38,8 @@ from collections import deque
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from typing import (
     Any,
+    ClassVar,
     TypeAlias,
-    TypeVar,
     cast,
 )
 
@@ -54,7 +54,6 @@ _RequestReply: TypeAlias = Awaitable[Sequence | None]
 _RequestHandler: TypeAlias = Callable[
     ["DeviceServer", "RequestContext", core.Message], _RequestReply
 ]
-_T = TypeVar("_T")
 
 
 class ClientConnection(connection.Connection):
@@ -198,7 +197,7 @@ class DeviceServerMeta(type):
         for base in bases:
             namespace["_request_handlers"].update(getattr(base, "_request_handlers", {}))
         result = type.__new__(mcs, name, bases, namespace)
-        request_handlers = getattr(result, "_request_handlers")
+        request_handlers = result._request_handlers
         for key, value in namespace.items():
             if key.startswith("request_") and inspect.isfunction(value):
                 request_name = key[8:].replace("_", "-")
@@ -236,7 +235,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         If not specified it defaults to twice `limit`.
     """
 
-    _request_handlers: dict[str, _RequestHandler] = {}
+    _request_handlers: ClassVar[dict[str, _RequestHandler]] = {}
 
     VERSION: str | None = None
     BUILD_STATE: str | None = None
@@ -363,7 +362,6 @@ class DeviceServer(metaclass=DeviceServerMeta):
         It is only called if the server was running when :meth:`stop` was
         called.
         """
-        pass
 
     async def _stop_impl(self, cancel: bool = True) -> None:
         try:
@@ -601,9 +599,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
                 error_msg = str(error)
                 error_type = core.Message.INVALID
             except Exception:
-                ctx.logger.exception(
-                    "uncaught exception while handling %r", ctx.req.name, exc_info=True
-                )
+                ctx.logger.exception("uncaught exception while handling %r", ctx.req.name)
                 output = io.StringIO("uncaught exception:\n")
                 traceback.print_exc(file=output)
                 error_msg = output.getvalue()
@@ -770,7 +766,6 @@ class DeviceServer(metaclass=DeviceServerMeta):
             !watchdog ok
 
         """
-        pass
 
     async def request_version_list(self, ctx: RequestContext) -> None:
         """Request the list of versions of roles and subcomponents.

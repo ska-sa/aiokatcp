@@ -47,7 +47,7 @@ async def owner():
 
 
 @pytest.fixture
-def connection_queue() -> "asyncio.Queue[Connection]":
+def connection_queue() -> asyncio.Queue[Connection]:
     return asyncio.Queue()
 
 

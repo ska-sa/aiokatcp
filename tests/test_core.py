@@ -29,6 +29,7 @@ import enum
 import ipaddress
 import json
 from fractions import Fraction
+from typing import Final
 
 import pytest
 
@@ -67,7 +68,7 @@ class OverrideEnum(enum.Enum):
 
 
 class TestAddress:
-    ADDRESSES = {
+    ADDRESSES: Final = {
         "v4_no_port": Address(ipaddress.ip_address("127.0.0.1")),
         "v4_port": Address(ipaddress.ip_address("127.0.0.1"), 7148),
         "v6_no_port": Address(ipaddress.ip_address("::1")),
@@ -137,7 +138,7 @@ class TestAddress:
 
 
 class TestEncodeDecode:
-    VALUES = [
+    VALUES: Final = [
         (str, "café", b"caf\xc3\xa9"),
         (bytes, b"caf\xc3\xa9", b"caf\xc3\xa9"),
         (int, 123, b"123"),
@@ -155,7 +156,7 @@ class TestEncodeDecode:
         (OverrideEnum, OverrideEnum.JOKER, b"carrot"),
     ]
 
-    BAD_VALUES = [
+    BAD_VALUES: Final = [
         (str, b"caf\xc3e"),  # Bad unicode
         (bool, b"2"),
         (int, b"123.0"),

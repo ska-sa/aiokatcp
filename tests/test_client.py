@@ -50,7 +50,7 @@ import hypothesis
 import hypothesis.strategies as st
 import pytest
 from hypothesis.stateful import Bundle, RuleBasedStateMachine, consumes, invariant, rule
-from typing_extensions import ParamSpec
+from typing_extensions import ParamSpec, Self
 
 from aiokatcp import (
     AbstractSensorWatcher,
@@ -167,7 +167,7 @@ class Channel:
         client_queue: _ClientQueue,
         client_cls: Callable[..., Client] = DummyClient,
         auto_reconnect=True,
-    ) -> "Channel":
+    ) -> Self:
         host, port = server.sockets[0].getsockname()[:2]
         client = client_cls(host, port, auto_reconnect=auto_reconnect)
         connected_callback = unittest.mock.MagicMock()
