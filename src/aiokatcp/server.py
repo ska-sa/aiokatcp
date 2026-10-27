@@ -38,6 +38,7 @@ from collections import deque
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from typing import (
     Any,
+    TypeAlias,
     TypeVar,
     cast,
 )
@@ -49,8 +50,10 @@ from .connection import FailReply, InvalidReply
 
 logger = logging.getLogger(__name__)
 _BULK_SENSOR_BATCH = 50
-_RequestReply = Awaitable[Sequence | None]
-_RequestHandler = Callable[["DeviceServer", "RequestContext", core.Message], _RequestReply]
+_RequestReply: TypeAlias = Awaitable[Sequence | None]
+_RequestHandler: TypeAlias = Callable[
+    ["DeviceServer", "RequestContext", core.Message], _RequestReply
+]
 _T = TypeVar("_T")
 
 

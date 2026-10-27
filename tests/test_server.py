@@ -32,6 +32,7 @@ import logging
 import re
 from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
 from re import Pattern
+from typing import TypeAlias
 
 import pytest
 
@@ -41,7 +42,7 @@ from aiokatcp.core import Address
 from aiokatcp.sensor import Sensor, SensorSampler
 from aiokatcp.server import DeviceServer, RequestContext
 
-_StreamPair = tuple[asyncio.StreamReader, asyncio.StreamWriter]
+_StreamPair: TypeAlias = tuple[asyncio.StreamReader, asyncio.StreamWriter]
 
 
 class Foo(enum.Enum):

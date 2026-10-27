@@ -39,8 +39,8 @@ from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from typing import (
     Any,
     Concatenate,
+    TypeAlias,
     TypeVar,
-    Union,
     cast,
 )
 from unittest.mock import call
@@ -69,7 +69,7 @@ from aiokatcp import (
 )
 from aiokatcp.client import _ClientState, _MonitoredSensor
 
-_ClientQueue = Union["asyncio.Queue[tuple[asyncio.StreamReader, asyncio.StreamWriter]]"]
+_ClientQueue: TypeAlias = "asyncio.Queue[tuple[asyncio.StreamReader, asyncio.StreamWriter]]"
 _P = ParamSpec("_P")
 _T = TypeVar("_T")
 _ASM = TypeVar("_ASM", bound="AsyncStateMachine")
