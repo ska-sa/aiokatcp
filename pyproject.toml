@@ -87,6 +87,7 @@ select = [
 [tool.mypy]
 python_version = "3.10"
 files = ["src/aiokatcp", "examples", "tests"]
+allow_redefinition = true
 warn_unused_ignores = true
 [[tool.mypy.overrides]]
 module = "async_solipsism.*"

@@ -104,7 +104,7 @@ class ClientMeta(type):
 class ProtocolError(ValueError):
     """The server does not implement the required protocol version"""
 
-    def __init__(self, msg, version):
+    def __init__(self, msg, version) -> None:
         super().__init__(msg)
         self.version = version
 

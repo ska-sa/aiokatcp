@@ -32,7 +32,7 @@ import logging
 import re
 from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
 from re import Pattern
-from typing import TypeAlias
+from typing import NoReturn, TypeAlias
 
 import pytest
 
@@ -54,7 +54,7 @@ class DummyServer(DeviceServer):
     VERSION = "dummy-1.0"
     BUILD_STATE = "dummy-build-1.0.0"
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs) -> None:
         super().__init__("::1", 7777, **kwargs)
         self.event = asyncio.Event()
         self.wait_reached = asyncio.Event()
@@ -654,7 +654,7 @@ async def test_on_stop_raises() -> None:
 async def test_service_task(server: DummyServer) -> None:
     intervals = 0
 
-    async def service_task():
+    async def service_task() -> None:
         nonlocal intervals
         while True:
             await asyncio.sleep(1)
@@ -669,7 +669,7 @@ async def test_service_task(server: DummyServer) -> None:
 
 
 async def test_service_task_exception() -> None:
-    async def service_task():
+    async def service_task() -> NoReturn:
         raise RuntimeError("boom")
 
     server = DummyServer()
@@ -681,7 +681,7 @@ async def test_service_task_exception() -> None:
 
 
 async def test_service_task_early_exit(server: DummyServer) -> None:
-    async def service_task():
+    async def service_task() -> None:
         await asyncio.sleep(1)
 
     task = asyncio.create_task(service_task())
@@ -1216,7 +1216,7 @@ def test_metaclass_missing_help() -> None:
     with pytest.raises(TypeError):
 
         class MyBadServer(DummyServer):
-            def request_no_help(self):
+            def request_no_help(self) -> None:
                 pass
 
 
@@ -1224,7 +1224,7 @@ def test_metaclass_too_few_parameters() -> None:
     with pytest.raises(TypeError):
 
         class MyBadServer(DummyServer):
-            def request_too_few(self):
+            def request_too_few(self) -> None:
                 """Not enough parameters"""
 
 

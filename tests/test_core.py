@@ -63,7 +63,7 @@ class OverrideEnum(enum.Enum):
     JOKER = b"carrot"
     TWO_FACE = b"apple"
 
-    def __init__(self, value):
+    def __init__(self, value) -> None:
         self.katcp_value = value
 
 

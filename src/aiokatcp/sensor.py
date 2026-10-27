@@ -876,7 +876,7 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
         weakref.finalize(self, self.target.remove_remove_callback, self._sensor_removed)
         self._update_aggregate(None, None, None)
 
-    def __del__(self):
+    def __del__(self) -> None:
         # Protect against an exception early in __init__
         for sensor in getattr(self, "target", {}).values():
             # Could use filter_aggregate, but it might not work during

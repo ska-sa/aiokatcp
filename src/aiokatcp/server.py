@@ -327,7 +327,7 @@ class DeviceServer(metaclass=DeviceServerMeta):
         )
 
     @staticmethod
-    def _remove_sensor_callback(connections: set[ClientConnection], sensor: sensor.Sensor):
+    def _remove_sensor_callback(connections: set[ClientConnection], sensor: sensor.Sensor) -> None:
         for conn in connections:
             conn.set_sampler(sensor, None)
 

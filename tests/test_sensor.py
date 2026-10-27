@@ -68,11 +68,11 @@ _T = TypeVar("_T")
         (Sensor.Status.INACTIVE, False),
     ],
 )
-def test_sensor_state_valid_value(status, valid):
+def test_sensor_state_valid_value(status, valid) -> None:
     assert status.valid_value() is valid
 
 
-def test_sensor_status_func():
+def test_sensor_status_func() -> None:
     def status_func(value):
         return Sensor.Status.WARN if value & 1 else Sensor.Status.ERROR
 
@@ -170,7 +170,7 @@ def test_sensor_value_setter_failure(
 
 @pytest.fixture
 def classic_observer():
-    def classic(sensor, reading):
+    def classic(sensor, reading) -> None:
         pass
 
     return create_autospec(classic)
@@ -178,13 +178,13 @@ def classic_observer():
 
 @pytest.fixture
 def delta_observer():
-    def delta(sensor, reading, old_reading):
+    def delta(sensor, reading, old_reading) -> None:
         pass
 
     return create_autospec(delta)
 
 
-def test_observer_sorting(classic_observer, delta_observer):
+def test_observer_sorting(classic_observer, delta_observer) -> None:
     """Check whether delta and classic observer callbacks are classified appropriately."""
     sensor = Sensor(int, "my-sensor")
     sensor.value = 7
@@ -211,7 +211,7 @@ def test_observer_sorting(classic_observer, delta_observer):
     delta_observer.assert_not_called()
 
 
-async def test_unclosed_sampler():
+async def test_unclosed_sampler() -> None:
     sensor = Sensor(int, "sensor")
     sampler = SensorSampler.factory(
         sensor,
@@ -263,11 +263,11 @@ def _get_sensors(ss):
 
 
 class TestSensorSet:
-    def test_construct(self, ss, sensors):
+    def test_construct(self, ss, sensors) -> None:
         """Test that constructor put things into the right state."""
         assert _get_sensors(ss) == [sensors[0]]
 
-    def test_add(self, ss, sensors, alt_sensors, add_callback, remove_callback):
+    def test_add(self, ss, sensors, alt_sensors, add_callback, remove_callback) -> None:
         # Add a new one
         ss.add(sensors[1])
         assert _get_sensors(ss) == [sensors[0], sensors[1]]
@@ -284,7 +284,7 @@ class TestSensorSet:
         remove_callback.assert_called_once_with(sensors[1])
         add_callback.assert_called_once_with(alt_sensors[1])
 
-    def test_remove(self, ss, sensors, alt_sensors, remove_callback):
+    def test_remove(self, ss, sensors, alt_sensors, remove_callback) -> None:
         # Try to remove non-existent name
         with pytest.raises(KeyError):
             ss.remove(sensors[4])
@@ -298,7 +298,7 @@ class TestSensorSet:
         assert _get_sensors(ss) == []
         remove_callback.assert_called_once_with(sensors[0])
 
-    def test_discard(self, ss, sensors, alt_sensors, remove_callback):
+    def test_discard(self, ss, sensors, alt_sensors, remove_callback) -> None:
         # Try to remove non-existent name
         ss.discard(sensors[4])
         # Try to remove one with the same name as an existing one
@@ -310,14 +310,14 @@ class TestSensorSet:
         assert _get_sensors(ss) == []
         remove_callback.assert_called_once_with(sensors[0])
 
-    def test_clear(self, ss, sensors, remove_callback):
+    def test_clear(self, ss, sensors, remove_callback) -> None:
         ss.add(sensors[1])
         ss.clear()
         assert _get_sensors(ss) == []
         remove_callback.assert_any_call(sensors[0])
         remove_callback.assert_any_call(sensors[1])
 
-    def test_popitem(self, ss, sensors, remove_callback):
+    def test_popitem(self, ss, sensors, remove_callback) -> None:
         ss.add(sensors[1])
         items = []
         try:
@@ -330,7 +330,7 @@ class TestSensorSet:
         remove_callback.assert_any_call(sensors[0])
         remove_callback.assert_any_call(sensors[1])
 
-    def test_pop_absent(self, ss, sensors, remove_callback):
+    def test_pop_absent(self, ss, sensors, remove_callback) -> None:
         # Non-existent name
         with pytest.raises(KeyError):
             ss.pop("name4")
@@ -343,7 +343,7 @@ class TestSensorSet:
         assert _get_sensors(ss) == []
         remove_callback.assert_called_once_with(sensors[0])
 
-    def test_delitem(self, ss, sensors, remove_callback):
+    def test_delitem(self, ss, sensors, remove_callback) -> None:
         # Try to remove non-existent name
         with pytest.raises(KeyError):
             del ss["name4"]
@@ -354,14 +354,14 @@ class TestSensorSet:
         assert _get_sensors(ss) == []
         remove_callback.assert_called_once_with(sensors[0])
 
-    def test_getitem(self, ss, sensors):
+    def test_getitem(self, ss, sensors) -> None:
         # Non-existing name
         with pytest.raises(KeyError):
             ss["name4"]
         # Existing name
         assert ss["name0"] is sensors[0]
 
-    def test_get(self, ss, sensors):
+    def test_get(self, ss, sensors) -> None:
         # Non-existing name
         assert ss.get("name4") is None
         assert ss.get("name4", None) is None
@@ -369,40 +369,40 @@ class TestSensorSet:
         # Existing name
         assert ss.get("name0") is sensors[0]
 
-    def test_len(self, ss, sensors):
+    def test_len(self, ss, sensors) -> None:
         assert len(ss) == 1
         ss.add(sensors[1])
         assert len(ss) == 2
 
-    def test_contains(self, ss, sensors, alt_sensors):
+    def test_contains(self, ss, sensors, alt_sensors) -> None:
         assert sensors[0] in ss
         assert alt_sensors[0] not in ss
         assert sensors[1] not in ss
 
-    def test_bool(self, ss):
+    def test_bool(self, ss) -> None:
         assert ss
         ss.clear()
         assert not ss
 
-    def test_keys(self, ss, sensors):
+    def test_keys(self, ss, sensors) -> None:
         ss.add(sensors[1])
         assert sorted(ss.keys()) == ["name0", "name1"]
 
-    def test_values(self, ss, sensors):
+    def test_values(self, ss, sensors) -> None:
         ss.add(sensors[1])
         assert sorted(ss.values(), key=lambda x: x.name) == [sensors[0], sensors[1]]
 
-    def test_items(self, ss, sensors):
+    def test_items(self, ss, sensors) -> None:
         ss.add(sensors[1])
         assert sorted(ss.items()) == [("name0", sensors[0]), ("name1", sensors[1])]
 
-    def test_iter(self, ss):
+    def test_iter(self, ss) -> None:
         assert sorted(iter(ss)) == ["name0"]
 
-    def test_copy(self, ss, sensors):
+    def test_copy(self, ss, sensors) -> None:
         assert ss.copy() == {"name0": sensors[0]}
 
-    def test_remove_callbacks(self, ss, sensors, add_callback, remove_callback):
+    def test_remove_callbacks(self, ss, sensors, add_callback, remove_callback) -> None:
         ss.remove_remove_callback(remove_callback)
         ss.remove_add_callback(add_callback)
         ss.add(sensors[0])
@@ -441,22 +441,22 @@ def agg_sensor(mocker, ss):
 class TestAggregateSensor:
     """Test operation of AggregateSensor."""
 
-    def test_creation(self, agg_sensor, ss, sensors):
+    def test_creation(self, agg_sensor, ss, sensors) -> None:
         """Check that creation happens properly, and correct initial value is set."""
         agg_sensor.update_aggregate.assert_called_with(agg_sensor, None, None, None)
         assert agg_sensor.target is ss
         assert agg_sensor.reading == Reading(0, Sensor.Status.NOMINAL, 7)
 
-    def test_sensor_added(self, agg_sensor, ss, sensors):
+    def test_sensor_added(self, agg_sensor, ss, sensors) -> None:
         """Check that the update function is called when a sensor is added."""
-        MyAgg.update_aggregate.return_value = Reading(7, Sensor.Status.WARN, 42)
+        MyAgg.update_aggregate.return_value = Reading(7, Sensor.Status.WARN, 42)  # type: ignore
         ss.add(sensors[1])
         agg_sensor.update_aggregate.assert_called_with(
             agg_sensor, sensors[1], sensors[1].reading, None
         )
         assert agg_sensor.reading == Reading(7, Sensor.Status.WARN, 42)
 
-    def test_sensor_removed(self, agg_sensor, ss, sensors):
+    def test_sensor_removed(self, agg_sensor, ss, sensors) -> None:
         """Check that the update function is called for a removed sensor."""
         ss.remove(sensors[0])
         agg_sensor.update_aggregate.assert_called_with(
@@ -467,7 +467,7 @@ class TestAggregateSensor:
         sensors[0].set_value(5, Sensor.Status.ERROR)
         agg_sensor.update_aggregate.assert_not_called()
 
-    def test_sensor_value_changed(self, agg_sensor, ss, sensors):
+    def test_sensor_value_changed(self, agg_sensor, ss, sensors) -> None:
         """Check that the update function is called for a sensor whose value has changed."""
         old_reading = sensors[0].reading
         sensors[0].set_value(7, Sensor.Status.WARN)
@@ -475,14 +475,14 @@ class TestAggregateSensor:
             agg_sensor, sensors[0], sensors[0].reading, old_reading
         )
 
-    def test_sensor_value_unchanged(self, agg_sensor, ss, sensors):
+    def test_sensor_value_unchanged(self, agg_sensor, ss, sensors) -> None:
         """Check that the update function is called for a sensor whose value has changed."""
         old_reading = agg_sensor.reading
-        MyAgg.update_aggregate.return_value = None
+        MyAgg.update_aggregate.return_value = None  # type: ignore
         sensors[0].set_value(7, Sensor.Status.WARN)
         assert agg_sensor.reading is old_reading
 
-    def test_aggregate_sensor_excluded(self, agg_sensor, mocker, ss, sensors):
+    def test_aggregate_sensor_excluded(self, agg_sensor, mocker, ss, sensors) -> None:
         """Check that the aggregate sensor gets excluded if it's in the set itself."""
         mocker.patch.object(agg_sensor, "attach")
         mocker.patch.object(agg_sensor, "detach")
@@ -491,7 +491,7 @@ class TestAggregateSensor:
         ss.remove(agg_sensor)
         agg_sensor.detach.assert_not_called()
 
-    def test_aggregate_garbage_collection(self, ss, sensors):
+    def test_aggregate_garbage_collection(self, ss, sensors) -> None:
         """Check that the aggregate can be garbage collected."""
         # Don't use the agg_sensor fixture, because pytest will hold its own
         # references to it.
@@ -506,7 +506,7 @@ class TestAggregateSensor:
         assert weak() is None  # i.e. my_agg was garbage-collected
         sensors[0].value = 12  # Check that it doesn't fail
 
-    def test_sensor_garbage_collection(self):
+    def test_sensor_garbage_collection(self) -> None:
         """Check that sensors can be garbage-collected once removed from the aggregate."""
         # Don't use the fixtures, because they have mocks that might
         # record things and keep them alive.
@@ -526,7 +526,7 @@ class TestAggregateSensor:
             gc.collect()
         assert weak() is None
 
-    def test_weak_callback_failures(self, agg_sensor, monkeypatch):
+    def test_weak_callback_failures(self, agg_sensor, monkeypatch) -> None:
         """Ensure code coverage of :class:`._weak_callback`."""
         assert isinstance(MyAgg._sensor_added, _weak_callback)
         wc = _weak_callback(lambda x: x)
@@ -538,17 +538,17 @@ class TestAggregateSensor:
 class MySimpleAgg(SimpleAggregateSensor[int]):
     """Example sensor that collects the sum of valid readings."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         self._total = 0
         super().__init__(*args, **kwargs)
 
-    def aggregate_add(self, sensor, reading):
+    def aggregate_add(self, sensor, reading) -> bool:
         if reading.status.valid_value():
             self._total += reading.value
             return True
         return False
 
-    def aggregate_remove(self, sensor, reading):
+    def aggregate_remove(self, sensor, reading) -> bool:
         if reading.status.valid_value():
             self._total -= reading.value
             return True

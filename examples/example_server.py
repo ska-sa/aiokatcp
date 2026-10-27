@@ -41,15 +41,15 @@ class Foo(enum.Enum):
 
 
 class Total(aiokatcp.SimpleAggregateSensor):
-    def __init__(self, target):
+    def __init__(self, target) -> None:
         self._total = 0
         super().__init__(target=target, sensor_type=int, name="total")
 
-    def aggregate_add(self, updated_sensor, reading):
+    def aggregate_add(self, updated_sensor, reading) -> bool:
         self._total += reading.value
         return True
 
-    def aggregate_remove(self, updated_sensor, reading):
+    def aggregate_remove(self, updated_sensor, reading) -> bool:
         self._total -= reading.value
         return False
 
@@ -65,7 +65,7 @@ class Server(aiokatcp.DeviceServer):
     VERSION = "testapi-1.0"
     BUILD_STATE = "testapi-1.0.1"
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         sensor = aiokatcp.Sensor(
             int,
@@ -126,7 +126,7 @@ class Server(aiokatcp.DeviceServer):
             self.mass_inform("interface-changed", "sensor", "fixed-value", "removed")
 
 
-async def main():
+async def main() -> None:
     logging.basicConfig(level=logging.INFO)
     server = Server("localhost", 4444)
     handler = Server.LogHandler(server)
