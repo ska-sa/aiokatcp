@@ -40,7 +40,6 @@ from dataclasses import dataclass
 from typing import (
     Any,
     Generic,
-    Optional,
     TypeAlias,
     TypeVar,
     cast,
@@ -150,7 +149,7 @@ class Sensor(Generic[_T]):
         initial_status: Status = Status.UNKNOWN,
         *,
         status_func: Callable[[_T], Status] = _default_status_func,
-        auto_strategy: Optional["SensorSampler.Strategy"] = None,
+        auto_strategy: "SensorSampler.Strategy | None" = None,
         auto_strategy_parameters: Iterable[Any] = (),
     ) -> None:
         self.stype = sensor_type
@@ -475,7 +474,7 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
         loop: asyncio.AbstractEventLoop,
         strategy: "SensorSampler.Strategy",
         *args: bytes,
-    ) -> Optional["SensorSampler[_T]"]:
+    ) -> "SensorSampler[_T] | None":
         if strategy == cls.Strategy.AUTO:
             strategy = sensor.auto_strategy
             decoded_args = sensor.auto_strategy_parameters
@@ -852,7 +851,7 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
         description: str = "",
         units: str = "",
         *,
-        auto_strategy: Optional["SensorSampler.Strategy"] = None,
+        auto_strategy: SensorSampler.Strategy | None = None,
         auto_strategy_parameters: Iterable[Any] = (),
     ) -> None:
         super().__init__(
@@ -913,7 +912,7 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
 
         Returns
         -------
-        Optional[Reading]
+        Reading | None
             The reading (value, status, timestamp) that should be shown by the
             `AggregatedSensor` as a result of the change. If None is returned,
             the sensor's reading is not modified.

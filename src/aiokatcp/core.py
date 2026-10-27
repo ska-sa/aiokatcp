@@ -379,9 +379,9 @@ def encode(value: Any) -> bytes:
 
 
 def _union_args(cls: Any) -> tuple[type, ...] | None:
-    """Convert ``Union[T1, T2]`` to (T1, T2).
+    """Convert ``Union[T1, T2]`` or ``T1 | T2`` to (T1, T2).
 
-    Returns ``None`` if `cls` is not a specific :class:`typing.Union` type.
+    Returns ``None`` if `cls` is not a union type.
     """
     if not isinstance(cls, _UnionTypes):
         return None
@@ -396,12 +396,12 @@ def get_decoder(cls: type[_T]) -> Callable[[bytes], _T]:
     times.
     """
     union_args = _union_args(cls)
-    # Allows arguments like 'foo: Optional[str] = None' to exist, where None
+    # Allows arguments like 'foo: str | None = None' to exist, where None
     # indicates that the argument was not passed at all. More generally, this
-    # allows Union[A, B, None] to behave like Union[A, B].
+    # allows A | B | None to behave like A | B.
     if union_args is not None:
         union_args = tuple(arg for arg in union_args if arg is not type(None))
-        if len(union_args) == 1:  # Flatten Optional[T] to T
+        if len(union_args) == 1:  # Flatten T | None to T
             cls = union_args[0]
             union_args = None
     if union_args is not None:

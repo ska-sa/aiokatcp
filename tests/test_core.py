@@ -29,7 +29,6 @@ import enum
 import ipaddress
 import json
 from fractions import Fraction
-from typing import Union
 
 import pytest
 
@@ -169,7 +168,7 @@ class TestEncodeDecode:
         (MyIntEnum, b"z"),
         (OverrideEnum, b"joker"),
         (TimestampOrNow, b"later"),
-        (Union[int, float], b"123"),
+        (int | float, b"123"),
     ]
 
     @pytest.mark.parametrize("type_, value, raw", VALUES)
