@@ -235,8 +235,8 @@ class DeviceServer(metaclass=DeviceServerMeta):
 
     _request_handlers: dict[str, _RequestHandler] = {}
 
-    VERSION = None  # type: str | None
-    BUILD_STATE = None  # type: str | None
+    VERSION: str | None = None
+    BUILD_STATE: str | None = None
 
     class LogHandler(logging.Handler):
         """Log handler that issues log messages as ``#log`` informs.

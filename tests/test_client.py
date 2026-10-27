@@ -402,7 +402,7 @@ async def test_inform_callback(channel) -> None:
     def callback(string: str, integer: int) -> None:
         values.put_nowait((string, integer))
 
-    values = asyncio.Queue()  # type: asyncio.Queue[tuple[str, int]]
+    values: asyncio.Queue[tuple[str, int]] = asyncio.Queue()
     client = cast(DummyClient, channel.client)
     client.add_inform_callback("bar", callback)
     await channel.wait_connected()
