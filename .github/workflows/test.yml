@@ -29,11 +29,7 @@ jobs:
       - run: pip check
       - run: pytest -Werror --cov=aiokatcp --cov-branch
       - run: pre-commit run --all-files
-      # Workaround for https://github.com/coverallsapp/github-action/issues/264
-      - name: Trust Coveralls Homebrew tap
-        if: ${{ runner.os == 'macOS' && matrix.coverage == 'yes' }}
-        run: brew trust coverallsapp/coveralls
-      - uses: coverallsapp/github-action@v2.3.6
+      - uses: coverallsapp/github-action@v2.3.8
         with:
           parallel: true
           flag-name: ${{ matrix.os }}
