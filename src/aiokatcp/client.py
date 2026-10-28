@@ -1285,7 +1285,7 @@ class _SensorMonitor:
     async def _set_sampling_batched(
         self, sensors: Sequence[_MonitoredSensor], strategy: str
     ) -> None:
-        """Register sampling strategy with sensors in `names`.
+        """Register sampling strategy with sensors in `names`, limiting the number in each request.
 
         This wraps :meth:`_set_sampling` to limit the number of sensors to
         which we (un)subscribe at a time.
