@@ -41,7 +41,7 @@ class MirrorServer(aiokatcp.DeviceServer):
 
 
 class MirrorWatcher(aiokatcp.SensorWatcher):
-    def __init__(self, client: aiokatcp.Client, server: aiokatcp.DeviceServer):
+    def __init__(self, client: aiokatcp.Client, server: aiokatcp.DeviceServer) -> None:
         super().__init__(client)
         self.server = server
         self._interface_stale = False
@@ -67,7 +67,7 @@ class MirrorWatcher(aiokatcp.SensorWatcher):
             logging.info("Sent interface-changed")
 
 
-async def main(args: argparse.Namespace):
+async def main(args: argparse.Namespace) -> None:
     client = aiokatcp.Client(args.host, args.port)
     server = MirrorServer("127.0.0.1", args.local_port)
     await server.start()
@@ -89,6 +89,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main(args))
-    loop.close()
+    asyncio.run(main(args))

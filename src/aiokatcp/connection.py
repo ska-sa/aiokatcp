@@ -33,7 +33,8 @@ import logging
 import re
 import time
 from collections import deque
-from typing import Any, Callable, Deque, Iterable, Optional, TypeVar, cast
+from collections.abc import Callable, Iterable
+from typing import Any, TypeVar, cast
 
 import decorator
 import katcp_codec
@@ -63,17 +64,15 @@ class ConnectionLoggerAdapter(logging.LoggerAdapter):
 
 
 class _ConnectionOwner(Protocol[_C_contra]):
-    def handle_message(self, conn: _C_contra, msg: core.Message) -> None:
-        ...  # pragma: nocover
+    def handle_message(self, conn: _C_contra, msg: core.Message) -> None: ...  # pragma: nocover
 
-    def _connection_made(self, conn: _C_contra) -> None:
-        ...  # pragma: nocover
+    def _connection_made(self, conn: _C_contra) -> None: ...  # pragma: nocover
 
-    def _connection_lost(self, conn: _C_contra, exc: Optional[Exception]) -> None:
-        ...  # pragma: nocover
+    def _connection_lost(
+        self, conn: _C_contra, exc: Exception | None
+    ) -> None: ...  # pragma: nocover
 
-    def _eof_received(self, conn: _C_contra) -> bool:
-        ...  # pragma: nocover
+    def _eof_received(self, conn: _C_contra) -> bool: ...  # pragma: nocover
 
 
 class Connection(asyncio.BufferedProtocol):
@@ -96,9 +95,9 @@ class Connection(asyncio.BufferedProtocol):
         self._closed_event = asyncio.Event()
         self._buffer = memoryview(bytearray(_BUFFER_SIZE))
         self._parser = katcp_codec.Parser(limit)
-        self._exc: Optional[Exception] = None
+        self._exc: Exception | None = None
         self._paused = False
-        self._drain_waiters: Deque[asyncio.Future[None]] = deque()
+        self._drain_waiters: deque[asyncio.Future[None]] = deque()
         self._warned_on_closed = False
 
     # self: Self to work around https://github.com/python/mypy/issues/17723
@@ -112,7 +111,7 @@ class Connection(asyncio.BufferedProtocol):
         self.logger = ConnectionLoggerAdapter(logger, dict(address=self.address))
         self.owner._connection_made(self)
 
-    def connection_lost(self: Self, exc: Optional[Exception]) -> None:
+    def connection_lost(self: Self, exc: Exception | None) -> None:
         self._exc = exc
         self._closed_event.set()
         self._buffer = memoryview(bytearray(0))  # Free up the buffer without changing type
@@ -344,8 +343,8 @@ def wrap_handler(name: str, handler: Callable, fixed: int) -> Callable:
             return await handler(*args)
 
     else:
-
-        def wrapper(*args):
+        # mypy doesn't like having alternative definitions of functions with different signatures
+        def wrapper(*args):  # type: ignore
             args = transform_args(args)
             return handler(*args)
 

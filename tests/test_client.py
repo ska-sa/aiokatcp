@@ -35,19 +35,13 @@ import logging
 import re
 import unittest
 import unittest.mock
+from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from typing import (
     Any,
-    AsyncGenerator,
-    Awaitable,
-    Callable,
-    List,
-    Optional,
-    Sequence,
-    Set,
-    Tuple,
-    Type,
+    Concatenate,
+    NoReturn,
+    TypeAlias,
     TypeVar,
-    Union,
     cast,
 )
 from unittest.mock import call
@@ -57,7 +51,7 @@ import hypothesis
 import hypothesis.strategies as st
 import pytest
 from hypothesis.stateful import Bundle, RuleBasedStateMachine, consumes, invariant, rule
-from typing_extensions import Concatenate, ParamSpec
+from typing_extensions import ParamSpec, Self
 
 from aiokatcp import (
     AbstractSensorWatcher,
@@ -76,24 +70,19 @@ from aiokatcp import (
 )
 from aiokatcp.client import _ClientState, _MonitoredSensor
 
-_ClientQueue = Union["asyncio.Queue[Tuple[asyncio.StreamReader, asyncio.StreamWriter]]"]
+_ClientQueue: TypeAlias = "asyncio.Queue[tuple[asyncio.StreamReader, asyncio.StreamWriter]]"
 _P = ParamSpec("_P")
 _T = TypeVar("_T")
 _ASM = TypeVar("_ASM", bound="AsyncStateMachine")
 
 
-@pytest.fixture
-def event_loop_policy():
-    return async_solipsism.EventLoopPolicy()
-
-
 class DummyClient(Client):
     """Client with some informs for testing."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.foos = asyncio.Queue()
-        self.unhandled = asyncio.Queue()
+        self.foos: asyncio.Queue[tuple[str, int]] = asyncio.Queue()
+        self.unhandled: asyncio.Queue[Message] = asyncio.Queue()
 
     def inform_foo(self, string: str, integer: int) -> None:
         self.foos.put_nowait((string, integer))
@@ -115,7 +104,7 @@ async def client_queue() -> _ClientQueue:
 async def server(client_queue) -> AsyncGenerator[asyncio.base_events.Server, None]:
     """Start a server listening on [::1]:7777."""
 
-    def callback(reader, writer):
+    def callback(reader, writer) -> None:
         client_queue.put_nowait((reader, writer))
 
     server = await asyncio.start_server(callback, "::1", 7777)
@@ -179,7 +168,7 @@ class Channel:
         client_queue: _ClientQueue,
         client_cls: Callable[..., Client] = DummyClient,
         auto_reconnect=True,
-    ) -> "Channel":
+    ) -> Self:
         host, port = server.sockets[0].getsockname()[:2]
         client = client_cls(host, port, auto_reconnect=auto_reconnect)
         connected_callback = unittest.mock.MagicMock()
@@ -252,7 +241,7 @@ async def test_request_fail_msg_bad_encoding(channel) -> None:
     future = asyncio.create_task(channel.client.request("failme"))
     assert await channel.reader.readline() == b"?failme[1]\n"
     channel.writer.write(b"!failme[1] fail \xaf\n")
-    with pytest.raises(FailReply, match="^\uFFFD$"):
+    with pytest.raises(FailReply, match="^\ufffd$"):
         await future
 
 
@@ -414,7 +403,7 @@ async def test_inform_callback(channel) -> None:
     def callback(string: str, integer: int) -> None:
         values.put_nowait((string, integer))
 
-    values = asyncio.Queue()  # type: asyncio.Queue[Tuple[str, int]]
+    values: asyncio.Queue[tuple[str, int]] = asyncio.Queue()
     client = cast(DummyClient, channel.client)
     client.add_inform_callback("bar", callback)
     await channel.wait_connected()
@@ -531,7 +520,7 @@ async def test_bad_address(caplog) -> None:
 async def test_cancelled_connect(monkeypatch, auto_reconnect: bool) -> None:
     """Close the client before the connection can be established."""
 
-    async def slow_create_connection(*args, **kwargs):
+    async def slow_create_connection(*args, **kwargs) -> NoReturn:
         await asyncio.sleep(1)
         raise ConnectionRefusedError  # pragma: nocover (won't be reached due to cancellation)
 
@@ -579,7 +568,7 @@ async def test_cancelled_connect_race(monkeypatch, server, client_queue, steps) 
 # point @run_in_loop is called; and the precondition is typically a lambda so
 # lacks its own type annotations.
 def run_in_loop(
-    *, precondition: Optional[Callable[[Any], bool]] = None
+    *, precondition: Callable[[Any], bool] | None = None
 ) -> Callable[
     [Callable[Concatenate[_ASM, _P], Awaitable[_T]]], Callable[Concatenate[_ASM, _P], _T]
 ]:
@@ -596,7 +585,7 @@ def run_in_loop(
     """
 
     def decorator(
-        func: Callable[Concatenate[_ASM, _P], Awaitable[_T]]
+        func: Callable[Concatenate[_ASM, _P], Awaitable[_T]],
     ) -> Callable[Concatenate[_ASM, _P], _T]:
         if precondition is not None:
 
@@ -634,7 +623,7 @@ class AsyncStateMachine(RuleBasedStateMachine):
         self.loop = async_solipsism.EventLoop()
         self._start()
 
-    def teardown(self):
+    def teardown(self) -> None:
         self._stop()
         self.loop.close()
 
@@ -662,12 +651,14 @@ class ClientStateMachine(AsyncStateMachine):
 
     def __init__(self) -> None:
         super().__init__()
-        self.reader: Optional[asyncio.StreamReader] = None
-        self.writer: Optional[asyncio.StreamWriter] = None
-        self.tasks: Set[asyncio.Task] = set()  # tasks for pending requests
+        self.reader: asyncio.StreamReader | None = None
+        self.writer: asyncio.StreamWriter | None = None
+        self.tasks: set[asyncio.Task] = set()  # tasks for pending requests
         self.auto_protocol = True  # Whether to send #katcp-protocol immediately on connect
 
-    def _client_connected_cb(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    def _client_connected_cb(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
         if self.writer is not None:
             self.writer.close()
         self.reader = reader
@@ -731,7 +722,7 @@ class ClientStateMachine(AsyncStateMachine):
 
     @rule()
     @run_in_loop()
-    async def step(self):
+    async def step(self) -> None:
         """Allow the event loop to progress for one iteration."""
         await asyncio.sleep(0)
 
@@ -743,7 +734,7 @@ class ClientStateMachine(AsyncStateMachine):
     @rule(target=mids)
     @run_in_loop(precondition=lambda self: self.client.is_connected)
     async def request(self) -> int:
-        def done(task):
+        def done(task) -> None:
             self.tasks.discard(task)
             try:
                 task.result()
@@ -764,7 +755,7 @@ class ClientStateMachine(AsyncStateMachine):
         response=st.sampled_from(["ok", "fail", "invalid"]),
     )
     @run_in_loop(precondition=lambda self: self.writer is not None and not self.writer.is_closing())
-    async def reply(self, mid: Optional[int], count: int, response: str) -> None:
+    async def reply(self, mid: int | None, count: int, response: str) -> None:
         assert self.writer is not None  # mypy doesn't parse the precondition
         try:
             if mid is not None:
@@ -906,7 +897,7 @@ class TestSensorMonitor:
     async def test_init(self, channel) -> None:
         await channel.init()
 
-    async def test_add_remove_sensors(self, channel):
+    async def test_add_remove_sensors(self, channel) -> None:
         await channel.init()
         await channel.interface_changed()
         channel.writer.write(
@@ -943,7 +934,7 @@ class TestSensorMonitor:
             call.state_updated(SyncState.SYNCED),
         ]
 
-    async def test_remove_sensor_while_subscribing(self, channel):
+    async def test_remove_sensor_while_subscribing(self, channel) -> None:
         """Sensor is removed between notification and subscription attempt."""
         await channel.init()
         await channel.interface_changed()
@@ -959,7 +950,7 @@ class TestSensorMonitor:
         channel.writer.write(rb"!sensor-sampling[5] fail Unknown\_sensor\_'pressure'" + b"\n")
         assert await channel.reader.readline() == b"?sensor-sampling[6] temp auto\n"
         channel.writer.write(
-            b"#sensor-status 123456790.0 1 temp warn 451.0\n" b"!sensor-sampling[6] ok temp auto\n"
+            b"#sensor-status 123456790.0 1 temp warn 451.0\n!sensor-sampling[6] ok temp auto\n"
         )
         await asyncio.sleep(1)
 
@@ -977,13 +968,12 @@ class TestSensorMonitor:
             call.state_updated(SyncState.SYNCED),
         ]
 
-    async def test_replace_sensor(self, channel):
+    async def test_replace_sensor(self, channel) -> None:
         """Sensor has the same name but different parameters"""
         await channel.init()
         await channel.interface_changed()
         channel.writer.write(
-            b"#sensor-list[3] device-status A\\_different\\_status \\@ int\n"
-            b"!sensor-list[3] ok 1\n"
+            b"#sensor-list[3] device-status A\\_different\\_status \\@ int\n!sensor-list[3] ok 1\n"
         )
         assert await channel.reader.readline() == b"?sensor-sampling[4] device-status auto\n"
         assert channel.watcher.mock_calls == [
@@ -1006,7 +996,7 @@ class TestSensorMonitor:
             call.state_updated(SyncState.SYNCED),
         ]
 
-    async def test_sensor_vanished(self, channel):
+    async def test_sensor_vanished(self, channel) -> None:
         """Sensor vanishes immediately after sensor-list reply."""
         await channel.connect()
         await channel.sensor_list()
@@ -1024,7 +1014,7 @@ class TestSensorMonitor:
             call.state_updated(SyncState.SYNCED),
         ]
 
-    async def test_sensor_vanished2(self, channel):
+    async def test_sensor_vanished2(self, channel) -> None:
         """Sensor vanishes immediately after sensor-list reply (second case).
 
         This is similar to :meth:`test_sensor_vanished`, but the inform arrives
@@ -1048,21 +1038,21 @@ class TestSensorMonitor:
             call.state_updated(SyncState.SYNCED),
         ]
 
-    async def test_remove_sensor_watcher(self, channel):
+    async def test_remove_sensor_watcher(self, channel) -> None:
         """Removing the last watcher unsubscribes"""
         await channel.init()
         channel.client.remove_sensor_watcher(channel.watcher)
         assert await channel.reader.readline() == b"?sensor-sampling[3] device-status none\n"
         channel.writer.write(b"!sensor-sampling[3] ok device-status none\n")
 
-    async def test_close(self, channel):
+    async def test_close(self, channel) -> None:
         """Closing the client must update the state"""
         await channel.init()
         channel.client.close()
         await channel.client.wait_closed()
         assert channel.watcher.mock_calls == [call.state_updated(SyncState.CLOSED)]
 
-    async def test_disconnect(self, channel, client_queue):
+    async def test_disconnect(self, channel, client_queue) -> None:
         """When the connection drops, the state must change appropriately"""
         await channel.init()
         channel.writer.write(b"#disconnect Testing\n")
@@ -1094,7 +1084,7 @@ class TestSensorMonitor:
             call.state_updated(SyncState.SYNCED),
         ]
 
-    async def test_unexpected_update(self, channel):
+    async def test_unexpected_update(self, channel) -> None:
         """If a ``#sensor-status`` inform arrives we weren't expecting, we're subscribed.
 
         This can happen if we remove a watcher but receive the update before we
@@ -1125,19 +1115,19 @@ class TestSensorMonitor:
             b"#sensor-status 123456789.0 hello\n",  # Count is not integer
             b"#sensor-status 123456789.0 -1\n",  # Count is negative
             b"#sensor-status 123456789.0 2 device-status nominal ok\n",  # Count is wrong
-            b"#sensor-status 123456789.0 1 device-status\xFF nominal ok\n",  # Non-UTF-8 name
+            b"#sensor-status 123456789.0 1 device-status\xff nominal ok\n",  # Non-UTF-8 name
             b"#sensor-status 123456789.0 1 device-status spam ok\n",  # Invalid status
             b"#sensor-status 123456789.0 1 unknown nominal ok\n",  # Unknown sensor
         ],
     )
-    async def test_invalid_update(self, channel, update):
+    async def test_invalid_update(self, channel, update) -> None:
         """An invalidly-formatted ``#sensor-status`` inform has no effect."""
         await channel.init()
         channel.writer.write(update)
         await channel.writer.drain()
 
     @pytest.mark.channel_args(auto_reconnect=False)
-    async def test_no_reconnect(self, channel):
+    async def test_no_reconnect(self, channel) -> None:
         """Test the SensorMonitor stops gracefully when one-shot connection terminates."""
         await channel.init()
         channel.writer.write(b"#interface-changed sensor-list\n")
@@ -1150,7 +1140,7 @@ class TestSensorMonitor:
 
 
 class DummySensorWatcher(SensorWatcher):
-    def rewrite_name(self, name: str) -> Union[str, Sequence[str]]:
+    def rewrite_name(self, name: str) -> str | Sequence[str]:
         if name == "bar":
             return ["test_bar1", "test_bar2"]
         return "test_" + name
@@ -1165,9 +1155,9 @@ class TestSensorWatcher:
     """Test :class:`~.SensorWatcher`."""
 
     @pytest.fixture
-    def client(self, event_loop) -> unittest.mock.MagicMock:
+    async def client(self) -> unittest.mock.MagicMock:
         client = unittest.mock.MagicMock()
-        client.loop = event_loop
+        client.loop = asyncio.get_running_loop()
         return client
 
     @pytest.fixture
@@ -1212,9 +1202,9 @@ class TestSensorWatcher:
         assert sensor.status == Sensor.Status.UNKNOWN
         members = [encode(member) for member in sensor.stype.__members__.values()]
         assert members == [b"abc", b"def-xyz"]
-        assert (
-            watcher.sensors["test_disc"].stype is watcher.sensors["test_disc2"].stype
-        ), "Enum cache did not work"
+        assert watcher.sensors["test_disc"].stype is watcher.sensors["test_disc2"].stype, (
+            "Enum cache did not work"
+        )
 
     def test_sensor_added_known_discrete(self, watcher: DummySensorWatcher) -> None:
         watcher.batch_start()
@@ -1320,10 +1310,10 @@ class HashFilterSensorWatcher(SensorWatcher):
     def __init__(
         self,
         client: Client,
-        enum_types: Sequence[Type[enum.Enum]] = (),
+        enum_types: Sequence[type[enum.Enum]] = (),
         *,
         mod: int,
-        phases: Set[int],
+        phases: set[int],
     ) -> None:
         super().__init__(client, enum_types)
         self._mod = mod
@@ -1351,7 +1341,7 @@ def sensor_value_strategy(sensor: Sensor) -> st.SearchStrategy:
 
 
 @st.composite
-def mod_phases_strategy(draw: st.DrawFn) -> Tuple[int, Set[int]]:
+def mod_phases_strategy(draw: st.DrawFn) -> tuple[int, set[int]]:
     """Strategy used to generate :class:`HashFilterSensorWatcher` parameters.
 
     It generates a modulus and a set of values modulo that modulus.
@@ -1382,7 +1372,7 @@ class SensorWatcherStateMachine(AsyncStateMachine):
 
     def __init__(self) -> None:
         super().__init__()
-        self.watchers: List[HashFilterSensorWatcher] = []
+        self.watchers: list[HashFilterSensorWatcher] = []
         # Unique value that is appended to the units of each sensor created.
         # This ensures that any replacement of a sensor with one of the same
         # name (but different properties) can be detected by the client so
@@ -1428,7 +1418,7 @@ class SensorWatcherStateMachine(AsyncStateMachine):
         stype=st.sampled_from([bytes, int, float, bool]),
     )
     @run_in_loop()
-    async def add_sensor(self, stype: Type, name: str, description: str, units: str) -> None:
+    async def add_sensor(self, stype: type, name: str, description: str, units: str) -> None:
         self.server.sensors.add(Sensor(stype, name, description, f"{units} [{next(self.counter)}]"))
         self.server.mass_inform("interface-changed")
 
@@ -1440,7 +1430,7 @@ class SensorWatcherStateMachine(AsyncStateMachine):
         del self.server.sensors[name]
         self.server.mass_inform("interface-changed")
 
-    def sensor_update_strategy(self) -> st.SearchStrategy[Tuple[str, Any]]:
+    def sensor_update_strategy(self) -> st.SearchStrategy[tuple[str, Any]]:
         """Generate a strategy that will return a sensor name and a value for that sensor.
 
         The sensor value will be suitable to the type of the sensor.
@@ -1457,13 +1447,13 @@ class SensorWatcherStateMachine(AsyncStateMachine):
         status=st.sampled_from(sorted(Sensor.Status)),
     )
     @run_in_loop(precondition=lambda self: self.server.sensors)  # Must have a sensor to update
-    async def update_value(self, name_value: Tuple[str, Any], status: Sensor.Status) -> None:
+    async def update_value(self, name_value: tuple[str, Any], status: Sensor.Status) -> None:
         name, value = name_value
         self.server.sensors[name].set_value(value, status=status)
 
     @rule(mod_phases=mod_phases_strategy())
     @run_in_loop()
-    async def add_watcher(self, mod_phases: Tuple[int, Set[int]]) -> None:
+    async def add_watcher(self, mod_phases: tuple[int, set[int]]) -> None:
         mod, phases = mod_phases
         watcher = HashFilterSensorWatcher(self.client, mod=mod, phases=phases)
         self.watchers.append(watcher)
@@ -1532,7 +1522,7 @@ class SensorWatcherStateMachine(AsyncStateMachine):
     async def check_consistency(self) -> None:
         """Check that mirrored state converges."""
 
-        def sensor_key(sensor: Sensor) -> Tuple[type, str, str, str, float, Sensor.Status, Any]:
+        def sensor_key(sensor: Sensor) -> tuple[type, str, str, str, float, Sensor.Status, Any]:
             """Map a sensor to something that can be checked for equality."""
             return (
                 sensor.stype,
@@ -1636,13 +1626,14 @@ class TestClientNoMidSupport:
 
 class TestUnclosedClient:
     async def body(self) -> None:
+        client_queue: _ClientQueue = asyncio.Queue()
+
         # We can't use the existing fixtures, because their cleanup depends
         # on the event loop still running, and we're going to close the loop
         # during the test.
-        def callback(reader, writer):
+        def callback(reader, writer) -> None:
             client_queue.put_nowait((reader, writer))
 
-        client_queue: _ClientQueue = asyncio.Queue()
         server = await asyncio.start_server(callback, "::1", 7777)
         DummyClient("::1", 7777)
         (reader, writer) = await client_queue.get()

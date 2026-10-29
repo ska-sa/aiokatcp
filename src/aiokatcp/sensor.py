@@ -35,25 +35,13 @@ import time
 import warnings
 import weakref
 from abc import ABCMeta, abstractmethod
+from collections.abc import Callable, ItemsView, Iterable, Iterator, KeysView, Mapping, ValuesView
 from dataclasses import dataclass
 from typing import (
     Any,
-    Callable,
-    Dict,
     Generic,
-    ItemsView,
-    Iterable,
-    Iterator,
-    KeysView,
-    List,
-    Mapping,
-    Optional,
-    Set,
-    Tuple,
-    Type,
+    TypeAlias,
     TypeVar,
-    Union,
-    ValuesView,
     cast,
     overload,
 )
@@ -68,20 +56,18 @@ _U = TypeVar("_U")
 
 class DeltaObserver(Protocol[_T]):
     def __call__(
-        self, __sensor: "Sensor[_T]", __reading: "Reading[_T]", *, old_reading: "Reading[_T]"
-    ) -> None:
-        ...
+        self, sensor: "Sensor[_T]", reading: "Reading[_T]", /, *, old_reading: "Reading[_T]"
+    ) -> None: ...
 
 
 class ClassicObserver(Protocol[_T]):
-    def __call__(self, __sensor: "Sensor[_T]", __reading: "Reading[_T]") -> None:
-        ...
+    def __call__(self, sensor: "Sensor[_T]", reading: "Reading[_T]", /) -> None: ...
 
 
-Observer = Union[ClassicObserver[_T], DeltaObserver[_T]]
+Observer: TypeAlias = ClassicObserver[_T] | DeltaObserver[_T]
 
 
-@dataclass
+@dataclass(slots=True)
 class Reading(Generic[_T]):
     """Sensor reading
 
@@ -95,8 +81,6 @@ class Reading(Generic[_T]):
         Sensor value at `timestamp`
     """
 
-    # Once Python 3.10 is the minimum, pass 'slots' parameter to dataclass instead
-    __slots__ = ("timestamp", "status", "value")
     timestamp: float
     status: "Sensor.Status"
     value: _T
@@ -155,23 +139,23 @@ class Sensor(Generic[_T]):
 
     def __init__(
         self,
-        sensor_type: Type[_T],
+        sensor_type: type[_T],
         name: str,
         description: str = "",
         units: str = "",
-        default: Optional[_T] = None,
+        default: _T | None = None,
         initial_status: Status = Status.UNKNOWN,
         *,
         status_func: Callable[[_T], Status] = _default_status_func,
-        auto_strategy: Optional["SensorSampler.Strategy"] = None,
+        auto_strategy: "SensorSampler.Strategy | None" = None,
         auto_strategy_parameters: Iterable[Any] = (),
     ) -> None:
         self.stype = sensor_type
         type_info = core.get_type(sensor_type)
         self.type_name = type_info.name
         self._core_type = type_info.type_
-        self._classic_observers: Set[ClassicObserver[_T]] = set()
-        self._delta_observers: Set[DeltaObserver[_T]] = set()
+        self._classic_observers: set[ClassicObserver[_T]] = set()
+        self._delta_observers: set[DeltaObserver[_T]] = set()
         self.name = name
         self.description = description
         self.units = units
@@ -233,7 +217,7 @@ class Sensor(Generic[_T]):
             delta_observer(self, reading, old_reading=old_reading)
 
     def set_value(
-        self, value: Any, status: Optional[Status] = None, timestamp: Optional[float] = None
+        self, value: Any, status: Status | None = None, timestamp: float | None = None
     ) -> None:
         """Set the current value of the sensor.
 
@@ -295,7 +279,7 @@ class Sensor(Generic[_T]):
         return self._reading
 
     @property
-    def params(self) -> List[bytes]:
+    def params(self) -> list[bytes]:
         if self.type_name == "discrete":
             return [core.encode(value) for value in cast(Iterable, self.stype)]
         else:
@@ -310,8 +294,8 @@ class Sensor(Generic[_T]):
 
     def detach(self, observer: Observer[_T]) -> None:
         # It's simpler to just discard from both sets (and ignore the type) than to do inspection.
-        self._delta_observers.discard(observer)  # type: ignore
-        self._classic_observers.discard(observer)  # type: ignore
+        self._delta_observers.discard(observer)
+        self._classic_observers.discard(observer)
 
 
 class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
@@ -361,32 +345,32 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
     def __init__(
         self,
         sensor: Sensor[_T],
-        observer: Optional[Callable[[Sensor[_T], Reading[_T]], None]],
+        observer: Callable[[Sensor[_T], Reading[_T]], None] | None,
         loop: asyncio.AbstractEventLoop,
-        difference: Optional[_T] = None,
+        difference: _T | None = None,
         shortest: core.Timestamp = core.Timestamp(0),
-        longest: Optional[core.Timestamp] = None,
+        longest: core.Timestamp | None = None,
         *,
         always_update: bool = False,
         is_auto: bool = False,
     ) -> None:
         if longest is not None:
-            self.longest: Optional[float] = float(longest)
+            self.longest: float | None = float(longest)
             if self.longest <= 0:
                 raise ValueError("period must be positive")
         else:
             self.longest = None
         self.shortest = float(shortest)
-        self.sensor: Optional[Sensor[_T]] = sensor
-        self._observer: Optional[Callable[[Sensor[_T], Reading[_T]], None]] = observer
+        self.sensor: Sensor[_T] | None = sensor
+        self._observer: Callable[[Sensor[_T], Reading[_T]], None] | None = observer
         self.difference = difference
         self.always_update = always_update
         self.is_auto = is_auto
         self.loop = loop
-        self._callback_handle: Optional[asyncio.Handle] = None
+        self._callback_handle: asyncio.Handle | None = None
         self._last_time = 0.0
-        self._last_value: Optional[_T] = None
-        self._last_status: Optional[Sensor.Status] = None
+        self._last_value: _T | None = None
+        self._last_status: Sensor.Status | None = None
         self._changed = False
         self.sensor.attach(self._receive_update)
         self._send_update(loop.time(), sensor.reading)
@@ -398,11 +382,11 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
                 self.loop.call_soon_threadsafe(self.close)
 
     @property
-    def observer(self) -> Optional[Callable[[Sensor[_T], Reading[_T]], None]]:
+    def observer(self) -> Callable[[Sensor[_T], Reading[_T]], None] | None:
         return self._observer
 
     @observer.setter
-    def observer(self, observer: Optional[Callable[[Sensor[_T], Reading[_T]], None]]) -> None:
+    def observer(self, observer: Callable[[Sensor[_T], Reading[_T]], None] | None) -> None:
         assert self.sensor is not None
         self._observer = observer
         self._send_update(self.loop.time(), self.sensor.reading)
@@ -412,7 +396,7 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
             self._callback_handle.cancel()
             self._callback_handle = None
 
-    def _send_update(self, sched_time: float, reading: Optional[Reading[_T]]) -> None:
+    def _send_update(self, sched_time: float, reading: Reading[_T] | None) -> None:
         assert self.sensor is not None
         if self._observer is None:
             return
@@ -484,11 +468,11 @@ class SensorSampler(Generic[_T], metaclass=abc.ABCMeta):
     def factory(
         cls,
         sensor: Sensor[_T],
-        observer: Optional[Callable[[Sensor[_T], Reading[_T]], None]],
+        observer: Callable[[Sensor[_T], Reading[_T]], None] | None,
         loop: asyncio.AbstractEventLoop,
         strategy: "SensorSampler.Strategy",
         *args: bytes,
-    ) -> Optional["SensorSampler[_T]"]:
+    ) -> "SensorSampler[_T] | None":
         if strategy == cls.Strategy.AUTO:
             strategy = sensor.auto_strategy
             decoded_args = sensor.auto_strategy_parameters
@@ -525,7 +509,7 @@ class _SensorSamplerEventAlways(SensorSampler[_T]):
     ) -> None:
         super().__init__(sensor, observer, loop, always_update=True, is_auto=is_auto)
 
-    def _parameters(self) -> Tuple[SensorSampler.Strategy]:
+    def _parameters(self) -> tuple[SensorSampler.Strategy]:
         return (SensorSampler.Strategy.AUTO,)
 
 
@@ -541,12 +525,12 @@ class _SensorSamplerPeriod(SensorSampler[_T]):
     ) -> None:
         super().__init__(sensor, observer, loop, shortest=period, longest=period, is_auto=is_auto)
 
-    def _parameters(self) -> Tuple[SensorSampler.Strategy, core.Timestamp]:
+    def _parameters(self) -> tuple[SensorSampler.Strategy, core.Timestamp]:
         return (SensorSampler.Strategy.PERIOD, core.Timestamp(self.shortest))
 
 
 class _SensorSamplerEvent(SensorSampler[_T]):
-    def _parameters(self) -> Tuple[SensorSampler.Strategy]:
+    def _parameters(self) -> tuple[SensorSampler.Strategy]:
         return (SensorSampler.Strategy.EVENT,)
 
 
@@ -562,7 +546,7 @@ class _SensorSamplerDifferential(SensorSampler[_T]):
     ) -> None:
         super().__init__(sensor, observer, loop, difference=difference, is_auto=is_auto)
 
-    def _parameters(self) -> Tuple[SensorSampler.Strategy, _T]:
+    def _parameters(self) -> tuple[SensorSampler.Strategy, _T]:
         assert self.difference is not None  # To keep mypy happy
         return (SensorSampler.Strategy.DIFFERENTIAL, self.difference)
 
@@ -582,7 +566,7 @@ class _SensorSamplerEventRate(SensorSampler[_T]):
             sensor, observer, loop, shortest=shortest, longest=longest, is_auto=is_auto
         )
 
-    def _parameters(self) -> Tuple[SensorSampler.Strategy, core.Timestamp, core.Timestamp]:
+    def _parameters(self) -> tuple[SensorSampler.Strategy, core.Timestamp, core.Timestamp]:
         # assertions to keep mypy happy
         assert self.shortest is not None
         assert self.longest is not None
@@ -617,7 +601,7 @@ class _SensorSamplerDifferentialRate(SensorSampler[_T]):
 
     def _parameters(
         self,
-    ) -> Tuple[SensorSampler.Strategy, _T, core.Timestamp, core.Timestamp]:
+    ) -> tuple[SensorSampler.Strategy, _T, core.Timestamp, core.Timestamp]:
         # assertions to keep mypy happy
         assert self.difference is not None
         assert self.shortest is not None
@@ -631,8 +615,8 @@ class _SensorSamplerDifferentialRate(SensorSampler[_T]):
 
 
 # float is used as a placeholder for the sensor value type
-_SAMPLER_CLASSES_TYPES: Dict[
-    SensorSampler.Strategy, Tuple[Optional[Type[SensorSampler]], List[Type]]
+_SAMPLER_CLASSES_TYPES: dict[
+    SensorSampler.Strategy, tuple[type[SensorSampler] | None, list[type]]
 ] = {
     SensorSampler.Strategy.NONE: (None, []),
     SensorSampler.Strategy.AUTO: (_SensorSamplerEventAlways, []),
@@ -663,9 +647,9 @@ class SensorSet(Mapping[str, Sensor]):
         NO_DEFAULT = 0
 
     def __init__(self) -> None:
-        self._sensors: Dict[str, Sensor] = {}
-        self._add_callbacks: List[Callable[[Sensor], None]] = []
-        self._remove_callbacks: List[Callable[[Sensor], None]] = []
+        self._sensors: dict[str, Sensor] = {}
+        self._add_callbacks: list[Callable[[Sensor], None]] = []
+        self._remove_callbacks: list[Callable[[Sensor], None]] = []
 
     def _removed(self, s: Sensor) -> None:
         """Call all the remove callbacks."""
@@ -717,14 +701,14 @@ class SensorSet(Mapping[str, Sensor]):
         while self._sensors:
             self.popitem()
 
-    def popitem(self) -> Tuple[str, Sensor]:
+    def popitem(self) -> tuple[str, Sensor]:
         name, value = self._sensors.popitem()
         self._removed(value)
         return name, value
 
     def pop(
-        self, key: str, default: Union[Sensor, None, _Sentinel] = _Sentinel.NO_DEFAULT
-    ) -> Optional[Sensor]:
+        self, key: str, default: Sensor | None | _Sentinel = _Sentinel.NO_DEFAULT
+    ) -> Sensor | None:
         if key not in self._sensors:
             if isinstance(default, self._Sentinel):
                 raise KeyError(key)
@@ -743,14 +727,12 @@ class SensorSet(Mapping[str, Sensor]):
         return self._sensors[name]
 
     @overload
-    def get(self, name: str) -> Optional[Sensor]:
-        ...
+    def get(self, name: str) -> Sensor | None: ...
 
-    @overload  # noqa: F811
-    def get(self, name: str, default: Union[Sensor, _T]) -> Union[Sensor, _T]:
-        ...
+    @overload
+    def get(self, name: str, default: Sensor | _T) -> Sensor | _T: ...
 
-    def get(self, name: str, default: Optional[object] = None) -> object:  # noqa: F811
+    def get(self, name: str, default: object | None = None) -> object:
         return self._sensors.get(name, default)
 
     def __contains__(self, s: object) -> bool:
@@ -777,7 +759,7 @@ class SensorSet(Mapping[str, Sensor]):
     def items(self) -> ItemsView[str, Sensor]:
         return self._sensors.items()
 
-    def copy(self) -> Dict[str, Sensor]:
+    def copy(self) -> dict[str, Sensor]:
         return self._sensors.copy()
 
     __hash__ = None  # type: ignore     # mypy can't handle this
@@ -806,13 +788,13 @@ class _weak_callback:
 
     def __init__(self, func: Callable) -> None:
         self._func = func
-        self._name: Optional[str] = None
+        self._name: str | None = None
         self.__doc__ = func.__doc__
 
     def __set_name__(self, owner: type, name: str) -> None:
         self._name = name
 
-    def __get__(self, instance: object, owner: Optional[type] = None):
+    def __get__(self, instance: object, owner: type | None = None):
         # __get__ is magic in Python: it makes this class a "descriptor".
         # Refer to the language guide for an explanation of what that means.
         # In short, when one calls `obj.method` where `method` was
@@ -862,12 +844,12 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
     def __init__(
         self,
         target: SensorSet,
-        sensor_type: Type[_T],
+        sensor_type: type[_T],
         name: str,
         description: str = "",
         units: str = "",
         *,
-        auto_strategy: Optional["SensorSampler.Strategy"] = None,
+        auto_strategy: SensorSampler.Strategy | None = None,
         auto_strategy_parameters: Iterable[Any] = (),
     ) -> None:
         super().__init__(
@@ -894,9 +876,9 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
         weakref.finalize(self, self.target.remove_remove_callback, self._sensor_removed)
         self._update_aggregate(None, None, None)
 
-    def __del__(self):
+    def __del__(self) -> None:
         # Protect against an exception early in __init__
-        for sensor in getattr(self, "target", []).values():
+        for sensor in getattr(self, "target", {}).values():
             # Could use filter_aggregate, but it might not work during
             # destruction, and its a no-op if there is no attachment.
             sensor.detach(self._update_aggregate_callback)
@@ -904,10 +886,10 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
     @abstractmethod
     def update_aggregate(
         self,
-        updated_sensor: Optional[Sensor[_U]],
-        reading: Optional[Reading[_U]],
-        old_reading: Optional[Reading[_U]],
-    ) -> Optional[Reading[_T]]:
+        updated_sensor: Sensor[_U] | None,
+        reading: Reading[_U] | None,
+        old_reading: Reading[_U] | None,
+    ) -> Reading[_T] | None:
         """Update the aggregated sensor.
 
         The user is required to override this function, which must return the
@@ -928,12 +910,11 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
 
         Returns
         -------
-        Optional[Reading]
+        Reading | None
             The reading (value, status, timestamp) that should be shown by the
             `AggregatedSensor` as a result of the change. If None is returned,
             the sensor's reading is not modified.
         """
-        pass  # pragma: nocover
 
     def filter_aggregate(self, sensor: Sensor) -> bool:
         """Decide whether another sensor is part of the aggregation.
@@ -951,9 +932,9 @@ class AggregateSensor(Sensor[_T], metaclass=ABCMeta):
 
     def _update_aggregate(
         self,
-        updated_sensor: Optional[Sensor[_U]],
-        reading: Optional[Reading[_U]],
-        old_reading: Optional[Reading[_U]],
+        updated_sensor: Sensor[_U] | None,
+        reading: Reading[_U] | None,
+        old_reading: Reading[_U] | None,
     ) -> None:
         updated_reading = self.update_aggregate(updated_sensor, reading, old_reading)
         if updated_reading is not None:
@@ -1021,15 +1002,15 @@ class SimpleAggregateSensor(AggregateSensor[_T]):
         """
 
     @abstractmethod
-    def aggregate_compute(self) -> Tuple[Sensor.Status, _T]:
+    def aggregate_compute(self) -> tuple[Sensor.Status, _T]:
         """Compute aggregate status and value from the internal state."""
 
     def update_aggregate(
         self,
-        updated_sensor: Optional[Sensor[_U]],
-        reading: Optional[Reading[_U]],
-        old_reading: Optional[Reading[_U]],
-    ) -> Optional[Reading[_T]]:
+        updated_sensor: Sensor[_U] | None,
+        reading: Reading[_U] | None,
+        old_reading: Reading[_U] | None,
+    ) -> Reading[_T] | None:
         if updated_sensor is None:
             # We're being called from the constructor. Add any existing sensors.
             for s in self.target.values():

@@ -37,8 +37,7 @@ server looks like this:
         await server.join()
 
     if __name__ == '__main__':
-        asyncio.get_event_loop().run_until_complete(main())
-        asyncio.get_event_loop().close()
+        asyncio.run(main())
 
 That is sufficient to run a server that will listen on port 4444, and answer
 standard requests like ``?help``. But of course, you will want to extend the

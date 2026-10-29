@@ -31,37 +31,30 @@ import ipaddress
 import logging
 import numbers
 import re
-import sys
 import typing
+from collections.abc import Callable
+from re import Match
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
+    Final,
     Generic,
-    List,
-    Match,
-    Optional,
-    Tuple,
-    Type,
+    TypeAlias,
     TypeVar,
     Union,
 )
 
 import katcp_codec
-from typing_extensions import TypeAlias
+from typing_extensions import Self
 
 _T = TypeVar("_T")
 _E = TypeVar("_E", bound=enum.Enum)
 _F = TypeVar("_F", bound=numbers.Real)
-_I = TypeVar("_I", bound=numbers.Integral)
 _S = TypeVar("_S", bound=str)
 _B = TypeVar("_B", bound=bytes)
-_IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
-if sys.version_info >= (3, 10):
-    # Union[A, B] and A | B have different classes, even though they behave similarly
-    _UnionTypes = (type(Union[int, float]), type(int | float))
-else:
-    _UnionTypes = (type(Union[int, float]),)
+_IPAddress: TypeAlias = ipaddress.IPv4Address | ipaddress.IPv6Address
+# Union[A, B] and A | B have different classes, even though they behave similarly
+_UnionTypes = (type(Union[int, float]), type(int | float))  # noqa: UP007
 
 
 class Address:
@@ -79,7 +72,7 @@ class Address:
     _IPV4_RE = re.compile(r"^(?P<host>[^:]+)(:(?P<port>\d+))?$")
     _IPV6_RE = re.compile(r"^\[(?P<host>[^]]+)\](:(?P<port>\d+))?$")
 
-    def __init__(self, host: _IPAddress, port: Optional[int] = None) -> None:
+    def __init__(self, host: _IPAddress, port: int | None = None) -> None:
         if not isinstance(host, typing.get_args(_IPAddress)):
             raise TypeError(f"{host} is not of either {typing.get_args(_IPAddress)}")
         self._host = host
@@ -91,7 +84,7 @@ class Address:
         return self._host
 
     @property
-    def port(self) -> Optional[int]:
+    def port(self) -> int | None:
         """Port number"""
         return self._port
 
@@ -101,8 +94,7 @@ class Address:
         else:
             prefix = "[" + str(self._host) + "]"
         if self._port is not None:
-            # noqa is to work around https://github.com/PyCQA/pycodestyle/issues/1178
-            return f"{prefix}:{self._port}"  # noqa: E231
+            return f"{prefix}:{self._port}"
         else:
             return prefix
 
@@ -117,7 +109,7 @@ class Address:
             return f"Address({self._host!r}, {self._port!r})"
 
     @classmethod
-    def parse(cls, raw: bytes) -> "Address":
+    def parse(cls, raw: bytes) -> Self:
         """Construct an :class:`Address` from a katcp message argument
 
         Parameters
@@ -165,8 +157,6 @@ class Timestamp(float):
     distinguished. It represents time in seconds as a UNIX timestamp.
     """
 
-    pass
-
 
 class Now(enum.Enum):
     """Singleton for representing a timestamp specified as ``now`` in the protocol."""
@@ -174,7 +164,7 @@ class Now(enum.Enum):
     NOW = 0
 
 
-TimestampOrNow = Union[Timestamp, Now]
+TimestampOrNow: TypeAlias = Timestamp | Now
 
 
 class LogLevel(enum.IntEnum):
@@ -190,7 +180,7 @@ class LogLevel(enum.IntEnum):
     OFF = logging.CRITICAL + 10  # Higher than any level in logging module
 
     @classmethod
-    def from_python(cls, level: int) -> "LogLevel":
+    def from_python(cls, level: int) -> Self:
         """Map Python log level to katcp log level"""
         try:
             # Common case: value matches exactly
@@ -217,11 +207,11 @@ class TypeInfo(Generic[_T]):
 
     def __init__(
         self,
-        type_: Type[_T],
+        type_: type[_T],
         name: str,
         encode: Callable[[_T], bytes],
-        get_decoder: Callable[[Type[_T]], Callable[[bytes], _T]],
-        default: Callable[[Type[_T]], _T],
+        get_decoder: Callable[[type[_T]], Callable[[bytes], _T]],
+        default: Callable[[type[_T]], _T],
     ) -> None:
         self.type_ = type_
         self.name = name
@@ -230,19 +220,19 @@ class TypeInfo(Generic[_T]):
         self.default = default
 
     # Just for backwards compatibility
-    def decode(self, cls: Type[_T], value: bytes) -> _T:
+    def decode(self, cls: type[_T], value: bytes) -> _T:
         return self.get_decoder(cls)(value)
 
 
-_types: List[TypeInfo] = []
+_types: list[TypeInfo] = []
 
 
 def register_type(
-    type_: Type[_T],
+    type_: type[_T],
     name: str,
     encode: Callable[[_T], bytes],
-    get_decoder: Callable[[Type[_T]], Callable[[bytes], _T]],
-    default: Optional[Callable[[Type[_T]], _T]] = None,
+    get_decoder: Callable[[type[_T]], Callable[[bytes], _T]],
+    default: Callable[[type[_T]], _T] | None = None,
 ) -> None:
     """Register a type for encoding and decoding in messages.
 
@@ -273,7 +263,7 @@ def register_type(
     _types.append(TypeInfo(type_, name, encode, get_decoder, default))
 
 
-def get_type(type_: Type[_T]) -> TypeInfo[_T]:
+def get_type(type_: type[_T]) -> TypeInfo[_T]:
     """Retrieve the type information previously registered with :func:`register_type`.
 
     It returns the last type info registered that is a superclass of `type_` (according
@@ -308,12 +298,12 @@ def _get_decoder_bool(cls: type) -> Callable[[bytes], bool]:
 
 def _encode_enum(value: enum.Enum) -> bytes:
     if hasattr(value, "katcp_value"):
-        return getattr(value, "katcp_value")
+        return value.katcp_value
     else:
         return value.name.encode("ascii").lower().replace(b"_", b"-")
 
 
-def _get_decoder_enum(cls: Type[_E]) -> Callable[[bytes], _E]:
+def _get_decoder_enum(cls: type[_E]) -> Callable[[bytes], _E]:
     lookup = {_encode_enum(member): member for member in cls}
 
     def decode(raw: bytes) -> _E:
@@ -325,15 +315,15 @@ def _get_decoder_enum(cls: Type[_E]) -> Callable[[bytes], _E]:
     return decode
 
 
-def _default_generic(cls: Type[_T]) -> _T:
+def _default_generic(cls: type[_T]) -> _T:
     return cls()
 
 
-def _default_enum(cls: Type[_E]) -> _E:
+def _default_enum(cls: type[_E]) -> _E:
     return next(iter(cls))
 
 
-def _get_decoder_float(cls: Type[_F]) -> Callable[[bytes], _F]:
+def _get_decoder_float(cls: type[_F]) -> Callable[[bytes], _F]:
     if cls is float:
         return cls
     else:
@@ -343,7 +333,7 @@ def _get_decoder_float(cls: Type[_F]) -> Callable[[bytes], _F]:
         return lambda raw: cls(float(raw))  # type: ignore[call-arg]
 
 
-def _get_decoder_int(cls: Type[_T]) -> Callable[[bytes], _T]:
+def _get_decoder_int(cls: type[_T]) -> Callable[[bytes], _T]:
     if cls is int:
         return cls
     else:
@@ -351,7 +341,7 @@ def _get_decoder_int(cls: Type[_T]) -> Callable[[bytes], _T]:
         return lambda raw: cls(int(raw))  # type: ignore[call-arg]
 
 
-def _get_decoder_str(cls: Type[_S]) -> Callable[[bytes], _S]:
+def _get_decoder_str(cls: type[_S]) -> Callable[[bytes], _S]:
     if cls is str:
         # mypy doesn't resolve _S to str in this branch
         return bytes.decode  # type: ignore[return-value]
@@ -359,7 +349,7 @@ def _get_decoder_str(cls: Type[_S]) -> Callable[[bytes], _S]:
         return lambda raw: cls(raw, encoding="utf-8")
 
 
-def _get_decoder_bytes(cls: Type[_B]) -> Callable[[bytes], _B]:
+def _get_decoder_bytes(cls: type[_B]) -> Callable[[bytes], _B]:
     if cls is bytes:
         # mypy doesn't resolve _B to bytes in this branch
         return _identity  # type: ignore[return-value]
@@ -387,17 +377,17 @@ def encode(value: Any) -> bytes:
     return get_type(type(value)).encode(value)
 
 
-def _union_args(cls: Any) -> Optional[Tuple[Type, ...]]:
-    """Convert ``Union[T1, T2]`` to (T1, T2).
+def _union_args(cls: Any) -> tuple[type, ...] | None:
+    """Convert ``Union[T1, T2]`` or ``T1 | T2`` to (T1, T2).
 
-    Returns ``None`` if `cls` is not a specific :class:`typing.Union` type.
+    Returns ``None`` if `cls` is not a union type.
     """
     if not isinstance(cls, _UnionTypes):
         return None
     return typing.get_args(cls)
 
 
-def get_decoder(cls: Type[_T]) -> Callable[[bytes], _T]:
+def get_decoder(cls: type[_T]) -> Callable[[bytes], _T]:
     """Get a decoder function.
 
     See :func:`decode` for more details. This function is useful for
@@ -405,19 +395,21 @@ def get_decoder(cls: Type[_T]) -> Callable[[bytes], _T]:
     times.
     """
     union_args = _union_args(cls)
-    # Allows arguments like 'foo: Optional[str] = None' to exist, where None
+    # Allows arguments like 'foo: str | None = None' to exist, where None
     # indicates that the argument was not passed at all. More generally, this
-    # allows Union[A, B, None] to behave like Union[A, B].
+    # allows A | B | None to behave like A | B.
     if union_args is not None:
-        union_args = tuple(arg for arg in union_args if arg is not type(None))  # noqa: E721
-        if len(union_args) == 1:  # Flatten Optional[T] to T
+        union_args = tuple(arg for arg in union_args if arg is not type(None))
+        if len(union_args) == 1:  # Flatten T | None to T
             cls = union_args[0]
             union_args = None
     if union_args is not None:
-        sub_decoders = tuple(get_decoder(type_) for type_ in union_args)
+        sub_decoders: tuple[Callable[[bytes], type], ...] = tuple(
+            get_decoder(type_) for type_ in union_args
+        )
 
         def decoder(value: bytes) -> Any:
-            values: List[Any] = []
+            values: list[Any] = []
             for sub_decoder in sub_decoders:
                 try:
                     values.append(sub_decoder(value))
@@ -475,7 +467,7 @@ def decode(cls: Any, value: bytes) -> Any:
 class KatcpSyntaxError(ValueError):
     """Raised by parsers when encountering a syntax error."""
 
-    def __init__(self, message: str, raw: Optional[bytes] = None) -> None:
+    def __init__(self, message: str, raw: bytes | None = None) -> None:
         super().__init__(message)
         self.raw = raw
 
@@ -490,7 +482,7 @@ class Message:
     _ESCAPE_RE = re.compile(rb"[\\ \0\n\r\x1b\t]")
     _UNESCAPE_RE = re.compile(rb"\\(.)?")  # ? so that it also matches trailing backslash
 
-    _ESCAPE_LOOKUP = {
+    _ESCAPE_LOOKUP: Final = {
         b"\\": b"\\",
         b"_": b" ",
         b"0": b"\0",
@@ -500,41 +492,40 @@ class Message:
         b"t": b"\t",
         b"@": b"",
     }
-    _REVERSE_ESCAPE_LOOKUP = {value: key for (key, value) in _ESCAPE_LOOKUP.items()}
+    _REVERSE_ESCAPE_LOOKUP: Final = {value: key for (key, value) in _ESCAPE_LOOKUP.items()}
 
     OK = b"ok"
     FAIL = b"fail"
     INVALID = b"invalid"
 
-    def __init__(self, mtype: Type, name: str, *arguments: Any, mid: Optional[int] = None) -> None:
+    def __init__(self, mtype: Type, name: str, *arguments: Any, mid: int | None = None) -> None:
         self.mtype = mtype
         if not self._NAME_RE.match(name):
             raise ValueError(f"name {name} is invalid")
         self.name = name
         self.arguments = [encode(arg) for arg in arguments]
-        if mid is not None:
-            if not 1 <= mid <= 2**31 - 1:
-                raise ValueError(f"message ID {mid} is outside of range 1 to 2**31-1")
+        if mid is not None and not 1 <= mid <= 2**31 - 1:
+            raise ValueError(f"message ID {mid} is outside of range 1 to 2**31-1")
         self.mid = mid
 
     @classmethod
-    def request(cls, name: str, *arguments: Any, mid: Optional[int] = None) -> "Message":
+    def request(cls, name: str, *arguments: Any, mid: int | None = None) -> Self:
         return cls(cls.Type.REQUEST, name, *arguments, mid=mid)
 
     @classmethod
-    def reply(cls, name: str, *arguments: Any, mid: Optional[int] = None) -> "Message":
+    def reply(cls, name: str, *arguments: Any, mid: int | None = None) -> Self:
         return cls(cls.Type.REPLY, name, *arguments, mid=mid)
 
     @classmethod
-    def inform(cls, name: str, *arguments: Any, mid: Optional[int] = None) -> "Message":
+    def inform(cls, name: str, *arguments: Any, mid: int | None = None) -> Self:
         return cls(cls.Type.INFORM, name, *arguments, mid=mid)
 
     @classmethod
-    def reply_to_request(cls, msg: "Message", *arguments: Any) -> "Message":
+    def reply_to_request(cls, msg: "Message", *arguments: Any) -> Self:
         return cls(cls.Type.REPLY, msg.name, *arguments, mid=msg.mid)
 
     @classmethod
-    def inform_reply(cls, msg: "Message", *arguments: Any) -> "Message":
+    def inform_reply(cls, msg: "Message", *arguments: Any) -> Self:
         return cls(cls.Type.INFORM, msg.name, *arguments, mid=msg.mid)
 
     @classmethod
@@ -569,7 +560,7 @@ class Message:
         return cls._UNESCAPE_RE.sub(cls._unescape_match, arg)
 
     @classmethod
-    def parse(cls, raw) -> "Message":
+    def parse(cls, raw) -> Self:
         """Create a :class:`Message` from encoded representation.
 
         Parameters
@@ -610,7 +601,7 @@ class Message:
 
     def __repr__(self) -> str:
         return (
-            ("Message(Message.Type.{self.mtype.name}, {self.name!r}").format(self=self)
+            (f"Message(Message.Type.{self.mtype.name}, {self.name!r}")
             + "".join(f", {arg!r}" for arg in self.arguments)
             + f", mid={self.mid!r})"
         )

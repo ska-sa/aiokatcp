@@ -28,10 +28,8 @@
 import asyncio
 import logging
 import re
-from typing import Optional, Tuple  # noqa: F401
 from unittest import mock
 
-import async_solipsism
 import pytest
 
 from aiokatcp.connection import Connection
@@ -39,14 +37,9 @@ from aiokatcp.core import Message
 
 
 @pytest.fixture
-def event_loop_policy():
-    return async_solipsism.EventLoopPolicy()
-
-
-@pytest.fixture
-def owner(event_loop):
+async def owner():
     owner = mock.MagicMock()
-    owner.loop = event_loop
+    owner.loop = asyncio.get_running_loop()
     owner.handle_message = mock.MagicMock(side_effect=_ok_handler)
     # Close the transport on EOF
     owner._eof_received = mock.MagicMock(return_value=False)
@@ -54,7 +47,7 @@ def owner(event_loop):
 
 
 @pytest.fixture
-def connection_queue() -> "asyncio.Queue[Connection]":
+def connection_queue() -> asyncio.Queue[Connection]:
     return asyncio.Queue()
 
 
@@ -95,7 +88,7 @@ async def server_connection(client_reader_writer, connection_queue):
     await conn.wait_closed()
 
 
-async def _close_writer(writer):
+async def _close_writer(writer) -> None:
     writer.close()
     try:
         await writer.wait_closed()
@@ -122,14 +115,14 @@ def client_writer(client_reader_writer):
     return client_reader_writer[1]
 
 
-async def _ok_reply(conn, msg):
+async def _ok_reply(conn, msg) -> None:
     # Give test code virtual time to run between request and reply.
     await asyncio.sleep(0.5)
     conn.write_message(Message.reply_to_request(msg, "ok"))
     await conn.drain()
 
 
-def _ok_handler(conn, msg):
+def _ok_handler(conn, msg) -> None:
     asyncio.get_event_loop().create_task(_ok_reply(conn, msg))
 
 
@@ -314,7 +307,7 @@ async def test_pause_reading(owner, server_connection, client_writer) -> None:
 async def test_drain_disconnect(server_connection, client_reader, client_writer, caplog) -> None:
     """Disconnect in the middle of draining."""
 
-    async def reader():
+    async def reader() -> None:
         await client_reader.readexactly(100000)
         await _close_writer(client_writer)
 
@@ -337,7 +330,7 @@ async def test_drain_disconnect(server_connection, client_reader, client_writer,
 async def test_drain_disconnect_abort(server_connection, client_reader, client_writer) -> None:
     """Disconnect in the middle of draining, and abort the connection."""
 
-    async def reader():
+    async def reader() -> None:
         await client_reader.readexactly(100000)
         await asyncio.sleep(1)
         server_connection.abort()
@@ -354,7 +347,7 @@ async def test_drain_disconnect_abort(server_connection, client_reader, client_w
 async def test_drain_error(server_connection, client_reader) -> None:
     """Provoke a write error during draining."""
 
-    async def reader():
+    async def reader() -> None:
         await client_reader.readexactly(100000)
         # Mock both send and sendmsg, because different Python versions
         # will use different functions (send up to Python 3.11, sendmsg
