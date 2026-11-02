@@ -1,6 +1,39 @@
 Changelog
 =========
 
+.. rubric:: Version 2.4.0
+
+- Drop support for Python versions older than 3.10.
+- Reduce the buffer size for incoming messages. This will reduce
+  the number of messages that are handled in a single event loop
+  iteration, making services using aiokatcp more responsive.
+- Limit the number of sensors that :class:`~.SensorWatcher` subscribes to
+  (or unsubscribes) from at a time. This avoids unbounded-size subscription
+  requests, and avoids blocking the event loop for significant time.
+- Replace the ``test`` and ``doc`` extras with :pep:`735` dependency groups.
+- Fix a bug in :class:`.AggregateSensor` that could potentially have led to
+  logged exceptions from :meth:`!__del__` if an exception was raised in the
+  base class constructor.
+- Switch from :func:`asyncio.get_event_loop` to
+  :func:`asyncio.get_running_loop` in most cases. Class constructors still use
+  the former to ensure backwards compatibility.
+- Test with Python 3.14 and 3.15.
+- Assorted modernisation of the codebase:
+
+  - Replace isort, black and flake8 with ruff.
+  - Add a ``ci`` dependency group to replace :file:`requirements.in`.
+  - Update packages and OSes used in CI to newer versions.
+  - Update tests with work with event loop factories in
+    :mod:`!pytest-asyncio`.
+  - Use more modern typing syntax (:pep:`585`, :pep:`604`, :pep:`613`,
+    :pep:`673` and probably more).
+  - Add return type annotations to a number of functions.
+  - Move pytest configuration into :file:`pyproject.toml`.
+  - Remove some ``pragma: nocover`` and ``type: ignore`` comments that are
+    no longer required.
+  - Update example code to use :func:`asyncio.run`.
+  - Specify license using :pep:`639` format.
+
 .. rubric:: Version 2.3.0
 
 - Add :meth:`.SensorWatcher.set_sensor_value`.
