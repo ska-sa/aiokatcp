@@ -64,15 +64,13 @@ class ConnectionLoggerAdapter(logging.LoggerAdapter):
 
 
 class _ConnectionOwner(Protocol[_C_contra]):
-    def handle_message(self, conn: _C_contra, msg: core.Message) -> None: ...  # pragma: nocover
+    def handle_message(self, conn: _C_contra, msg: core.Message) -> None: ...
 
-    def _connection_made(self, conn: _C_contra) -> None: ...  # pragma: nocover
+    def _connection_made(self, conn: _C_contra) -> None: ...
 
-    def _connection_lost(
-        self, conn: _C_contra, exc: Exception | None
-    ) -> None: ...  # pragma: nocover
+    def _connection_lost(self, conn: _C_contra, exc: Exception | None) -> None: ...
 
-    def _eof_received(self, conn: _C_contra) -> bool: ...  # pragma: nocover
+    def _eof_received(self, conn: _C_contra) -> bool: ...
 
 
 class Connection(asyncio.BufferedProtocol):
