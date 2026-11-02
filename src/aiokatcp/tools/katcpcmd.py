@@ -77,7 +77,7 @@ async def async_main() -> int:
 
     current_task = asyncio.current_task()
     assert current_task is not None
-    asyncio.get_event_loop().add_signal_handler(signal.SIGINT, current_task.cancel)
+    asyncio.get_running_loop().add_signal_handler(signal.SIGINT, current_task.cancel)
     try:
         async with async_timeout.timeout(args.connect_timeout):
             client = await CmdClient.connect(host, port, auto_reconnect=False)

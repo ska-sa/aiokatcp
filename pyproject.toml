@@ -9,7 +9,7 @@ authors = [
 ]
 description = "Asynchronous I/O implementation of the katcp protocol"
 readme = "README.rst"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = {text = "BSD-3-Clause"}
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -42,7 +42,7 @@ Changelog = "https://aiokatcp.readthedocs.io/en/latest/changelog.html"
 [project.scripts]
 katcpcmd = "aiokatcp.tools.katcpcmd:main"
 
-[project.optional-dependencies]
+[dependency-groups]
 test = [
     "async-solipsism>=0.8",
     "hypothesis",
@@ -50,24 +50,45 @@ test = [
     "pytest-asyncio>=0.23",
     "pytest-mock",
 ]
+ci = [
+    {include-group = "test"},
+    "pre-commit",
+    "pytest-cov",
+]
 doc = [
     "sphinx",
     "sphinx-rtd-theme",
+    "sphinxcontrib-tikz",
 ]
 
 [tool.setuptools_scm]
 version_file = "src/aiokatcp/_version.py"
 
-[tool.isort]
-profile = "black"
-line_length = 100
+[tool.pytest]
+markers = [
+    "server_cls: internal use",
+    "channel_cls: internal use",
+    "channel_args: internal use",
+]
+asyncio_mode = "auto"
 
-[tool.black]
+[tool.ruff]
 line-length = 100
+extend-exclude = ["doc/conf.py"]
+[tool.ruff.lint]
+select = [
+    "E", "W",  # pycodestyle
+    "F",  # pyflakes
+    "I",  # isort
+    "UP", # pyupgrade
+    "RUF100",  # Unnecessary noqa directives
+]
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.10"
 files = ["src/aiokatcp", "examples", "tests"]
+allow_redefinition = true
+warn_unused_ignores = true
 [[tool.mypy.overrides]]
 module = "async_solipsism.*"
 ignore_missing_imports = true

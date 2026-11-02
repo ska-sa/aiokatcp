@@ -30,6 +30,5 @@ The server will then do the following:
 The list of active service tasks can be retrieved from
 :attr:`.DeviceServer.service_tasks`.
 
-When using Python 3.8 or later, it is recommended to pass the `name`
-parameter to :func:`asyncio.create_task`. This will be used in a log message
-if the task raises an exception.
+It is recommended to pass the `name` parameter to :func:`asyncio.create_task`.
+This will be used in a log message if the task raises an exception.

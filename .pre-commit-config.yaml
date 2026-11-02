@@ -3,7 +3,7 @@ default_language_version:
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
+    rev: v6.0.0
     hooks:
       - id: check-merge-conflict
       - id: check-shebang-scripts-are-executable
@@ -12,20 +12,16 @@ repos:
       - id: mixed-line-ending
         args: [--fix=lf]
       - id: trailing-whitespace
-  - repo: https://github.com/pycqa/isort
-    rev: 5.11.5
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.3
     hooks:
-      - id: isort
-  - repo: https://github.com/psf/black
-    rev: 23.3.0
-    hooks:
-      - id: black
-  - repo: https://github.com/PyCQA/flake8
-    rev: 5.0.4
-    hooks:
-      - id: flake8
+      - id: ruff-check
+        # Allow certain issues to be fixed automatically:
+        # I001: unsorted/unformatted imports (ala isort)
+        args: [--fix, --fixable=I001]
+      - id: ruff-format
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: 'v1.14.1'
+    rev: 'v2.4.0'
     hooks:
       - id: mypy
         # Passing filenames to mypy can do odd things. See
@@ -37,23 +33,32 @@ repos:
         # pyproject.toml.
         args: []
         additional_dependencies: [
-          'async-timeout==4.0.3',
-          'hypothesis==6.113.0',
+          'async-timeout==5.0.1',
+          'hypothesis==6.168.5',
           'katcp-codec==0.2.2',
-          'pytest==8.1.1',
-          'types-decorator==5.1.1',
-          'typing-extensions==4.11.0',
+          'pytest==9.1.1',
+          'decorator==5.3.1',
+          'typing-extensions==4.16.0',
         ]
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.11.9
+    rev: 0.13.6
     hooks:
       - id: pip-compile
         args: [
           "--output-file=requirements.txt",
-          "--python-version=3.8",
+          "--python-version=3.10",
           "--universal",
-          "--extra=test",
+          "--group=ci",
           "pyproject.toml",
-          "requirements.in"
         ]
-        files: '^(pyproject\.toml|requirements\.(in|txt))$'
+        files: '^(pyproject\.toml|requirements\.txt)$'
+      - id: pip-compile
+        args: [
+          "--output-file=doc-requirements.txt",
+          "--python-version=3.12",
+          "--universal",
+          "--group=doc",
+          "--constraints=requirements.txt",
+          "pyproject.toml",
+        ]
+        files: '^(pyproject\.toml|requirements\.txt|doc-requirements\.txt)$'

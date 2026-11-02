@@ -22,7 +22,7 @@ Types
   (:class:`~aiokatcp.core.Address`) and the host part uses the
   :mod:`ipaddress` module.
 - :class:`~.TimestampOrNow` is not a real type. Instead, it is an alias for
-  ``Union[Timestamp, Now]``. The actual value received on decoding is either a
+  ``Timestamp | Now``. The actual value received on decoding is either a
   :class:`~.Timestamp` or is :const:`.Now.NOW`.
 
 Device server

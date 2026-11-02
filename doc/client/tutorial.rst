@@ -21,7 +21,7 @@ requests the help:
            for inform in informs:
                print(b' '.join(inform.arguments).decode('ascii'))
 
-   asyncio.get_event_loop().run_until_complete(run_client())
+   asyncio.run(run_client())
 
 Let's look at this one piece at a time. Firstly, we call
 :meth:`.Client.connect`, which blocks until a connection is established. Note

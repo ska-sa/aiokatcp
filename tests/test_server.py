@@ -30,9 +30,10 @@ import enum
 import ipaddress
 import logging
 import re
-from typing import AsyncGenerator, Awaitable, Callable, Iterable, List, Pattern, Tuple, Union
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
+from re import Pattern
+from typing import NoReturn, TypeAlias
 
-import async_solipsism
 import pytest
 
 import aiokatcp
@@ -41,12 +42,7 @@ from aiokatcp.core import Address
 from aiokatcp.sensor import Sensor, SensorSampler
 from aiokatcp.server import DeviceServer, RequestContext
 
-_StreamPair = Tuple[asyncio.StreamReader, asyncio.StreamWriter]
-
-
-@pytest.fixture
-def event_loop_policy():
-    return async_solipsism.EventLoopPolicy()
+_StreamPair: TypeAlias = tuple[asyncio.StreamReader, asyncio.StreamWriter]
 
 
 class Foo(enum.Enum):
@@ -58,7 +54,7 @@ class DummyServer(DeviceServer):
     VERSION = "dummy-1.0"
     BUILD_STATE = "dummy-build-1.0.0"
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs) -> None:
         super().__init__("::1", 7777, **kwargs)
         self.event = asyncio.Event()
         self.wait_reached = asyncio.Event()
@@ -92,7 +88,7 @@ class DummyServer(DeviceServer):
         """Increment a counter"""
         self._counter.value += 1
 
-    async def request_echo(self, ctx: RequestContext, *args: str) -> Tuple:
+    async def request_echo(self, ctx: RequestContext, *args: str) -> tuple:
         """Return the arguments to the caller"""
         return tuple(args)
 
@@ -220,7 +216,7 @@ def writer(reader_writer: _StreamPair) -> asyncio.StreamWriter:
     return reader_writer[1]
 
 
-async def check_reply(reader, lines: Iterable[Union[bytes, Pattern[bytes]]]) -> None:
+async def check_reply(reader, lines: Iterable[bytes | Pattern[bytes]]) -> None:
     for expected in lines:
         actual = await reader.readline()
         if isinstance(expected, bytes):
@@ -232,23 +228,24 @@ async def check_reply(reader, lines: Iterable[Union[bytes, Pattern[bytes]]]) -> 
 async def get_version_info(
     reader: asyncio.StreamReader, prefix: bytes = b"#version-connect"
 ) -> None:
+    version_info = (
+        f" katcp-library aiokatcp-{aiokatcp.minor_version()} aiokatcp-{aiokatcp.__version__}\n"
+    ).encode("ascii")
     await check_reply(
         reader,
         [
             prefix + b" katcp-protocol 5.1-MIB\n",
-            prefix
-            + " katcp-library aiokatcp-{} aiokatcp-{}\n".format(
-                aiokatcp.minor_version(), aiokatcp.__version__
-            ).encode("ascii"),
+            prefix + version_info,
             prefix + b" katcp-device dummy-1.0 dummy-build-1.0.0\n",
         ],
     )
 
 
 @pytest.fixture
-def mock_time(mocker, event_loop) -> None:
-    mocker.patch("time.time", lambda: event_loop.time() + 123456789.0)
-    mocker.patch("time.time_ns", lambda: event_loop.time() * 1e9 + 123456789e9)
+async def mock_time(mocker) -> None:
+    loop = asyncio.get_running_loop()
+    mocker.patch("time.time", lambda: loop.time() + 123456789.0)
+    mocker.patch("time.time_ns", lambda: loop.time() * 1e9 + 123456789e9)
 
 
 async def test_start_twice(server: DummyServer) -> None:
@@ -291,7 +288,7 @@ async def test_help(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) 
             "version-list",
         ]
     )
-    expected: List[Union[bytes, Pattern[bytes]]] = [
+    expected: list[bytes | Pattern[bytes]] = [
         re.compile(rb"^#help\[1\] " + cmd.encode("ascii") + b" [^ ]+$\n") for cmd in commands
     ]
     expected.append(b"!help[1] ok %d\n" % (len(commands),))
@@ -657,7 +654,7 @@ async def test_on_stop_raises() -> None:
 async def test_service_task(server: DummyServer) -> None:
     intervals = 0
 
-    async def service_task():
+    async def service_task() -> None:
         nonlocal intervals
         while True:
             await asyncio.sleep(1)
@@ -672,7 +669,7 @@ async def test_service_task(server: DummyServer) -> None:
 
 
 async def test_service_task_exception() -> None:
-    async def service_task():
+    async def service_task() -> NoReturn:
         raise RuntimeError("boom")
 
     server = DummyServer()
@@ -684,7 +681,7 @@ async def test_service_task_exception() -> None:
 
 
 async def test_service_task_early_exit(server: DummyServer) -> None:
-    async def service_task():
+    async def service_task() -> None:
         await asyncio.sleep(1)
 
     task = asyncio.create_task(service_task())
@@ -1019,7 +1016,7 @@ async def test_sensor_sampling_none(
 async def test_sensor_sampling_query(
     mock_time, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
 ) -> None:
-    writer.write(b"?sensor-sampling float-sensor event\n" b"?sensor-sampling float-sensor\n")
+    writer.write(b"?sensor-sampling float-sensor event\n?sensor-sampling float-sensor\n")
     await check_reply(
         reader,
         [
@@ -1219,7 +1216,7 @@ def test_metaclass_missing_help() -> None:
     with pytest.raises(TypeError):
 
         class MyBadServer(DummyServer):
-            def request_no_help(self):
+            def request_no_help(self) -> None:
                 pass
 
 
@@ -1227,7 +1224,7 @@ def test_metaclass_too_few_parameters() -> None:
     with pytest.raises(TypeError):
 
         class MyBadServer(DummyServer):
-            def request_too_few(self):
+            def request_too_few(self) -> None:
                 """Not enough parameters"""
 
 

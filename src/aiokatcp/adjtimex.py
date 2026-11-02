@@ -29,7 +29,6 @@
 
 import ctypes
 import os
-from typing import Tuple
 
 TIME_OK = 0
 TIME_INS = 1
@@ -141,7 +140,7 @@ else:
     adjtimex = _real_adjtimex
 
 
-def get_adjtimex() -> Tuple[int, Timex]:
+def get_adjtimex() -> tuple[int, Timex]:
     """Read-only adjtimex call.
 
     Returns

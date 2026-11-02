@@ -37,8 +37,7 @@ server looks like this:
         await server.join()
 
     if __name__ == '__main__':
-        asyncio.get_event_loop().run_until_complete(main())
-        asyncio.get_event_loop().close()
+        asyncio.run(main())
 
 That is sufficient to run a server that will listen on port 4444, and answer
 standard requests like ``?help``. But of course, you will want to extend the
@@ -324,7 +323,7 @@ The latter is useful as a callback for a signal handler, e.g.
 
 .. code:: python
 
-   asyncio.get_event_loop().add_signal_handler(signal.SIGINT, server.halt)
+   asyncio.get_running_loop().add_signal_handler(signal.SIGINT, server.halt)
 
 The ``?halt`` request is implemented in terms of :meth:`~.DeviceServer.halt`
 and hence :meth:`~.DeviceServer.stop`.
