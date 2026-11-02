@@ -323,7 +323,7 @@ The latter is useful as a callback for a signal handler, e.g.
 
 .. code:: python
 
-   asyncio.get_event_loop().add_signal_handler(signal.SIGINT, server.halt)
+   asyncio.get_running_loop().add_signal_handler(signal.SIGINT, server.halt)
 
 The ``?halt`` request is implemented in terms of :meth:`~.DeviceServer.halt`
 and hence :meth:`~.DeviceServer.stop`.

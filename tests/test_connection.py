@@ -123,7 +123,7 @@ async def _ok_reply(conn, msg) -> None:
 
 
 def _ok_handler(conn, msg) -> None:
-    asyncio.get_event_loop().create_task(_ok_reply(conn, msg))
+    asyncio.get_running_loop().create_task(_ok_reply(conn, msg))
 
 
 async def test_write_message(server_connection, client_reader) -> None:

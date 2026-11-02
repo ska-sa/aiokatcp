@@ -132,7 +132,7 @@ async def main() -> None:
     handler = Server.LogHandler(server)
     logging.getLogger().addHandler(handler)
     await server.start()
-    asyncio.get_event_loop().add_signal_handler(signal.SIGINT, server.halt)
+    asyncio.get_running_loop().add_signal_handler(signal.SIGINT, server.halt)
     await server.join()
 
 

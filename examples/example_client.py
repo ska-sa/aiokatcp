@@ -38,7 +38,7 @@ async def main() -> None:
     logging.basicConfig(level=logging.INFO)
     task = asyncio.current_task()
     assert task is not None
-    asyncio.get_event_loop().add_signal_handler(signal.SIGINT, task.cancel)
+    asyncio.get_running_loop().add_signal_handler(signal.SIGINT, task.cancel)
     client = await aiokatcp.Client.connect("localhost", 4444)
     async with client:
         while True:

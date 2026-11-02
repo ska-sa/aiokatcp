@@ -75,7 +75,7 @@ async def main(args: argparse.Namespace) -> None:
     watcher = MirrorWatcher(client, server)
     client.add_sensor_watcher(watcher)
 
-    asyncio.get_event_loop().add_signal_handler(signal.SIGINT, server.halt)
+    asyncio.get_running_loop().add_signal_handler(signal.SIGINT, server.halt)
     await server.join()
     client.close()
     await client.wait_closed()
