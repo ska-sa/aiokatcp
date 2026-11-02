@@ -23,7 +23,7 @@ Changelog
   - Replace isort, black and flake8 with ruff.
   - Add a ``ci`` dependency group to replace :file:`requirements.in`.
   - Update packages and OSes used in CI to newer versions.
-  - Update tests with work with event loop factories in
+  - Update tests to work with event loop factories in
     :mod:`!pytest-asyncio`.
   - Use more modern typing syntax (:pep:`585`, :pep:`604`, :pep:`613`,
     :pep:`673` and probably more).
