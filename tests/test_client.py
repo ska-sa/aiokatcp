@@ -70,7 +70,7 @@ from aiokatcp import (
 )
 from aiokatcp.client import _ClientState, _MonitoredSensor
 
-_ClientQueue: TypeAlias = "asyncio.Queue[tuple[asyncio.StreamReader, asyncio.StreamWriter]]"
+_ClientQueue: TypeAlias = asyncio.Queue[tuple[asyncio.StreamReader, asyncio.StreamWriter]]
 _P = ParamSpec("_P")
 _T = TypeVar("_T")
 _ASM = TypeVar("_ASM", bound="AsyncStateMachine")
